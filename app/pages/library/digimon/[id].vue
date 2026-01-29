@@ -1093,6 +1093,7 @@ async function handleSubmit() {
           :stage="form.stage"
           :max-attacks="currentStageConfig.attacks"
           :current-attacks="form.attacks"
+          :current-qualities="form.qualities"
           @add="handleAddAttack"
           @remove="removeAttack"
         />

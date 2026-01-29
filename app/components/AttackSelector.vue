@@ -13,10 +13,17 @@ interface Attack {
   description: string
 }
 
+interface Quality {
+  id: string
+  name: string
+  ranks?: number
+}
+
 interface Props {
   stage: DigimonStage
   maxAttacks: number
   currentAttacks: Attack[]
+  currentQualities?: Quality[]
 }
 
 const props = defineProps<Props>()
@@ -28,6 +35,113 @@ const emit = defineEmits<{
 const showSelector = ref(false)
 const searchQuery = ref('')
 const filterStage = ref<'all' | DigimonStage>('all')
+
+// Map tag prefixes to quality IDs
+const TAG_TO_QUALITY: Record<string, string> = {
+  'Weapon': 'weapon',
+  'Armor Piercing': 'armor-piercing',
+  'Certain Strike': 'certain-strike',
+  'Charge Attack': 'charge-attack',
+  'Mighty Blow': 'mighty-blow',
+  'Signature Move': 'signature-move',
+  'Ammo': 'ammo',
+  'Area Attack': 'area-attack',
+}
+
+// Get tags already used by existing attacks
+const usedTags = computed(() => {
+  const used = new Set<string>()
+  for (const attack of props.currentAttacks) {
+    for (const tag of attack.tags) {
+      // Normalize to quality ID
+      const normalized = tag.toLowerCase().replace(/\s+\d+$/, '').replace(/\s+/g, '-').replace(/:/g, '').split('-')[0]
+      // Find matching quality
+      for (const [prefix, qualityId] of Object.entries(TAG_TO_QUALITY)) {
+        if (tag.startsWith(prefix)) {
+          used.add(qualityId)
+          break
+        }
+      }
+    }
+  }
+  return used
+})
+
+// Get effects already used by existing attacks
+const usedEffects = computed(() => {
+  const used = new Set<string>()
+  for (const attack of props.currentAttacks) {
+    if (attack.effect) {
+      used.add(attack.effect.toLowerCase())
+    }
+  }
+  return used
+})
+
+// Check if a tag's required quality is owned
+function hasQualityForTag(tag: string): { has: boolean; qualityId: string | null; requiredRanks?: number } {
+  for (const [prefix, qualityId] of Object.entries(TAG_TO_QUALITY)) {
+    if (tag.startsWith(prefix)) {
+      // Extract rank if present (e.g., "Weapon III" -> 3)
+      const rankMatch = tag.match(/\s+([IVX]+|\d+)$/)
+      let requiredRanks = 1
+      if (rankMatch) {
+        const rankStr = rankMatch[1]
+        // Convert Roman numerals
+        const romanMap: Record<string, number> = { 'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5, 'VI': 6, 'VII': 7, 'VIII': 8, 'IX': 9, 'X': 10, 'XI': 11, 'XII': 12 }
+        requiredRanks = romanMap[rankStr] || parseInt(rankStr) || 1
+      }
+
+      const quality = props.currentQualities?.find(q => q.id === qualityId)
+      if (quality) {
+        const hasEnoughRanks = !requiredRanks || (quality.ranks || 1) >= requiredRanks
+        return { has: hasEnoughRanks, qualityId, requiredRanks: hasEnoughRanks ? undefined : requiredRanks }
+      }
+      return { has: false, qualityId, requiredRanks }
+    }
+  }
+  // No quality required for this tag
+  return { has: true, qualityId: null }
+}
+
+// Check if effect's required quality is owned
+function hasQualityForEffect(effect: string): boolean {
+  const effectQualityId = `effect-${effect.toLowerCase().replace(/\s+\d+$/, '').replace(/\s+/g, '-')}`
+  return props.currentQualities?.some(q => q.id === effectQualityId) ?? false
+}
+
+// Check attack requirements and return status
+function getAttackStatus(attack: AttackTemplate): { canSelect: boolean; reasons: string[] } {
+  const reasons: string[] = []
+
+  // Check each tag
+  for (const tag of attack.tags) {
+    const { has, qualityId, requiredRanks } = hasQualityForTag(tag)
+    if (!has && qualityId) {
+      if (requiredRanks) {
+        reasons.push(`Needs ${tag} quality (rank ${requiredRanks})`)
+      } else {
+        reasons.push(`Needs ${qualityId.replace(/-/g, ' ')} quality`)
+      }
+    }
+    // Check if quality already used on another attack
+    if (qualityId && usedTags.value.has(qualityId)) {
+      reasons.push(`${qualityId.replace(/-/g, ' ')} already used on another attack`)
+    }
+  }
+
+  // Check effect
+  if (attack.effect) {
+    if (!hasQualityForEffect(attack.effect)) {
+      reasons.push(`Needs ${attack.effect} effect quality`)
+    }
+    if (usedEffects.value.has(attack.effect.toLowerCase())) {
+      reasons.push(`${attack.effect} effect already used on another attack`)
+    }
+  }
+
+  return { canSelect: reasons.length === 0, reasons }
+}
 
 const availableAttacks = computed(() => {
   let attacks: AttackTemplate[]
@@ -50,10 +164,18 @@ const availableAttacks = computed(() => {
 
   // Exclude already added attacks
   const currentIds = props.currentAttacks.map((a) => a.id)
-  return attacks.filter((a) => !currentIds.includes(a.id))
+  attacks = attacks.filter((a) => !currentIds.includes(a.id))
+
+  // Add status to each attack
+  return attacks.map(attack => ({
+    ...attack,
+    ...getAttackStatus(attack)
+  }))
 })
 
-function selectAttack(template: AttackTemplate) {
+function selectAttack(template: AttackTemplate & { canSelect: boolean }) {
+  if (!template.canSelect) return
+
   const attack: Attack = {
     id: template.id,
     name: template.name,
@@ -181,12 +303,19 @@ function getTypeColor(type: 'damage' | 'support') {
             v-for="attack in availableAttacks"
             :key="attack.id"
             type="button"
-            class="w-full text-left bg-digimon-dark-700 hover:bg-digimon-dark-600 rounded-lg p-3
-                   transition-colors"
+            :disabled="!attack.canSelect"
+            :class="[
+              'w-full text-left rounded-lg p-3 transition-colors relative group',
+              attack.canSelect
+                ? 'bg-digimon-dark-700 hover:bg-digimon-dark-600'
+                : 'bg-digimon-dark-800 opacity-60 cursor-not-allowed'
+            ]"
             @click="selectAttack(attack)"
           >
             <div class="flex items-center gap-2 flex-wrap">
-              <span class="font-semibold text-white">{{ attack.name }}</span>
+              <span :class="['font-semibold', attack.canSelect ? 'text-white' : 'text-digimon-dark-400']">
+                {{ attack.name }}
+              </span>
               <span :class="['text-xs px-2 py-0.5 rounded', getRangeColor(attack.range)]">
                 [{{ attack.range === 'melee' ? 'Melee' : 'Ranged' }}]
               </span>
@@ -199,17 +328,31 @@ function getTypeColor(type: 'damage' | 'support') {
               <span
                 v-for="tag in attack.tags"
                 :key="tag"
-                class="text-xs bg-digimon-dark-600 text-digimon-dark-300 px-1 py-0.5 rounded"
+                :class="[
+                  'text-xs px-1 py-0.5 rounded',
+                  attack.canSelect ? 'bg-digimon-dark-600 text-digimon-dark-300' : 'bg-red-900/20 text-red-400'
+                ]"
               >
                 {{ tag }}
               </span>
             </div>
             <div v-if="attack.effect" class="mt-1">
-              <span class="text-xs bg-purple-900/30 text-purple-400 px-1 py-0.5 rounded">
+              <span :class="[
+                'text-xs px-1 py-0.5 rounded',
+                attack.canSelect ? 'bg-purple-900/30 text-purple-400' : 'bg-red-900/20 text-red-400'
+              ]">
                 {{ attack.effect }}
               </span>
             </div>
             <p class="text-xs text-digimon-dark-400 mt-1 line-clamp-2 italic">{{ attack.description }}</p>
+
+            <!-- Requirements tooltip -->
+            <div
+              v-if="!attack.canSelect && attack.reasons.length > 0"
+              class="mt-2 text-xs text-red-400 bg-red-900/20 rounded p-2"
+            >
+              <div v-for="reason in attack.reasons" :key="reason">• {{ reason }}</div>
+            </div>
           </button>
 
           <div v-if="availableAttacks.length === 0" class="text-center py-4 text-digimon-dark-400">
