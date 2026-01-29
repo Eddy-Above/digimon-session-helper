@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { Digimon } from '../../../server/db/schema'
-import { STAGE_CONFIG, SIZE_CONFIG, type DigimonStage, type DigimonSize } from '../../../types'
+import { STAGE_CONFIG, SIZE_CONFIG, type DigimonStage, type DigimonSize, type DigimonFamily } from '../../../types'
 
 definePageMeta({
   title: 'Edit Digimon',
@@ -19,7 +19,7 @@ const form = reactive({
   species: '',
   stage: 'rookie' as DigimonStage,
   attribute: 'data' as 'vaccine' | 'data' | 'virus' | 'free',
-  family: '',
+  family: 'nature-spirits' as DigimonFamily,
   type: '',
   size: 'medium' as DigimonSize,
   baseStats: {
@@ -41,6 +41,32 @@ const form = reactive({
 const stages: DigimonStage[] = ['fresh', 'in-training', 'rookie', 'champion', 'ultimate', 'mega']
 const sizes: DigimonSize[] = ['tiny', 'small', 'medium', 'large', 'huge', 'gigantic']
 const attributes = ['vaccine', 'data', 'virus', 'free'] as const
+const families: DigimonFamily[] = [
+  'dark-empire',
+  'deep-savers',
+  'dragons-roar',
+  'jungle-troopers',
+  'metal-empire',
+  'nature-spirits',
+  'nightmare-soldiers',
+  'unknown',
+  'virus-busters',
+  'wind-guardians',
+]
+
+// Family display names for dropdown
+const familyLabels: Record<DigimonFamily, string> = {
+  'dark-empire': 'Dark Empire',
+  'deep-savers': 'Deep Savers',
+  'dragons-roar': "Dragon's Roar",
+  'jungle-troopers': 'Jungle Troopers',
+  'metal-empire': 'Metal Empire',
+  'nature-spirits': 'Nature Spirits',
+  'nightmare-soldiers': 'Nightmare Soldiers',
+  'unknown': 'Unknown',
+  'virus-busters': 'Virus Busters',
+  'wind-guardians': 'Wind Guardians',
+}
 
 const currentStageConfig = computed(() => STAGE_CONFIG[form.stage])
 const currentSizeConfig = computed(() => SIZE_CONFIG[form.size])
@@ -570,7 +596,7 @@ onMounted(async () => {
     form.species = fetched.species
     form.stage = fetched.stage as DigimonStage
     form.attribute = fetched.attribute
-    form.family = fetched.family
+    form.family = (fetched.family as DigimonFamily) || 'nature-spirits'
     form.type = fetched.type
     form.size = (fetched.size as DigimonSize) || 'medium'
     Object.assign(form.baseStats, fetched.baseStats)
@@ -701,12 +727,15 @@ async function handleSubmit() {
           </div>
           <div>
             <label class="block text-sm text-digimon-dark-400 mb-1">Family</label>
-            <input
+            <select
               v-model="form.family"
-              type="text"
               class="w-full bg-digimon-dark-700 border border-digimon-dark-600 rounded-lg px-3 py-2
                      text-white focus:border-digimon-orange-500 focus:outline-none"
-            />
+            >
+              <option v-for="fam in families" :key="fam" :value="fam">
+                {{ familyLabels[fam] }}
+              </option>
+            </select>
           </div>
           <div>
             <label class="block text-sm text-digimon-dark-400 mb-1">Type</label>
