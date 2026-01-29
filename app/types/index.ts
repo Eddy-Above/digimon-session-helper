@@ -34,6 +34,26 @@ export type AttackType = 'damage' | 'support'
 export type AttackArea = 'single' | 'blast' | 'burst' | 'line' | 'cone'
 
 export type Stance = 'neutral' | 'defensive' | 'offensive' | 'sniper' | 'brave'
+
+export type DigimonSize = 'tiny' | 'small' | 'medium' | 'large' | 'huge' | 'gigantic'
+
+// Size bonuses (page 110)
+export interface SizeConfig {
+  size: DigimonSize
+  bodyBonus: number
+  agilityBonus: number
+  squares: string
+  extra: string
+}
+
+export const SIZE_CONFIG: Record<DigimonSize, SizeConfig> = {
+  'tiny': { size: 'tiny', bodyBonus: -2, agilityBonus: 2, squares: '1x1', extra: 'May occupy squares another Digimon or Tamer stands in' },
+  'small': { size: 'small', bodyBonus: -1, agilityBonus: 1, squares: '1x1', extra: 'May move through squares other Digimon or Tamers stand in' },
+  'medium': { size: 'medium', bodyBonus: 0, agilityBonus: 0, squares: '1x1', extra: '' },
+  'large': { size: 'large', bodyBonus: 1, agilityBonus: -1, squares: '2x2', extra: '' },
+  'huge': { size: 'huge', bodyBonus: 2, agilityBonus: -1, squares: '3x3', extra: '' },
+  'gigantic': { size: 'gigantic', bodyBonus: 3, agilityBonus: -2, squares: '4x4+', extra: '' },
+}
 export type ActionType = 'simple' | 'complex'
 
 export type TormentSeverity = 'minor' | 'major' | 'terrible'
@@ -47,19 +67,19 @@ export interface StageConfig {
   dp: number
   movement: number
   woundBonus: number
-  brains: number
+  brainsBonus: number  // Added to (Accuracy/2) to calculate Brains derived stat
   attacks: number
-  stageBonus: number
+  stageBonus: number   // Added to Spec Values (BIT, CPU, RAM)
 }
 
 export const STAGE_CONFIG: Record<DigimonStage, StageConfig> = {
-  'fresh': { stage: 'fresh', dp: 5, movement: 2, woundBonus: 0, brains: 0, attacks: 1, stageBonus: 0 },
-  'in-training': { stage: 'in-training', dp: 15, movement: 4, woundBonus: 1, brains: 1, attacks: 2, stageBonus: 0 },
-  'rookie': { stage: 'rookie', dp: 25, movement: 6, woundBonus: 2, brains: 3, attacks: 2, stageBonus: 1 },
-  'champion': { stage: 'champion', dp: 40, movement: 8, woundBonus: 5, brains: 5, attacks: 3, stageBonus: 2 },
-  'ultimate': { stage: 'ultimate', dp: 55, movement: 10, woundBonus: 7, brains: 7, attacks: 4, stageBonus: 3 },
-  'mega': { stage: 'mega', dp: 70, movement: 12, woundBonus: 10, brains: 10, attacks: 5, stageBonus: 4 },
-  'ultra': { stage: 'ultra', dp: 85, movement: 14, woundBonus: 12, brains: 12, attacks: 6, stageBonus: 5 },
+  'fresh': { stage: 'fresh', dp: 5, movement: 2, woundBonus: 0, brainsBonus: 0, attacks: 1, stageBonus: 0 },
+  'in-training': { stage: 'in-training', dp: 15, movement: 4, woundBonus: 1, brainsBonus: 1, attacks: 2, stageBonus: 0 },
+  'rookie': { stage: 'rookie', dp: 25, movement: 6, woundBonus: 2, brainsBonus: 3, attacks: 2, stageBonus: 1 },
+  'champion': { stage: 'champion', dp: 40, movement: 8, woundBonus: 5, brainsBonus: 5, attacks: 3, stageBonus: 2 },
+  'ultimate': { stage: 'ultimate', dp: 55, movement: 10, woundBonus: 7, brainsBonus: 7, attacks: 4, stageBonus: 3 },
+  'mega': { stage: 'mega', dp: 70, movement: 12, woundBonus: 10, brainsBonus: 10, attacks: 5, stageBonus: 4 },
+  'ultra': { stage: 'ultra', dp: 85, movement: 14, woundBonus: 12, brainsBonus: 12, attacks: 6, stageBonus: 5 },
 }
 
 // === Tamer Types ===
@@ -197,6 +217,7 @@ export interface Digimon {
   attribute: DigimonAttribute
   family: DigimonFamily
   type: string            // e.g., "Dinosaur", "Dragon"
+  size: DigimonSize       // Affects Body and Agility derived stats
   baseStats: DigimonBaseStats
   derivedStats: DigimonDerivedStats
   attacks: Attack[]
@@ -312,29 +333,31 @@ export function calculateTamerDerivedStats(
 export function calculateDigimonDerivedStats(
   baseStats: DigimonBaseStats,
   stage: DigimonStage,
-  sizeBonus: number = 0
+  size: DigimonSize = 'medium'
 ): DigimonDerivedStats {
-  const config = STAGE_CONFIG[stage]
+  const stageConfig = STAGE_CONFIG[stage]
+  const sizeConfig = SIZE_CONFIG[size]
 
   // Primary Derived Stats (page 111) - always round down
-  const brains = Math.floor(baseStats.accuracy / 2) + config.brains
-  const body = Math.floor((baseStats.health + baseStats.damage + baseStats.armor) / 3) + sizeBonus
-  const agility = Math.floor((baseStats.accuracy + baseStats.dodge) / 2) + sizeBonus
+  // Size affects Body and Agility differently (page 110)
+  const brains = Math.floor(baseStats.accuracy / 2) + stageConfig.brainsBonus
+  const body = Math.max(0, Math.floor((baseStats.health + baseStats.damage + baseStats.armor) / 3) + sizeConfig.bodyBonus)
+  const agility = Math.max(0, Math.floor((baseStats.accuracy + baseStats.dodge) / 2) + sizeConfig.agilityBonus)
 
   // Spec Values (page 111) - derived from derived stats
-  const bit = Math.floor(brains / 10) + config.stageBonus
-  const cpu = Math.floor(body / 10) + config.stageBonus
-  const ram = Math.floor(agility / 10) + config.stageBonus
+  const bit = Math.floor(brains / 10) + stageConfig.stageBonus
+  const cpu = Math.floor(body / 10) + stageConfig.stageBonus
+  const ram = Math.floor(agility / 10) + stageConfig.stageBonus
 
   return {
     brains,
     body,
     agility,
-    woundBoxes: baseStats.health + config.woundBonus,
+    woundBoxes: baseStats.health + stageConfig.woundBonus,
     bit,
     cpu,
     ram,
-    movement: config.movement,
+    movement: stageConfig.movement,
   }
 }
 

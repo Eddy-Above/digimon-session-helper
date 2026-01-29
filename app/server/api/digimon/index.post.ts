@@ -3,6 +3,7 @@ import { generateId } from '../../utils/id'
 import {
   type DigimonStage,
   type DigimonAttribute,
+  type DigimonSize,
   STAGE_CONFIG,
 } from '../../../types'
 
@@ -13,6 +14,7 @@ interface CreateDigimonBody {
   attribute: DigimonAttribute
   family: string
   type: string
+  size?: DigimonSize
   baseStats: {
     accuracy: number
     damage: number
@@ -78,6 +80,7 @@ export default defineEventHandler(async (event) => {
     attribute: body.attribute,
     family: body.family,
     type: body.type,
+    size: body.size || 'medium',
     baseStats: body.baseStats,
     attacks: body.attacks || [],
     qualities: body.qualities || [],

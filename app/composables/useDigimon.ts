@@ -1,5 +1,5 @@
 import type { Digimon } from '../server/db/schema'
-import { STAGE_CONFIG, type DigimonStage } from '../types'
+import { STAGE_CONFIG, SIZE_CONFIG, type DigimonStage, type DigimonSize } from '../types'
 
 export interface CreateDigimonData {
   name: string
@@ -8,6 +8,7 @@ export interface CreateDigimonData {
   attribute: 'vaccine' | 'data' | 'virus' | 'free'
   family: string
   type: string
+  size?: DigimonSize
   baseStats: {
     accuracy: number
     damage: number
@@ -115,23 +116,33 @@ export function useDigimon() {
     }
   }
 
-  // Calculate derived stats from base stats and stage
+  // Calculate derived stats from base stats, stage, and size (DDA 1.4 page 111)
   function calculateDerivedStats(digimon: Digimon) {
-    const { baseStats, stage } = digimon
-    const config = STAGE_CONFIG[stage as DigimonStage]
+    const { baseStats, stage, size } = digimon
+    const stageConfig = STAGE_CONFIG[stage as DigimonStage]
+    const sizeConfig = SIZE_CONFIG[size as DigimonSize] || SIZE_CONFIG['medium']
 
-    const agility = baseStats.accuracy + baseStats.dodge
-    const body = Math.floor((baseStats.damage + baseStats.armor + baseStats.health) / 3)
+    // Primary Derived Stats (always round down)
+    // Size affects Body and Agility differently (page 110)
+    const brains = Math.floor(baseStats.accuracy / 2) + stageConfig.brainsBonus
+    const body = Math.max(0, Math.floor((baseStats.health + baseStats.damage + baseStats.armor) / 3) + sizeConfig.bodyBonus)
+    const agility = Math.max(0, Math.floor((baseStats.accuracy + baseStats.dodge) / 2) + sizeConfig.agilityBonus)
+
+    // Spec Values (derived from derived stats)
+    const bit = Math.floor(brains / 10) + stageConfig.stageBonus
+    const cpu = Math.floor(body / 10) + stageConfig.stageBonus
+    const ram = Math.floor(agility / 10) + stageConfig.stageBonus
 
     return {
-      agility,
+      brains,
       body,
-      woundBoxes: baseStats.health + config.woundBonus,
-      ram: Math.floor(agility / 2),
-      cpu: Math.floor(body / 2),
-      bit: config.brains,
-      movement: config.movement,
-      stageBonus: config.stageBonus,
+      agility,
+      woundBoxes: baseStats.health + stageConfig.woundBonus,
+      bit,
+      cpu,
+      ram,
+      movement: stageConfig.movement,
+      stageBonus: stageConfig.stageBonus,
     }
   }
 

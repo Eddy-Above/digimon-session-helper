@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { Digimon } from '../../../server/db/schema'
-import { STAGE_CONFIG, type DigimonStage } from '../../../types'
+import { STAGE_CONFIG, SIZE_CONFIG, type DigimonStage, type DigimonSize } from '../../../types'
 
 definePageMeta({
   title: 'Edit Digimon',
@@ -21,6 +21,7 @@ const form = reactive({
   attribute: 'data' as 'vaccine' | 'data' | 'virus' | 'free',
   family: '',
   type: '',
+  size: 'medium' as DigimonSize,
   baseStats: {
     accuracy: 3,
     damage: 3,
@@ -38,9 +39,11 @@ const form = reactive({
 })
 
 const stages: DigimonStage[] = ['fresh', 'in-training', 'rookie', 'champion', 'ultimate', 'mega']
+const sizes: DigimonSize[] = ['tiny', 'small', 'medium', 'large', 'huge', 'gigantic']
 const attributes = ['vaccine', 'data', 'virus', 'free'] as const
 
 const currentStageConfig = computed(() => STAGE_CONFIG[form.stage])
+const currentSizeConfig = computed(() => SIZE_CONFIG[form.size])
 
 // DP calculation - DDA 1.4 rules:
 // Stats cost 1 DP per point
@@ -64,18 +67,19 @@ const dpRemaining = computed(() => {
 // Derived Stats calculation - DDA 1.4 rules (page 111)
 const derivedStats = computed(() => {
   const { accuracy, damage, dodge, armor, health } = form.baseStats
-  const config = currentStageConfig.value
-  const sizeBonus = 0 // TODO: Add size selection for size bonus
+  const stageConfig = currentStageConfig.value
+  const sizeConfig = currentSizeConfig.value
 
   // Primary Derived Stats (always round down)
-  const brains = Math.floor(accuracy / 2) + config.brains
-  const body = Math.floor((health + damage + armor) / 3) + sizeBonus
-  const agility = Math.floor((accuracy + dodge) / 2) + sizeBonus
+  // Size affects Body and Agility differently (page 110)
+  const brains = Math.floor(accuracy / 2) + stageConfig.brainsBonus
+  const body = Math.max(0, Math.floor((health + damage + armor) / 3) + sizeConfig.bodyBonus)
+  const agility = Math.max(0, Math.floor((accuracy + dodge) / 2) + sizeConfig.agilityBonus)
 
   // Spec Values (derived from derived stats)
-  const bit = Math.floor(brains / 10) + config.stageBonus
-  const cpu = Math.floor(body / 10) + config.stageBonus
-  const ram = Math.floor(agility / 10) + config.stageBonus
+  const bit = Math.floor(brains / 10) + stageConfig.stageBonus
+  const cpu = Math.floor(body / 10) + stageConfig.stageBonus
+  const ram = Math.floor(agility / 10) + stageConfig.stageBonus
 
   return {
     // Primary derived stats
@@ -83,13 +87,13 @@ const derivedStats = computed(() => {
     body,
     agility,
     // Spec Values (BIT, CPU, RAM)
-    bit, // Charisma/Intelligence/Willpower checks, effect duration
-    cpu, // Body checks, power/clash
-    ram, // Agility checks, range/area/movement
+    bit,
+    cpu,
+    ram,
     // Combat stats
-    woundBoxes: health + config.woundBonus,
-    movement: config.movement,
-    stageBonus: config.stageBonus,
+    woundBoxes: health + stageConfig.woundBonus,
+    movement: stageConfig.movement,
+    stageBonus: stageConfig.stageBonus,
     // Attack/Defense pools (raw stats)
     accuracyPool: accuracy,
     damagePool: damage,
@@ -109,6 +113,55 @@ const newAttack = reactive({
   tags: [] as string[],
   effect: '' as string | undefined,
   description: '',
+})
+
+// Effect alignment: P = Support only, N = Damage only, NA = Both
+const EFFECT_ALIGNMENT: Record<string, 'P' | 'N' | 'NA'> = {
+  'Vigor': 'P', 'Fury': 'P', 'Cleanse': 'P', 'Haste': 'P', 'Revitalize': 'P', 'Shield': 'P',
+  'Poison': 'N', 'Confuse': 'N', 'Stun': 'N', 'Fear': 'N', 'Immobilize': 'N', 'Taunt': 'N',
+  'Lifesteal': 'NA', 'Knockback': 'NA', 'Pull': 'NA',
+}
+
+// Tag restrictions: which range/type they require
+const TAG_RESTRICTIONS: Record<string, { range?: 'melee' | 'ranged'; type?: 'damage' | 'support' }> = {
+  'Charge Attack': { range: 'melee' },
+  'Mighty Blow': { range: 'melee' },
+  'Area Attack: Pass': { range: 'melee' },
+  'Area Attack: Blast': { range: 'ranged' },
+}
+
+// Watch for attack type changes - clear invalid effects
+watch(() => newAttack.type, (newType) => {
+  if (newAttack.effect) {
+    const alignment = EFFECT_ALIGNMENT[newAttack.effect]
+    if (alignment === 'P' && newType !== 'support') {
+      newAttack.effect = ''
+    } else if (alignment === 'N' && newType !== 'damage') {
+      newAttack.effect = ''
+    }
+  }
+})
+
+// Watch for attack range changes - clear invalid tags
+watch(() => newAttack.range, (newRange) => {
+  newAttack.tags = newAttack.tags.filter((tag) => {
+    const restriction = TAG_RESTRICTIONS[tag]
+    if (restriction?.range && restriction.range !== newRange) {
+      return false
+    }
+    return true
+  })
+})
+
+// Watch for attack type changes - clear invalid tags
+watch(() => newAttack.type, (newType) => {
+  newAttack.tags = newAttack.tags.filter((tag) => {
+    const restriction = TAG_RESTRICTIONS[tag]
+    if (restriction?.type && restriction.type !== newType) {
+      return false
+    }
+    return true
+  })
 })
 
 type Attack = Digimon['attacks'][0]
@@ -418,6 +471,7 @@ onMounted(async () => {
     form.attribute = fetched.attribute
     form.family = fetched.family
     form.type = fetched.type
+    form.size = (fetched.size as DigimonSize) || 'medium'
     Object.assign(form.baseStats, fetched.baseStats)
     form.attacks = [...(fetched.attacks || [])]
     form.qualities = [...(fetched.qualities || [])]
@@ -439,6 +493,7 @@ async function handleSubmit() {
     attribute: form.attribute,
     family: form.family,
     type: form.type,
+    size: form.size,
     baseStats: { ...form.baseStats },
     attacks: [...form.attacks],
     qualities: [...form.qualities],
@@ -528,6 +583,22 @@ async function handleSubmit() {
             </select>
           </div>
           <div>
+            <label class="block text-sm text-digimon-dark-400 mb-1">Size</label>
+            <select
+              v-model="form.size"
+              class="w-full bg-digimon-dark-700 border border-digimon-dark-600 rounded-lg px-3 py-2
+                     text-white focus:border-digimon-orange-500 focus:outline-none capitalize"
+            >
+              <option v-for="size in sizes" :key="size" :value="size" class="capitalize">
+                {{ size }}
+              </option>
+            </select>
+            <div v-if="currentSizeConfig.bodyBonus !== 0 || currentSizeConfig.agilityBonus !== 0" class="text-xs text-digimon-dark-500 mt-1">
+              Body {{ currentSizeConfig.bodyBonus >= 0 ? '+' : '' }}{{ currentSizeConfig.bodyBonus }},
+              Agility {{ currentSizeConfig.agilityBonus >= 0 ? '+' : '' }}{{ currentSizeConfig.agilityBonus }}
+            </div>
+          </div>
+          <div>
             <label class="block text-sm text-digimon-dark-400 mb-1">Family</label>
             <input
               v-model="form.family"
@@ -592,8 +663,8 @@ async function handleSubmit() {
             <span class="text-white ml-1">+{{ currentStageConfig.woundBonus }}</span>
           </div>
           <div>
-            <span class="text-digimon-dark-400">BIT:</span>
-            <span class="text-white ml-1">{{ currentStageConfig.brains }}</span>
+            <span class="text-digimon-dark-400">Brains Bonus:</span>
+            <span class="text-white ml-1">+{{ currentStageConfig.brainsBonus }}</span>
           </div>
           <div>
             <span class="text-digimon-dark-400">Attacks:</span>
@@ -677,70 +748,53 @@ async function handleSubmit() {
 
         <!-- Derived Stats Display -->
         <div class="mt-6 pt-4 border-t border-digimon-dark-600">
-          <h3 class="text-sm font-semibold text-digimon-dark-300 mb-3">Derived Stats (DDA 1.4 p.111)</h3>
+          <h3 class="text-sm font-semibold text-digimon-dark-300 mb-3">Derived Stats</h3>
 
-          <!-- Primary Derived Stats -->
-          <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
-            <div class="bg-digimon-dark-700 rounded-lg p-3">
+          <!-- Primary Derived Stats + Spec Values -->
+          <div class="grid grid-cols-3 md:grid-cols-6 gap-3">
+            <div class="bg-digimon-dark-700 rounded-lg p-3 text-center">
               <div class="text-xs text-digimon-dark-400 mb-1">Brains</div>
               <div class="text-lg font-bold text-cyan-400">{{ derivedStats.brains }}</div>
-              <div class="text-xs text-digimon-dark-500">(Acc ÷ 2) + Brains Bonus</div>
             </div>
-            <div class="bg-digimon-dark-700 rounded-lg p-3">
+            <div class="bg-digimon-dark-700 rounded-lg p-3 text-center">
               <div class="text-xs text-digimon-dark-400 mb-1">Body</div>
               <div class="text-lg font-bold text-orange-400">{{ derivedStats.body }}</div>
-              <div class="text-xs text-digimon-dark-500">(HP + Dmg + Arm) ÷ 3</div>
             </div>
-            <div class="bg-digimon-dark-700 rounded-lg p-3">
+            <div class="bg-digimon-dark-700 rounded-lg p-3 text-center">
               <div class="text-xs text-digimon-dark-400 mb-1">Agility</div>
               <div class="text-lg font-bold text-green-400">{{ derivedStats.agility }}</div>
-              <div class="text-xs text-digimon-dark-500">(Acc + Dodge) ÷ 2</div>
             </div>
-          </div>
-
-          <!-- Spec Values -->
-          <div class="grid grid-cols-3 gap-4 mt-4">
             <div class="bg-digimon-dark-700 rounded-lg p-3 text-center">
               <div class="text-xs text-digimon-dark-400 mb-1">BIT</div>
-              <div class="text-xl font-bold text-cyan-400">{{ derivedStats.bit }}</div>
-              <div class="text-xs text-digimon-dark-500">Cha/Int/Will checks</div>
-              <div class="text-xs text-digimon-dark-600 mt-1">Brains ÷ 10 + {{ derivedStats.stageBonus }}</div>
+              <div class="text-lg font-bold text-cyan-400">{{ derivedStats.bit }}</div>
             </div>
             <div class="bg-digimon-dark-700 rounded-lg p-3 text-center">
               <div class="text-xs text-digimon-dark-400 mb-1">CPU</div>
-              <div class="text-xl font-bold text-orange-400">{{ derivedStats.cpu }}</div>
-              <div class="text-xs text-digimon-dark-500">Body checks</div>
-              <div class="text-xs text-digimon-dark-600 mt-1">Body ÷ 10 + {{ derivedStats.stageBonus }}</div>
+              <div class="text-lg font-bold text-orange-400">{{ derivedStats.cpu }}</div>
             </div>
             <div class="bg-digimon-dark-700 rounded-lg p-3 text-center">
               <div class="text-xs text-digimon-dark-400 mb-1">RAM</div>
-              <div class="text-xl font-bold text-green-400">{{ derivedStats.ram }}</div>
-              <div class="text-xs text-digimon-dark-500">Agility checks</div>
-              <div class="text-xs text-digimon-dark-600 mt-1">Agility ÷ 10 + {{ derivedStats.stageBonus }}</div>
+              <div class="text-lg font-bold text-green-400">{{ derivedStats.ram }}</div>
             </div>
           </div>
 
           <!-- Combat Stats -->
-          <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
-            <div class="bg-digimon-dark-700 rounded-lg p-3">
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
+            <div class="bg-digimon-dark-700 rounded-lg p-3 text-center">
               <div class="text-xs text-digimon-dark-400 mb-1">Wound Boxes</div>
               <div class="text-lg font-bold text-red-400">{{ derivedStats.woundBoxes }}</div>
-              <div class="text-xs text-digimon-dark-500">Health + WB Bonus</div>
             </div>
-            <div class="bg-digimon-dark-700 rounded-lg p-3">
+            <div class="bg-digimon-dark-700 rounded-lg p-3 text-center">
               <div class="text-xs text-digimon-dark-400 mb-1">Movement</div>
               <div class="text-lg font-bold text-blue-400">{{ derivedStats.movement }}m</div>
-              <div class="text-xs text-digimon-dark-500">Base Movement</div>
             </div>
-            <div class="bg-digimon-dark-700 rounded-lg p-3">
+            <div class="bg-digimon-dark-700 rounded-lg p-3 text-center">
               <div class="text-xs text-digimon-dark-400 mb-1">Stage Bonus</div>
               <div class="text-lg font-bold text-purple-400">+{{ derivedStats.stageBonus }}</div>
-              <div class="text-xs text-digimon-dark-500">Added to Spec Values</div>
             </div>
-            <div class="bg-digimon-dark-700 rounded-lg p-3">
+            <div class="bg-digimon-dark-700 rounded-lg p-3 text-center">
               <div class="text-xs text-digimon-dark-400 mb-1">Initiative</div>
               <div class="text-lg font-bold text-yellow-400">3d6 + {{ derivedStats.agility }}</div>
-              <div class="text-xs text-digimon-dark-500">Uses Agility</div>
             </div>
           </div>
         </div>

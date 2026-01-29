@@ -86,7 +86,8 @@ const hasFreeQuality = computed(() => {
   })
 })
 
-const availableQualities = computed(() => {
+// All qualities matching current filters (including unavailable ones)
+const filteredQualities = computed(() => {
   let qualities = QUALITY_DATABASE
 
   // Filter by type
@@ -114,36 +115,71 @@ const availableQualities = computed(() => {
     )
   }
 
-  // Filter out unavailable qualities
-  return qualities.filter((q) => {
-    // Check stage requirement
-    if (!isQualityAvailableAtStage(q, props.stage)) return false
-
-    // Check if already at max ranks
-    const existing = props.currentQualities.find((cq) => cq.id === q.id)
-    if (existing) {
-      const maxRanks = getMaxRanksAtStage(q, props.stage)
-      if ((existing.ranks || 1) >= maxRanks) return false
-    }
-
-    // Can only have one free quality
-    if (q.type === 'free' && hasFreeQuality.value && !existing) return false
-
-    // Check negative DP limit
-    if (q.type === 'negative' && !existing) {
-      const newTotal = currentNegativeDP.value + Math.abs(q.dpCost)
-      if (newTotal > maxNegativeDP.value) return false
-    }
-
-    // Check exclusive conflicts (only for new qualities)
-    if (!existing) {
-      const { conflict } = hasExclusiveConflict(q, props.currentQualities)
-      if (conflict) return false
-    }
-
-    return true
-  })
+  return qualities
 })
+
+// Get detailed availability status for a quality
+function getFullQualityStatus(template: QualityTemplate): { canSelect: boolean; reasons: string[] } {
+  const reasons: string[] = []
+  const existing = props.currentQualities.find((cq) => cq.id === template.id)
+
+  // Check stage requirement
+  if (!isQualityAvailableAtStage(template, props.stage)) {
+    reasons.push(`Requires ${template.stageRequirement || 'higher'} stage`)
+  }
+
+  // Check if already at max ranks
+  if (existing) {
+    const maxRanks = getMaxRanksAtStage(template, props.stage)
+    if ((existing.ranks || 1) >= maxRanks) {
+      reasons.push(`Already at max ranks (${maxRanks})`)
+    }
+  }
+
+  // Can only have one free quality
+  if (template.type === 'free' && hasFreeQuality.value && !existing) {
+    reasons.push('Already have a free quality')
+  }
+
+  // Check negative DP limit
+  if (template.type === 'negative' && !existing) {
+    const newTotal = currentNegativeDP.value + Math.abs(template.dpCost)
+    if (newTotal > maxNegativeDP.value) {
+      reasons.push(`Would exceed negative DP limit (${currentNegativeDP.value}/${maxNegativeDP.value})`)
+    }
+  }
+
+  // Check prerequisites
+  const prereqCheck = arePrerequisitesMet(template, props.currentQualities)
+  if (!prereqCheck.met) {
+    reasons.push(`Missing: ${prereqCheck.missing.join(', ')}`)
+  }
+
+  // Check exclusive conflicts
+  if (!existing) {
+    const exclusiveCheck = hasExclusiveConflict(template, props.currentQualities)
+    if (exclusiveCheck.conflict) {
+      const conflictNames = exclusiveCheck.conflictingIds
+        .map((id) => getQualityById(id)?.name || id)
+        .join(', ')
+      reasons.push(`Conflicts with: ${conflictNames}`)
+    }
+  }
+
+  return { canSelect: reasons.length === 0, reasons }
+}
+
+// Get what would be locked off if this quality is picked
+function getWouldLockOff(template: QualityTemplate): string[] {
+  if (!template.exclusiveWith || template.exclusiveWith.length === 0) {
+    return []
+  }
+
+  // Return names of qualities that would be locked off (that aren't already picked)
+  return template.exclusiveWith
+    .filter((exId) => !props.currentQualities.some((q) => q.id === exId))
+    .map((exId) => getQualityById(exId)?.name || exId)
+}
 
 function selectQuality(template: QualityTemplate) {
   // Check if this quality already exists (for adding ranks)
@@ -244,19 +280,9 @@ function formatQualityTypes(qualityType: QualityTypeTag | QualityTypeTag[]): str
 }
 
 function getQualityStatus(template: QualityTemplate): { canSelect: boolean; reason?: string } {
-  // Check prerequisites
-  const prereqCheck = arePrerequisitesMet(template, props.currentQualities)
-  if (!prereqCheck.met) {
-    return { canSelect: false, reason: `Missing: ${prereqCheck.missing.join(', ')}` }
-  }
-
-  // Check exclusive conflicts
-  const exclusiveCheck = hasExclusiveConflict(template, props.currentQualities)
-  if (exclusiveCheck.conflict) {
-    const conflictNames = exclusiveCheck.conflictingIds
-      .map((id) => getQualityById(id)?.name || id)
-      .join(', ')
-    return { canSelect: false, reason: `Conflicts with: ${conflictNames}` }
+  const status = getFullQualityStatus(template)
+  if (!status.canSelect) {
+    return { canSelect: false, reason: status.reasons[0] }
   }
 
   // Check if GM approval required
@@ -401,9 +427,10 @@ function getDisplayCostClass(quality: Quality): string {
 
       <!-- Quality list -->
       <div class="max-h-80 overflow-y-auto space-y-2">
-        <template v-for="quality in availableQualities" :key="quality.id">
+        <template v-for="quality in filteredQualities" :key="quality.id">
+          <!-- Selectable quality -->
           <button
-            v-if="getQualityStatus(quality).canSelect"
+            v-if="getFullQualityStatus(quality).canSelect"
             type="button"
             class="w-full text-left bg-digimon-dark-700 hover:bg-digimon-dark-600 rounded-lg p-3 transition-colors"
             @click="selectQuality(quality)"
@@ -433,10 +460,16 @@ function getDisplayCostClass(quality: Quality): string {
             <p v-if="quality.limitedTag" class="text-xs text-blue-400/70 mt-1">
               [LIMITED] - Applies to one attack only
             </p>
+            <!-- Show what would be locked off -->
+            <p v-if="getWouldLockOff(quality).length > 0" class="text-xs text-orange-400/70 mt-1">
+              Locks off: {{ getWouldLockOff(quality).join(', ') }}
+            </p>
           </button>
+
+          <!-- Unavailable quality -->
           <div
             v-else
-            class="w-full text-left bg-digimon-dark-800 rounded-lg p-3 opacity-50 cursor-not-allowed"
+            class="w-full text-left bg-digimon-dark-800 rounded-lg p-3 opacity-60"
           >
             <div class="flex items-center gap-2 flex-wrap">
               <span class="font-semibold text-digimon-dark-400">{{ quality.name }}</span>
@@ -446,15 +479,22 @@ function getDisplayCostClass(quality: Quality): string {
               <span class="text-xs px-2 py-0.5 rounded bg-digimon-dark-700 text-digimon-dark-500">
                 {{ getCostDisplay(quality) }}
               </span>
+              <span v-if="quality.maxRanks > 1" class="text-xs text-digimon-dark-500">
+                ({{ getMaxRanksAtStage(quality, stage) }} ranks max)
+              </span>
             </div>
-            <p class="text-xs text-red-400/70 mt-1">
-              {{ getQualityStatus(quality).reason }}
-            </p>
+            <p class="text-xs text-digimon-dark-500 mt-1">{{ quality.description }}</p>
+            <!-- Show all reasons why unavailable -->
+            <div class="mt-1 space-y-0.5">
+              <p v-for="reason in getFullQualityStatus(quality).reasons" :key="reason" class="text-xs text-red-400/80">
+                {{ reason }}
+              </p>
+            </div>
           </div>
         </template>
 
-        <div v-if="availableQualities.length === 0" class="text-center py-4 text-digimon-dark-400">
-          No qualities available
+        <div v-if="filteredQualities.length === 0" class="text-center py-4 text-digimon-dark-400">
+          No qualities match your search
         </div>
       </div>
 
