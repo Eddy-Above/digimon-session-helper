@@ -9,6 +9,7 @@ import {
   getQualityCategories,
   isQualityAvailableAtStage,
   getMaxRanksAtStage,
+  getEffectiveDPCost,
   arePrerequisitesMet,
   hasExclusiveConflict,
   getQualityById,
@@ -76,7 +77,11 @@ const currentPurchasableDP = computed(() => {
       const template = QUALITY_DATABASE.find((t) => t.id === q.id)
       return template?.type === 'purchasable'
     })
-    .reduce((sum, q) => sum + (q.dpCost * (q.ranks || 1)), 0)
+    .reduce((sum, q) => {
+      const template = QUALITY_DATABASE.find((t) => t.id === q.id)
+      if (!template) return sum + (q.dpCost * (q.ranks || 1))
+      return sum + getEffectiveDPCost(template, q.ranks || 1, q.dpCost)
+    }, 0)
 })
 
 const hasFreeQuality = computed(() => {
@@ -287,6 +292,7 @@ function getCostColor(template: QualityTemplate) {
 function getCostDisplay(template: QualityTemplate) {
   if (template.type === 'free') return 'Free'
   if (template.type === 'negative') return `${template.dpCost} DP`
+  if (template.freeFirstRank) return `Free 1st, +${template.dpCost}/rank`
   return `+${template.dpCost} DP`
 }
 
@@ -322,7 +328,8 @@ function getDisplayCost(quality: Quality): string {
     const total = Math.abs(quality.dpCost) * (quality.ranks || 1)
     return `-${total} DP`
   }
-  const total = quality.dpCost * (quality.ranks || 1)
+  const total = getEffectiveDPCost(template, quality.ranks || 1, quality.dpCost)
+  if (total === 0) return 'Free'
   return `+${total} DP`
 }
 
@@ -339,6 +346,33 @@ function getQualityMaxRanks(quality: Quality): number {
   const template = getCurrentQualityTemplate(quality)
   if (!template) return 1
   return getMaxRanksAtStage(template, props.stage)
+}
+
+// Check if a choice's prerequisites are met (for Data Specialization tree validation)
+// For example, "Fistful of Force" requires Data Optimization: Close Combat
+function isChoicePrereqMet(choice: NonNullable<QualityTemplate['choices']>[0]): { met: boolean; missing: string[] } {
+  if (!choice.prerequisites || choice.prerequisites.length === 0) {
+    return { met: true, missing: [] }
+  }
+
+  const missing: string[] = []
+
+  for (const prereqId of choice.prerequisites) {
+    // Check if user has a Data Optimization with this choiceId
+    const hasDataOpt = props.currentQualities.some(
+      (q) => q.id === 'data-optimization' && q.choiceId === prereqId
+    )
+
+    if (!hasDataOpt) {
+      // Get a friendly name for the missing prerequisite
+      const dataOptTemplate = QUALITY_DATABASE.find((q) => q.id === 'data-optimization')
+      const prereqChoice = dataOptTemplate?.choices?.find((c) => c.id === prereqId)
+      const prereqName = prereqChoice?.name || prereqId
+      missing.push(`Data Optimization: ${prereqName}`)
+    }
+  }
+
+  return { met: missing.length === 0, missing }
 }
 </script>
 
@@ -567,34 +601,55 @@ function getQualityMaxRanks(quality: Quality): number {
           <div class="space-y-2">
             <template v-for="choice in pendingQuality?.choices" :key="choice.id">
               <!-- Check if this choice is already taken -->
-              <button
-                v-if="pendingQuality && !currentQualities.some((q) => q.id === pendingQuality?.id && q.choiceId === choice.id)"
-                type="button"
-                class="w-full text-left bg-digimon-dark-700 hover:bg-digimon-dark-600 border border-digimon-dark-600 hover:border-cyan-500/50 rounded-lg p-4 transition-colors"
-                @click="selectChoice(pendingQuality, choice)"
-              >
-                <div class="flex items-center gap-2 mb-2">
-                  <span class="font-semibold text-white">{{ choice.name }}</span>
-                  <span
-                    v-if="choice.dpCost !== undefined && choice.dpCost !== pendingQuality?.dpCost"
-                    class="text-xs px-2 py-0.5 rounded bg-digimon-orange-900/30 text-digimon-orange-400"
-                  >
-                    +{{ choice.dpCost }} DP
-                  </span>
+              <template v-if="currentQualities.some((q) => q.id === pendingQuality?.id && q.choiceId === choice.id)">
+                <!-- Already owned -->
+                <div class="w-full text-left bg-digimon-dark-800 border border-digimon-dark-700 rounded-lg p-4 opacity-50">
+                  <div class="flex items-center gap-2 mb-2">
+                    <span class="font-semibold text-digimon-dark-400">{{ choice.name }}</span>
+                    <span class="text-xs px-2 py-0.5 rounded bg-green-900/30 text-green-400">Already owned</span>
+                  </div>
+                  <p class="text-sm text-digimon-dark-500 whitespace-pre-line">{{ choice.effect }}</p>
                 </div>
-                <p class="text-sm text-digimon-dark-300 whitespace-pre-line">{{ choice.effect }}</p>
-              </button>
-              <!-- Show disabled state for already-taken choices -->
-              <div
-                v-else
-                class="w-full text-left bg-digimon-dark-800 border border-digimon-dark-700 rounded-lg p-4 opacity-50"
-              >
-                <div class="flex items-center gap-2 mb-2">
-                  <span class="font-semibold text-digimon-dark-400">{{ choice.name }}</span>
-                  <span class="text-xs px-2 py-0.5 rounded bg-green-900/30 text-green-400">Already owned</span>
+              </template>
+              <!-- Check if choice prerequisites are met (for Data Specialization tree) -->
+              <template v-else-if="!isChoicePrereqMet(choice).met">
+                <!-- Missing prerequisite -->
+                <div class="w-full text-left bg-digimon-dark-800 border border-digimon-dark-700 rounded-lg p-4 opacity-50">
+                  <div class="flex items-center gap-2 mb-2">
+                    <span class="font-semibold text-digimon-dark-400">{{ choice.name }}</span>
+                    <span
+                      v-if="choice.dpCost !== undefined && choice.dpCost !== pendingQuality?.dpCost"
+                      class="text-xs px-2 py-0.5 rounded bg-digimon-dark-700 text-digimon-dark-500"
+                    >
+                      +{{ choice.dpCost }} DP
+                    </span>
+                  </div>
+                  <p class="text-sm text-digimon-dark-500 whitespace-pre-line">{{ choice.effect }}</p>
+                  <p class="text-xs text-red-400 mt-2">
+                    Requires: {{ isChoicePrereqMet(choice).missing.join(', ') }}
+                  </p>
                 </div>
-                <p class="text-sm text-digimon-dark-500 whitespace-pre-line">{{ choice.effect }}</p>
-              </div>
+              </template>
+              <!-- Available choice -->
+              <template v-else>
+                <button
+                  v-if="pendingQuality"
+                  type="button"
+                  class="w-full text-left bg-digimon-dark-700 hover:bg-digimon-dark-600 border border-digimon-dark-600 hover:border-cyan-500/50 rounded-lg p-4 transition-colors"
+                  @click="selectChoice(pendingQuality, choice)"
+                >
+                  <div class="flex items-center gap-2 mb-2">
+                    <span class="font-semibold text-white">{{ choice.name }}</span>
+                    <span
+                      v-if="choice.dpCost !== undefined && choice.dpCost !== pendingQuality?.dpCost"
+                      class="text-xs px-2 py-0.5 rounded bg-digimon-orange-900/30 text-digimon-orange-400"
+                    >
+                      +{{ choice.dpCost }} DP
+                    </span>
+                  </div>
+                  <p class="text-sm text-digimon-dark-300 whitespace-pre-line">{{ choice.effect }}</p>
+                </button>
+              </template>
             </template>
           </div>
 

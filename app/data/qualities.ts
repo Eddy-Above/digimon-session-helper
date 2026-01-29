@@ -36,7 +36,8 @@ export interface QualityChoice {
   name: string
   dpCost?: number // Override base cost if different per choice
   effect: string
-  prerequisites?: string[]
+  prerequisites?: string[] // For Data Specialization tree validation
+  rangeRestriction?: 'melee' | 'ranged' // For Area Attack sub-options
 }
 
 // Stage order for comparisons
@@ -68,7 +69,9 @@ export interface QualityTemplate {
   exclusiveChoices?: boolean // If true, can only take ONE choice total (not one of each)
   limitedTag?: boolean // [LIMITED] - can only apply to one attack
   exclusiveWith?: string[] // IDs of mutually exclusive qualities
+  exclusiveOnSameAttackWith?: string[] // IDs of qualities that can't be on same attack (unless Signature Move)
   requiresGMApproval?: boolean // Some qualities need GM approval
+  freeFirstRank?: boolean // First rank is free, subsequent ranks cost dpCost
 }
 
 export const QUALITY_DATABASE: QualityTemplate[] = [
@@ -621,6 +624,7 @@ Rank 2 (requires Avoidance): After Agility and Avoidance trigger, must reroll al
     maxRanks: 3,
     prerequisites: [],
     limitedTag: true,
+    exclusiveOnSameAttackWith: ['certain-strike'], // Can't be on same attack unless Signature Move
     description: 'Ignore armor on one attack. Ranks limited by stage.',
     effect: `Choose one Attack. Ignores X×2 Armor (X = ranks). Cannot have both Armor Piercing and Certain Strike on same attack unless Signature Move.`,
     maxRanksByStage: { rookie: 1, champion: 2, ultimate: 3, mega: 3, ultra: 3 },
@@ -660,6 +664,7 @@ Rank 2 (requires Avoidance): After Agility and Avoidance trigger, must reroll al
     maxRanks: 2,
     prerequisites: [],
     limitedTag: true,
+    exclusiveOnSameAttackWith: ['armor-piercing'], // Can't be on same attack unless Signature Move
     description: 'Automatic successes on one attack.',
     effect: `Choose one Attack. Gain 1 auto-success per 4 base Accuracy dice (max 2 per rank). Auto-successes deducted from rolled pool. Cannot combine with Armor Piercing unless Signature Move.`,
     maxRanksByStage: { rookie: 1, champion: 1, ultimate: 2, mega: 2, ultra: 2 },
@@ -751,12 +756,12 @@ Rank 2 (requires Avoidance): After Agility and Avoidance trigger, must reroll al
     description: 'Add an area tag to an attack.',
     effect: `Apply an [Area Tag] to an Attack. Targets get +RAM to Dodge. Can use as single-target without penalty.`,
     choices: [
-      { id: 'blast', name: 'Blast', effect: '[Ranged only] Circle at range. 3m diameter +BIT.' },
+      { id: 'blast', name: 'Blast', effect: '[Ranged only] Circle at range. 3m diameter +BIT.', rangeRestriction: 'ranged' },
       { id: 'burst', name: 'Burst', effect: '[Melee/Ranged] Circle from user. 1m radius +BIT+1. User not targeted.' },
       { id: 'close-blast', name: 'Close Blast', effect: '[Melee/Ranged] Circle adjacent to user. 2m radius +BIT.' },
       { id: 'cone', name: 'Cone', effect: '[Melee/Ranged] Triangle from user. 3m length +BIT.' },
       { id: 'line', name: 'Line', effect: '[Melee/Ranged] Pillar from user. 5m length +BIT×2, 1m width (+1 per Size above Large). Can bounce.' },
-      { id: 'pass', name: 'Pass', effect: '[Melee only] Charge in line, hit all targets. Move = Movement + up to RAM. Requires movement (unless has Charge).' },
+      { id: 'pass', name: 'Pass', effect: '[Melee only] Charge in line, hit all targets. Move = Movement + up to RAM. Requires movement (unless has Charge).', rangeRestriction: 'melee' },
     ],
   },
 
@@ -1137,7 +1142,8 @@ Rank 2 (requires Avoidance): After Agility and Avoidance trigger, must reroll al
     type: 'purchasable',
     category: 'utility',
     qualityType: ['static', 'trigger'],
-    dpCost: 0, // First rank free
+    dpCost: 1, // 1 DP per rank after first
+    freeFirstRank: true, // First rank is free
     maxRanks: 2,
     prerequisites: [],
     description: 'At home in certain terrain. First rank free.',
@@ -2230,6 +2236,21 @@ export function getMaxRanksAtStage(quality: QualityTemplate, stage: DigimonStage
     return Math.min(maxRank, quality.maxRanks)
   }
   return quality.maxRanks
+}
+
+// Calculate effective DP cost for a quality at a given rank
+// Accounts for freeFirstRank (e.g., Naturewalk: first rank free, second costs 1 DP)
+export function getEffectiveDPCost(quality: QualityTemplate, ranks: number, choiceDpCost?: number): number {
+  const baseCost = choiceDpCost ?? quality.dpCost
+
+  if (quality.freeFirstRank) {
+    // First rank is free, subsequent ranks cost dpCost each
+    // ranks=1 -> 0, ranks=2 -> 1×dpCost, etc.
+    return Math.max(0, ranks - 1) * baseCost
+  }
+
+  // Standard pricing: dpCost per rank
+  return ranks * baseCost
 }
 
 // Check if prerequisites are met
