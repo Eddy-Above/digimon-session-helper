@@ -61,6 +61,43 @@ const dpRemaining = computed(() => {
   return currentStageConfig.value.dp - dpUsed.value
 })
 
+// Derived Stats calculation - DDA 1.4 rules (page 111)
+const derivedStats = computed(() => {
+  const { accuracy, damage, dodge, armor, health } = form.baseStats
+  const config = currentStageConfig.value
+  const sizeBonus = 0 // TODO: Add size selection for size bonus
+
+  // Primary Derived Stats (always round down)
+  const brains = Math.floor(accuracy / 2) + config.brains
+  const body = Math.floor((health + damage + armor) / 3) + sizeBonus
+  const agility = Math.floor((accuracy + dodge) / 2) + sizeBonus
+
+  // Spec Values (derived from derived stats)
+  const bit = Math.floor(brains / 10) + config.stageBonus
+  const cpu = Math.floor(body / 10) + config.stageBonus
+  const ram = Math.floor(agility / 10) + config.stageBonus
+
+  return {
+    // Primary derived stats
+    brains,
+    body,
+    agility,
+    // Spec Values (BIT, CPU, RAM)
+    bit, // Charisma/Intelligence/Willpower checks, effect duration
+    cpu, // Body checks, power/clash
+    ram, // Agility checks, range/area/movement
+    // Combat stats
+    woundBoxes: health + config.woundBonus,
+    movement: config.movement,
+    stageBonus: config.stageBonus,
+    // Attack/Defense pools (raw stats)
+    accuracyPool: accuracy,
+    damagePool: damage,
+    dodgePool: dodge,
+    armorValue: armor,
+  }
+})
+
 // Toggle for custom attack form
 const showCustomAttackForm = ref(false)
 
@@ -80,51 +117,234 @@ function handleAddAttack(attack: Attack) {
   form.attacks = [...form.attacks, attack]
 }
 
-// Get available tags based on owned qualities
+// Tag validation rules based on DDA 1.4
+interface AttackTagRule {
+  id: string
+  name: string
+  description: string
+  rangeRestriction?: 'melee' | 'ranged' // null = both allowed
+  typeRestriction?: 'damage' | 'support' // null = both allowed
+  conflictsWith?: string[] // Tags that can't be combined with this one
+  allowedWithSignature?: string[] // Conflicts that Signature Move overrides
+}
+
+// Get available tags based on owned qualities AND current attack state
 const availableAttackTags = computed(() => {
-  const tags: Array<{ id: string; name: string; description: string }> = []
+  const tags: Array<AttackTagRule & { disabled: boolean; disabledReason?: string }> = []
+  const currentRange = newAttack.range
+  const currentType = newAttack.type
+  const currentTags = newAttack.tags
+  const hasSignatureMove = currentTags.some((t) => t.includes('Signature Move'))
 
   for (const quality of form.qualities) {
-    // Qualities that grant attack tags
+    // Weapon - works with any attack
     if (quality.id === 'weapon') {
-      tags.push({ id: 'weapon', name: `Weapon ${quality.ranks || 1}`, description: 'Weapon attack' })
+      tags.push({
+        id: 'weapon',
+        name: `Weapon ${quality.ranks || 1}`,
+        description: `+${quality.ranks || 1} Accuracy and Damage`,
+        disabled: false,
+      })
     }
+
+    // Armor Piercing - conflicts with Certain Strike (unless Signature Move)
     if (quality.id === 'armor-piercing') {
-      tags.push({ id: 'armor-piercing', name: `Armor Piercing ${quality.ranks || 1}`, description: 'Ignores armor' })
+      const hasCertainStrike = currentTags.some((t) => t.includes('Certain Strike'))
+      const blocked = hasCertainStrike && !hasSignatureMove
+      tags.push({
+        id: 'armor-piercing',
+        name: `Armor Piercing ${quality.ranks || 1}`,
+        description: `Ignores ${(quality.ranks || 1) * 2} Armor`,
+        conflictsWith: ['certain-strike'],
+        allowedWithSignature: ['certain-strike'],
+        disabled: blocked,
+        disabledReason: blocked ? 'Cannot combine with Certain Strike (unless Signature Move)' : undefined,
+      })
     }
-    if (quality.id === 'charge-attack') {
-      tags.push({ id: 'charge-attack', name: 'Charge Attack', description: 'Move and attack' })
-    }
-    if (quality.id === 'signature-move') {
-      tags.push({ id: 'signature-move', name: 'Signature Move', description: 'Powerful attack with cooldown' })
-    }
+
+    // Certain Strike - conflicts with Armor Piercing (unless Signature Move)
     if (quality.id === 'certain-strike') {
-      tags.push({ id: 'certain-strike', name: 'Certain Strike', description: 'Reroll accuracy' })
+      const hasArmorPiercing = currentTags.some((t) => t.includes('Armor Piercing'))
+      const blocked = hasArmorPiercing && !hasSignatureMove
+      tags.push({
+        id: 'certain-strike',
+        name: `Certain Strike ${quality.ranks || 1}`,
+        description: 'Auto-successes on accuracy',
+        conflictsWith: ['armor-piercing'],
+        allowedWithSignature: ['armor-piercing'],
+        disabled: blocked,
+        disabledReason: blocked ? 'Cannot combine with Armor Piercing (unless Signature Move)' : undefined,
+      })
     }
+
+    // Charge Attack - MELEE ONLY
+    if (quality.id === 'charge-attack') {
+      const blocked = currentRange !== 'melee'
+      tags.push({
+        id: 'charge-attack',
+        name: 'Charge Attack',
+        description: 'Move and attack as one Simple Action',
+        rangeRestriction: 'melee',
+        disabled: blocked,
+        disabledReason: blocked ? 'Requires [Melee] attack' : undefined,
+      })
+    }
+
+    // Mighty Blow - MELEE ONLY
+    if (quality.id === 'mighty-blow') {
+      const blocked = currentRange !== 'melee'
+      tags.push({
+        id: 'mighty-blow',
+        name: 'Mighty Blow',
+        description: 'Stun on high damage',
+        rangeRestriction: 'melee',
+        disabled: blocked,
+        disabledReason: blocked ? 'Requires [Melee] attack' : undefined,
+      })
+    }
+
+    // Signature Move - restrictions with certain effects
+    if (quality.id === 'signature-move') {
+      const hasPoison = currentTags.some((t) => t.includes('Poison'))
+      const hasHazard = currentTags.some((t) => t.includes('Hazard'))
+      const hasRevitalize = currentTags.some((t) => t.includes('Revitalize'))
+      const blocked = hasPoison || hasHazard || hasRevitalize
+      tags.push({
+        id: 'signature-move',
+        name: 'Signature Move',
+        description: 'Powerful attack (available Round 3+, 2 round cooldown)',
+        disabled: blocked,
+        disabledReason: blocked ? 'Cannot combine with Poison, Hazard, or Revitalize' : undefined,
+      })
+    }
+
+    // Area Attack options (with range restrictions)
     if (quality.id === 'area-attack') {
-      // Add all area attack types
-      tags.push({ id: 'area-blast', name: 'Area Attack: Blast', description: 'Explosion at target' })
-      tags.push({ id: 'area-burst', name: 'Area Attack: Burst', description: 'Area around self' })
-      tags.push({ id: 'area-cone', name: 'Area Attack: Cone', description: 'Cone shape' })
-      tags.push({ id: 'area-line', name: 'Area Attack: Line', description: 'Line from self' })
-      tags.push({ id: 'area-pass', name: 'Area Attack: Pass', description: 'Line through targets' })
-      tags.push({ id: 'area-close-blast', name: 'Area Attack: Close Blast', description: 'Adjacent explosion' })
-    }
-    // Attack effects
-    if (quality.id.startsWith('effect-')) {
-      const effectName = quality.name
-      tags.push({ id: quality.id, name: effectName, description: quality.description })
+      const choiceId = quality.choiceId
+      // Blast - RANGED ONLY
+      if (!choiceId || choiceId === 'blast') {
+        const blocked = currentRange !== 'ranged'
+        tags.push({
+          id: 'area-blast',
+          name: 'Area Attack: Blast',
+          description: `Circle at range (3m +BIT diameter)`,
+          rangeRestriction: 'ranged',
+          disabled: blocked,
+          disabledReason: blocked ? 'Requires [Ranged] attack' : undefined,
+        })
+      }
+      // Pass - MELEE ONLY
+      if (!choiceId || choiceId === 'pass') {
+        const blocked = currentRange !== 'melee'
+        tags.push({
+          id: 'area-pass',
+          name: 'Area Attack: Pass',
+          description: 'Charge through enemies in a line',
+          rangeRestriction: 'melee',
+          disabled: blocked,
+          disabledReason: blocked ? 'Requires [Melee] attack' : undefined,
+        })
+      }
+      // Burst, Close Blast, Cone, Line - both ranges allowed
+      if (!choiceId || choiceId === 'burst') {
+        tags.push({
+          id: 'area-burst',
+          name: 'Area Attack: Burst',
+          description: 'Circle from user (1m +BIT+1 radius)',
+          disabled: false,
+        })
+      }
+      if (!choiceId || choiceId === 'close-blast') {
+        tags.push({
+          id: 'area-close-blast',
+          name: 'Area Attack: Close Blast',
+          description: 'Circle adjacent to user (2m +BIT radius)',
+          disabled: false,
+        })
+      }
+      if (!choiceId || choiceId === 'cone') {
+        tags.push({
+          id: 'area-cone',
+          name: 'Area Attack: Cone',
+          description: 'Triangle from user (3m +BIT length)',
+          disabled: false,
+        })
+      }
+      if (!choiceId || choiceId === 'line') {
+        tags.push({
+          id: 'area-line',
+          name: 'Area Attack: Line',
+          description: 'Pillar from user (5m +BIT×2 length)',
+          disabled: false,
+        })
+      }
     }
   }
 
   return tags
 })
 
-// Get available effect tags based on owned qualities (3.09 Attack Effects)
+// Get available effect tags based on owned qualities AND attack type
+// [P] Positive effects = Support attacks only
+// [N] Negative effects = Damage attacks only
+// [N/A] = Both types allowed
 const availableEffectTags = computed(() => {
+  const currentType = newAttack.type
+  const currentTags = newAttack.tags
+  const hasSignatureMove = currentTags.some((t) => t.includes('Signature Move'))
+
+  // Effect alignment: P = Support only, N = Damage only, NA = Both
+  const effectAlignment: Record<string, 'P' | 'N' | 'NA'> = {
+    'effect-vigor': 'P',
+    'effect-fury': 'P',
+    'effect-cleanse': 'P',
+    'effect-haste': 'P',
+    'effect-revitalize': 'P',
+    'effect-shield': 'P',
+    'effect-poison': 'N',
+    'effect-confuse': 'N',
+    'effect-stun': 'N',
+    'effect-fear': 'N',
+    'effect-immobilize': 'N',
+    'effect-taunt': 'N',
+    'effect-lifesteal': 'NA',
+    'effect-knockback': 'NA',
+    'effect-pull': 'NA',
+  }
+
+  // Signature Move restrictions
+  const signatureRestricted = ['effect-poison', 'effect-hazard', 'effect-revitalize']
+
   return form.qualities
     .filter((q) => q.id.startsWith('effect-'))
-    .map((q) => ({ id: q.id.replace('effect-', ''), name: q.name }))
+    .map((q) => {
+      const alignment = effectAlignment[q.id] || 'NA'
+      let disabled = false
+      let disabledReason: string | undefined
+
+      // Check type restriction
+      if (alignment === 'P' && currentType !== 'support') {
+        disabled = true
+        disabledReason = 'Requires [Support] attack'
+      } else if (alignment === 'N' && currentType !== 'damage') {
+        disabled = true
+        disabledReason = 'Requires [Damage] attack'
+      }
+
+      // Check Signature Move restriction
+      if (hasSignatureMove && signatureRestricted.includes(q.id)) {
+        disabled = true
+        disabledReason = 'Cannot use with Signature Move'
+      }
+
+      return {
+        id: q.id.replace('effect-', ''),
+        name: q.name,
+        alignment,
+        disabled,
+        disabledReason,
+      }
+    })
 })
 
 function addTagToAttack(tagName: string) {
@@ -454,6 +674,76 @@ async function handleSubmit() {
             />
           </div>
         </div>
+
+        <!-- Derived Stats Display -->
+        <div class="mt-6 pt-4 border-t border-digimon-dark-600">
+          <h3 class="text-sm font-semibold text-digimon-dark-300 mb-3">Derived Stats (DDA 1.4 p.111)</h3>
+
+          <!-- Primary Derived Stats -->
+          <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
+            <div class="bg-digimon-dark-700 rounded-lg p-3">
+              <div class="text-xs text-digimon-dark-400 mb-1">Brains</div>
+              <div class="text-lg font-bold text-cyan-400">{{ derivedStats.brains }}</div>
+              <div class="text-xs text-digimon-dark-500">(Acc ÷ 2) + Brains Bonus</div>
+            </div>
+            <div class="bg-digimon-dark-700 rounded-lg p-3">
+              <div class="text-xs text-digimon-dark-400 mb-1">Body</div>
+              <div class="text-lg font-bold text-orange-400">{{ derivedStats.body }}</div>
+              <div class="text-xs text-digimon-dark-500">(HP + Dmg + Arm) ÷ 3</div>
+            </div>
+            <div class="bg-digimon-dark-700 rounded-lg p-3">
+              <div class="text-xs text-digimon-dark-400 mb-1">Agility</div>
+              <div class="text-lg font-bold text-green-400">{{ derivedStats.agility }}</div>
+              <div class="text-xs text-digimon-dark-500">(Acc + Dodge) ÷ 2</div>
+            </div>
+          </div>
+
+          <!-- Spec Values -->
+          <div class="grid grid-cols-3 gap-4 mt-4">
+            <div class="bg-digimon-dark-700 rounded-lg p-3 text-center">
+              <div class="text-xs text-digimon-dark-400 mb-1">BIT</div>
+              <div class="text-xl font-bold text-cyan-400">{{ derivedStats.bit }}</div>
+              <div class="text-xs text-digimon-dark-500">Cha/Int/Will checks</div>
+              <div class="text-xs text-digimon-dark-600 mt-1">Brains ÷ 10 + {{ derivedStats.stageBonus }}</div>
+            </div>
+            <div class="bg-digimon-dark-700 rounded-lg p-3 text-center">
+              <div class="text-xs text-digimon-dark-400 mb-1">CPU</div>
+              <div class="text-xl font-bold text-orange-400">{{ derivedStats.cpu }}</div>
+              <div class="text-xs text-digimon-dark-500">Body checks</div>
+              <div class="text-xs text-digimon-dark-600 mt-1">Body ÷ 10 + {{ derivedStats.stageBonus }}</div>
+            </div>
+            <div class="bg-digimon-dark-700 rounded-lg p-3 text-center">
+              <div class="text-xs text-digimon-dark-400 mb-1">RAM</div>
+              <div class="text-xl font-bold text-green-400">{{ derivedStats.ram }}</div>
+              <div class="text-xs text-digimon-dark-500">Agility checks</div>
+              <div class="text-xs text-digimon-dark-600 mt-1">Agility ÷ 10 + {{ derivedStats.stageBonus }}</div>
+            </div>
+          </div>
+
+          <!-- Combat Stats -->
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
+            <div class="bg-digimon-dark-700 rounded-lg p-3">
+              <div class="text-xs text-digimon-dark-400 mb-1">Wound Boxes</div>
+              <div class="text-lg font-bold text-red-400">{{ derivedStats.woundBoxes }}</div>
+              <div class="text-xs text-digimon-dark-500">Health + WB Bonus</div>
+            </div>
+            <div class="bg-digimon-dark-700 rounded-lg p-3">
+              <div class="text-xs text-digimon-dark-400 mb-1">Movement</div>
+              <div class="text-lg font-bold text-blue-400">{{ derivedStats.movement }}m</div>
+              <div class="text-xs text-digimon-dark-500">Base Movement</div>
+            </div>
+            <div class="bg-digimon-dark-700 rounded-lg p-3">
+              <div class="text-xs text-digimon-dark-400 mb-1">Stage Bonus</div>
+              <div class="text-lg font-bold text-purple-400">+{{ derivedStats.stageBonus }}</div>
+              <div class="text-xs text-digimon-dark-500">Added to Spec Values</div>
+            </div>
+            <div class="bg-digimon-dark-700 rounded-lg p-3">
+              <div class="text-xs text-digimon-dark-400 mb-1">Initiative</div>
+              <div class="text-lg font-bold text-yellow-400">3d6 + {{ derivedStats.agility }}</div>
+              <div class="text-xs text-digimon-dark-500">Uses Agility</div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Attacks -->
@@ -515,9 +805,15 @@ async function handleSubmit() {
                   class="w-full bg-digimon-dark-700 border border-digimon-dark-600 rounded px-3 py-2
                          text-white text-sm focus:border-digimon-orange-500 focus:outline-none mt-1"
                 >
-                  <option value="melee">[Melee]</option>
-                  <option value="ranged">[Ranged]</option>
+                  <option value="melee">[Melee] - Adjacent</option>
+                  <option value="ranged">[Ranged] - {{ derivedStats.ram }}m (RAM)</option>
                 </select>
+                <p v-if="newAttack.range === 'ranged'" class="text-xs text-blue-400 mt-1">
+                  Range: {{ derivedStats.ram }}m (based on RAM stat)
+                </p>
+                <p v-else class="text-xs text-red-400 mt-1">
+                  Range: Adjacent targets only
+                </p>
               </div>
               <div>
                 <label class="text-xs text-digimon-dark-400">[Type]</label>
@@ -529,6 +825,9 @@ async function handleSubmit() {
                   <option value="damage">[Damage]</option>
                   <option value="support">[Support]</option>
                 </select>
+                <p class="text-xs text-digimon-dark-500 mt-1">
+                  {{ newAttack.type === 'damage' ? 'Deals damage to enemies' : 'Buffs allies or debuffs enemies' }}
+                </p>
               </div>
             </div>
 
@@ -543,16 +842,27 @@ async function handleSubmit() {
                   v-for="tag in availableAttackTags"
                   :key="tag.id"
                   type="button"
+                  :disabled="tag.disabled"
                   :class="[
-                    'text-xs px-2 py-1 rounded transition-colors',
-                    newAttack.tags.includes(tag.name)
-                      ? 'bg-digimon-orange-500 text-white'
-                      : 'bg-digimon-dark-600 text-digimon-dark-300 hover:bg-digimon-dark-500'
+                    'text-xs px-2 py-1 rounded transition-colors relative group',
+                    tag.disabled
+                      ? 'bg-digimon-dark-700 text-digimon-dark-500 cursor-not-allowed opacity-50'
+                      : newAttack.tags.includes(tag.name)
+                        ? 'bg-digimon-orange-500 text-white'
+                        : 'bg-digimon-dark-600 text-digimon-dark-300 hover:bg-digimon-dark-500'
                   ]"
-                  :title="tag.description"
-                  @click="newAttack.tags.includes(tag.name) ? removeTagFromAttack(tag.name) : addTagToAttack(tag.name)"
+                  :title="tag.disabled ? tag.disabledReason : tag.description"
+                  @click="!tag.disabled && (newAttack.tags.includes(tag.name) ? removeTagFromAttack(tag.name) : addTagToAttack(tag.name))"
                 >
                   {{ tag.name }}
+                  <span v-if="tag.rangeRestriction" class="ml-1 text-digimon-dark-500">[{{ tag.rangeRestriction === 'melee' ? 'M' : 'R' }}]</span>
+                  <!-- Tooltip for disabled reason -->
+                  <span
+                    v-if="tag.disabled && tag.disabledReason"
+                    class="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 bg-red-900/90 text-red-200 text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10"
+                  >
+                    {{ tag.disabledReason }}
+                  </span>
                 </button>
               </div>
               <div v-if="newAttack.tags.length > 0" class="flex flex-wrap gap-1 mt-2">
@@ -571,18 +881,41 @@ async function handleSubmit() {
             <!-- Effect (from effect qualities) -->
             <div class="mt-3">
               <label class="text-xs text-digimon-dark-400">Effect (optional)</label>
-              <select
-                v-model="newAttack.effect"
-                class="w-full bg-digimon-dark-700 border border-digimon-dark-600 rounded px-3 py-2
-                       text-white text-sm focus:border-digimon-orange-500 focus:outline-none mt-1"
-              >
-                <option value="">No effect</option>
-                <option v-for="effect in availableEffectTags" :key="effect.id" :value="effect.name">
-                  {{ effect.name }}
-                </option>
-              </select>
-              <p v-if="availableEffectTags.length === 0" class="text-xs text-digimon-dark-500 mt-1">
+              <div v-if="availableEffectTags.length === 0" class="text-xs text-digimon-dark-500 mt-1">
                 Add effect qualities (Poison, Paralysis, etc.) to enable attack effects.
+              </div>
+              <div v-else class="flex flex-wrap gap-2 mt-1">
+                <button
+                  v-for="effect in availableEffectTags"
+                  :key="effect.id"
+                  type="button"
+                  :disabled="effect.disabled"
+                  :class="[
+                    'text-xs px-2 py-1 rounded transition-colors relative group',
+                    effect.disabled
+                      ? 'bg-digimon-dark-700 text-digimon-dark-500 cursor-not-allowed opacity-50'
+                      : newAttack.effect === effect.name
+                        ? 'bg-purple-500 text-white'
+                        : 'bg-digimon-dark-600 text-digimon-dark-300 hover:bg-digimon-dark-500'
+                  ]"
+                  :title="effect.disabled ? effect.disabledReason : `${effect.alignment === 'P' ? '[Support only]' : effect.alignment === 'N' ? '[Damage only]' : '[Any type]'}`"
+                  @click="!effect.disabled && (newAttack.effect = newAttack.effect === effect.name ? '' : effect.name)"
+                >
+                  {{ effect.name }}
+                  <span class="ml-1 text-digimon-dark-500">
+                    [{{ effect.alignment === 'P' ? 'S' : effect.alignment === 'N' ? 'D' : '±' }}]
+                  </span>
+                  <!-- Tooltip for disabled reason -->
+                  <span
+                    v-if="effect.disabled && effect.disabledReason"
+                    class="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 bg-red-900/90 text-red-200 text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10"
+                  >
+                    {{ effect.disabledReason }}
+                  </span>
+                </button>
+              </div>
+              <p class="text-xs text-digimon-dark-500 mt-1">
+                [S] = Support only, [D] = Damage only, [±] = Any type
               </p>
             </div>
 

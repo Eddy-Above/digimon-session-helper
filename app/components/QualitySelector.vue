@@ -48,6 +48,10 @@ const searchQuery = ref('')
 const filterType = ref<'all' | 'free' | 'negative' | 'purchasable'>('all')
 const filterCategory = ref<QualityCategory | 'all'>('all')
 
+// For qualities with choices (sub-options)
+const pendingQuality = ref<QualityTemplate | null>(null)
+const showChoiceSelector = ref(false)
+
 // Get all purchasable categories for the dropdown
 const purchasableCategories = computed(() => {
   return getQualityCategories().filter(
@@ -143,15 +147,20 @@ const availableQualities = computed(() => {
 
 function selectQuality(template: QualityTemplate) {
   // Check if this quality already exists (for adding ranks)
-  const existingIndex = props.currentQualities.findIndex((q) => q.id === template.id)
+  const existingIndex = props.currentQualities.findIndex((q) => q.id === template.id && !template.choices)
 
   if (existingIndex >= 0) {
     // Add a rank
     const existing = props.currentQualities[existingIndex]
     const newRanks = (existing.ranks || 1) + 1
     emit('updateRanks', existingIndex, newRanks)
+    showSelector.value = false
+  } else if (template.choices && template.choices.length > 0) {
+    // Quality has choices - show choice selector
+    pendingQuality.value = template
+    showChoiceSelector.value = true
   } else {
-    // Add new quality
+    // Add new quality without choices
     const quality: Quality = {
       id: template.id,
       name: template.name,
@@ -162,8 +171,46 @@ function selectQuality(template: QualityTemplate) {
       ranks: 1,
     }
     emit('add', quality)
+    showSelector.value = false
   }
+}
+
+function selectChoice(template: QualityTemplate, choice: NonNullable<QualityTemplate['choices']>[0]) {
+  // Check if this specific choice already exists
+  const existingIndex = props.currentQualities.findIndex(
+    (q) => q.id === template.id && q.choiceId === choice.id
+  )
+
+  if (existingIndex >= 0) {
+    // Add a rank to existing choice
+    const existing = props.currentQualities[existingIndex]
+    const newRanks = (existing.ranks || 1) + 1
+    emit('updateRanks', existingIndex, newRanks)
+  } else {
+    // Add new quality with this choice
+    const quality: Quality = {
+      id: template.id,
+      name: template.name,
+      type: template.qualityType,
+      dpCost: choice.dpCost ?? template.dpCost,
+      description: template.description,
+      effect: choice.effect,
+      ranks: 1,
+      choiceId: choice.id,
+      choiceName: choice.name,
+    }
+    emit('add', quality)
+  }
+
+  // Reset choice selector
+  pendingQuality.value = null
+  showChoiceSelector.value = false
   showSelector.value = false
+}
+
+function cancelChoiceSelection() {
+  pendingQuality.value = null
+  showChoiceSelector.value = false
 }
 
 function getTypeColor(qualityType: QualityTypeTag) {
@@ -271,12 +318,15 @@ function getDisplayCostClass(quality: Quality): string {
     <div v-if="currentQualities.length > 0" class="space-y-2">
       <div
         v-for="(quality, index) in currentQualities"
-        :key="`${quality.id}-${index}`"
+        :key="`${quality.id}-${quality.choiceId || ''}-${index}`"
         class="bg-digimon-dark-700 rounded-lg p-3 flex justify-between items-start"
       >
         <div class="flex-1">
           <div class="flex items-center gap-2 flex-wrap">
             <span class="font-semibold text-white">{{ quality.name }}</span>
+            <span v-if="quality.choiceName" class="text-xs bg-cyan-900/30 text-cyan-400 px-2 py-0.5 rounded">
+              {{ quality.choiceName }}
+            </span>
             <span v-if="quality.ranks && quality.ranks > 1" class="text-xs text-digimon-dark-300">
               (Rank {{ quality.ranks }})
             </span>
@@ -405,6 +455,62 @@ function getDisplayCostClass(quality: Quality): string {
 
         <div v-if="availableQualities.length === 0" class="text-center py-4 text-digimon-dark-400">
           No qualities available
+        </div>
+      </div>
+
+      <!-- Choice Selector Modal -->
+      <div
+        v-if="showChoiceSelector && pendingQuality"
+        class="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
+        @click.self="cancelChoiceSelection"
+      >
+        <div class="bg-digimon-dark-800 border border-digimon-dark-600 rounded-lg p-6 max-w-lg w-full mx-4 max-h-[80vh] overflow-y-auto">
+          <div class="flex justify-between items-start mb-4">
+            <div>
+              <h4 class="font-semibold text-white text-lg">{{ pendingQuality.name }}</h4>
+              <p class="text-sm text-digimon-dark-400 mt-1">{{ pendingQuality.description }}</p>
+            </div>
+            <button
+              type="button"
+              class="text-digimon-dark-400 hover:text-white text-xl"
+              @click="cancelChoiceSelection"
+            >
+              ✕
+            </button>
+          </div>
+
+          <p class="text-sm text-cyan-400 mb-4">Select a sub-option:</p>
+
+          <div class="space-y-2">
+            <button
+              v-for="choice in pendingQuality.choices"
+              :key="choice.id"
+              type="button"
+              class="w-full text-left bg-digimon-dark-700 hover:bg-digimon-dark-600 border border-digimon-dark-600 hover:border-cyan-500/50 rounded-lg p-4 transition-colors"
+              @click="selectChoice(pendingQuality, choice)"
+            >
+              <div class="flex items-center gap-2 mb-2">
+                <span class="font-semibold text-white">{{ choice.name }}</span>
+                <span
+                  v-if="choice.dpCost !== undefined && choice.dpCost !== pendingQuality.dpCost"
+                  class="text-xs px-2 py-0.5 rounded bg-digimon-orange-900/30 text-digimon-orange-400"
+                >
+                  +{{ choice.dpCost }} DP
+                </span>
+              </div>
+              <p class="text-sm text-digimon-dark-300 whitespace-pre-line">{{ choice.effect }}</p>
+            </button>
+          </div>
+
+          <div class="mt-4 pt-4 border-t border-digimon-dark-600">
+            <button
+              type="button"
+              class="w-full bg-digimon-dark-700 hover:bg-digimon-dark-600 text-digimon-dark-300 rounded-lg py-2 transition-colors"
+              @click="cancelChoiceSelection"
+            >
+              Cancel
+            </button>
+          </div>
         </div>
       </div>
     </div>

@@ -154,13 +154,17 @@ export interface DigimonBaseStats {
 }
 
 export interface DigimonDerivedStats {
-  agility: number         // Accuracy + Dodge (for Initiative)
-  body: number            // (Damage + Armor + Health) / 3
-  woundBoxes: number      // Health + Stage Wound Bonus
-  ram: number             // Agility / 2 (Range/Area/Movement)
-  cpu: number             // Body / 2 (Power/Clash)
-  bit: number             // Brains from Stage (Effect duration)
-  movement: number        // From Stage + modifiers
+  // Primary Derived Stats (page 111)
+  brains: number          // (Accuracy / 2) + Brains Bonus
+  body: number            // ((Health + Damage + Armor) / 3) + Size Bonus
+  agility: number         // ((Accuracy + Dodge) / 2) + Size Bonus
+  woundBoxes: number      // Health + Wound Box Bonus
+  // Spec Values (page 111)
+  bit: number             // (Brains / 10) + Stage Bonus
+  cpu: number             // (Body / 10) + Stage Bonus
+  ram: number             // (Agility / 10) + Stage Bonus
+  // Movement
+  movement: number        // Base Movement from Stage + modifiers
 }
 
 export interface Attack {
@@ -307,19 +311,29 @@ export function calculateTamerDerivedStats(
 
 export function calculateDigimonDerivedStats(
   baseStats: DigimonBaseStats,
-  stage: DigimonStage
+  stage: DigimonStage,
+  sizeBonus: number = 0
 ): DigimonDerivedStats {
   const config = STAGE_CONFIG[stage]
-  const agility = baseStats.accuracy + baseStats.dodge
-  const body = Math.floor((baseStats.damage + baseStats.armor + baseStats.health) / 3)
+
+  // Primary Derived Stats (page 111) - always round down
+  const brains = Math.floor(baseStats.accuracy / 2) + config.brains
+  const body = Math.floor((baseStats.health + baseStats.damage + baseStats.armor) / 3) + sizeBonus
+  const agility = Math.floor((baseStats.accuracy + baseStats.dodge) / 2) + sizeBonus
+
+  // Spec Values (page 111) - derived from derived stats
+  const bit = Math.floor(brains / 10) + config.stageBonus
+  const cpu = Math.floor(body / 10) + config.stageBonus
+  const ram = Math.floor(agility / 10) + config.stageBonus
 
   return {
-    agility,
+    brains,
     body,
+    agility,
     woundBoxes: baseStats.health + config.woundBonus,
-    ram: Math.floor(agility / 2),
-    cpu: Math.floor(body / 2),
-    bit: config.brains,
+    bit,
+    cpu,
+    ram,
     movement: config.movement,
   }
 }
