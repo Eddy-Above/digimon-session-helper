@@ -156,10 +156,18 @@ function getFullQualityStatus(template: QualityTemplate): { canSelect: boolean; 
       reasons.push('Can only select one option')
     }
   } else {
-    // For non-exclusive choices (like Area Attack), can take one of each
-    const takenChoices = props.currentQualities.filter((cq) => cq.id === template.id).map((cq) => cq.choiceId)
-    const availableChoices = template.choices.filter((c) => !takenChoices.includes(c.id))
-    if (availableChoices.length === 0) {
+    // For non-exclusive choices, check both:
+    // 1. Can't pick the same choice twice
+    // 2. Total choices can't exceed maxRanks
+    const takenChoices = props.currentQualities.filter((cq) => cq.id === template.id)
+    const takenChoiceIds = takenChoices.map((cq) => cq.choiceId)
+    const availableChoices = template.choices.filter((c) => !takenChoiceIds.includes(c.id))
+    const maxRanks = getMaxRanksAtStage(template, props.stage)
+
+    if (takenChoices.length >= maxRanks) {
+      // Already at max ranks (e.g., Naturewalk: 2 elements max)
+      reasons.push(`Already at max (${maxRanks} choices)`)
+    } else if (availableChoices.length === 0) {
       reasons.push('All options already selected')
     }
   }
@@ -369,6 +377,14 @@ function getQualityMaxRanks(quality: Quality): number {
 function qualityHasSingleRankPerChoice(quality: Quality): boolean {
   const template = getCurrentQualityTemplate(quality)
   return template?.singleRankPerChoice === true
+}
+
+// Check if a quality with choices has reached its max ranks (total choices)
+function isAtMaxChoices(template: QualityTemplate): boolean {
+  if (!template.choices || template.choices.length === 0) return false
+  const takenCount = props.currentQualities.filter((q) => q.id === template.id).length
+  const maxRanks = getMaxRanksAtStage(template, props.stage)
+  return takenCount >= maxRanks
 }
 
 // Check if a choice's prerequisites are met (for Data Specialization tree validation)
@@ -621,6 +637,13 @@ function isChoicePrereqMet(choice: NonNullable<QualityTemplate['choices']>[0]): 
 
           <p class="text-sm text-cyan-400 mb-4">Select a sub-option:</p>
 
+          <!-- Show max reached message if applicable -->
+          <div v-if="pendingQuality && isAtMaxChoices(pendingQuality)" class="mb-4 p-3 bg-yellow-900/20 border border-yellow-600/30 rounded-lg">
+            <p class="text-sm text-yellow-400">
+              Maximum choices reached ({{ getMaxRanksAtStage(pendingQuality, stage) }})
+            </p>
+          </div>
+
           <div class="space-y-2">
             <template v-for="choice in pendingQuality?.choices" :key="choice.id">
               <!-- Check if this choice is already taken -->
@@ -651,6 +674,22 @@ function isChoicePrereqMet(choice: NonNullable<QualityTemplate['choices']>[0]): 
                   <p class="text-xs text-red-400 mt-2">
                     Requires: {{ isChoicePrereqMet(choice).missing.join(', ') }}
                   </p>
+                </div>
+              </template>
+              <!-- Check if max choices reached (for qualities like Naturewalk with maxRanks limit) -->
+              <template v-else-if="pendingQuality && isAtMaxChoices(pendingQuality)">
+                <!-- Max choices reached -->
+                <div class="w-full text-left bg-digimon-dark-800 border border-digimon-dark-700 rounded-lg p-4 opacity-50">
+                  <div class="flex items-center gap-2 mb-2">
+                    <span class="font-semibold text-digimon-dark-400">{{ choice.name }}</span>
+                    <span
+                      v-if="choice.dpCost !== undefined && choice.dpCost !== pendingQuality?.dpCost"
+                      class="text-xs px-2 py-0.5 rounded bg-digimon-dark-700 text-digimon-dark-500"
+                    >
+                      +{{ choice.dpCost }} DP
+                    </span>
+                  </div>
+                  <p class="text-sm text-digimon-dark-500 whitespace-pre-line">{{ choice.effect }}</p>
                 </div>
               </template>
               <!-- Available choice -->
