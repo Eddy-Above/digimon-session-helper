@@ -1005,6 +1005,7 @@ async function handleSubmit() {
           :current-attacks="form.attacks || []"
           :current-qualities="form.qualities || []"
           :base-stats="form.baseStats"
+          :data-optimization="form.dataOptimization"
           @add="handleAddAttack"
           @remove="removeAttack"
         />

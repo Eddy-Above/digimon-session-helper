@@ -33,6 +33,7 @@ interface Props {
   currentAttacks: Attack[]
   currentQualities?: Quality[]
   baseStats?: BaseStats
+  dataOptimization?: string
 }
 
 const props = defineProps<Props>()
@@ -209,7 +210,7 @@ function getTypeColor(type: 'damage' | 'support') {
   return type === 'damage' ? 'bg-orange-900/30 text-orange-400' : 'bg-green-900/30 text-green-400'
 }
 
-// Calculate attack stats based on base stats and tags
+// Calculate attack stats based on base stats, data optimization, and tags
 function getAttackStats(attack: Attack) {
   const baseAccuracy = props.baseStats?.accuracy ?? 0
   const baseDamage = props.baseStats?.damage ?? 0
@@ -217,6 +218,20 @@ function getAttackStats(attack: Attack) {
   let damageBonus = 0
   let accuracyBonus = 0
   let notes: string[] = []
+
+  // Data Optimization bonuses
+  if (props.dataOptimization === 'close-combat') {
+    if (attack.range === 'melee') {
+      accuracyBonus += 2
+    } else if (attack.range === 'ranged') {
+      accuracyBonus -= 1
+    }
+  } else if (props.dataOptimization === 'ranged-striker') {
+    if (attack.range === 'ranged') {
+      accuracyBonus += 2
+    }
+    // Note: -1 Dodge vs Melee doesn't affect attack accuracy
+  }
 
   for (const tag of attack.tags) {
     // Weapon I/II/III adds +1/+2/+3 damage
