@@ -346,20 +346,8 @@ function getAttackStats(attack: Attack) {
       accuracyBonus += 2
     }
 
-    // Armor Piercing - note it ignores armor
-    if (tag.startsWith('Armor Piercing')) {
-      notes.push('Ignores Armor')
-    }
-
-    // Charge Attack - doubles damage
-    if (tag.startsWith('Charge Attack')) {
-      notes.push('2× DMG (Complex)')
-    }
-
-    // Mighty Blow - stun on high damage
-    if (tag.startsWith('Mighty Blow')) {
-      notes.push('Stun on hit')
-    }
+    // Note: Tags like Armor Piercing, Charge Attack, Mighty Blow are visible
+    // in the tags section below, so we don't duplicate them as notes
   }
 
   return {
