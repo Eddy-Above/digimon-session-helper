@@ -221,13 +221,34 @@ const availableAttackTags = computed(() => {
       const hasPoison = currentTags.some((t) => t.includes('Poison'))
       const hasHazard = currentTags.some((t) => t.includes('Hazard'))
       const hasRevitalize = currentTags.some((t) => t.includes('Revitalize'))
-      const blocked = alreadyUsed || hasPoison || hasHazard || hasRevitalize
+      const hasAmmo = currentTags.some((t) => t.includes('Ammo'))
+      const blocked = alreadyUsed || hasPoison || hasHazard || hasRevitalize || hasAmmo
       tags.push({
         id: 'signature-move',
         name: 'Signature Move',
         description: 'Powerful attack (available Round 3+, 2 round cooldown)',
         disabled: blocked,
-        disabledReason: alreadyUsed ? 'Already used on another attack' : blocked ? 'Cannot combine with Poison, Hazard, or Revitalize' : undefined,
+        disabledReason: alreadyUsed ? 'Already used on another attack' : blocked ? 'Cannot combine with Poison, Hazard, Revitalize, or Ammo' : undefined,
+      })
+    }
+
+    // Ammo - requires 3 tags total (including free Damage/Support + Melee/Ranged), cannot combine with Signature Move
+    if (quality.id === 'ammo') {
+      const alreadyUsed = isTagAlreadyUsed('ammo')
+      const hasSignature = currentTags.some((t) => t.includes('Signature Move'))
+      // Need at least 1 other quality-based tag (since Damage/Support and Melee/Ranged are free)
+      const hasEnoughTags = currentTags.length >= 1
+      const blocked = alreadyUsed || hasSignature || !hasEnoughTags
+      let reason: string | undefined
+      if (alreadyUsed) reason = 'Already used on another attack'
+      else if (hasSignature) reason = 'Cannot combine with Signature Move'
+      else if (!hasEnoughTags) reason = 'Requires at least 1 other tag first'
+      tags.push({
+        id: 'ammo',
+        name: 'Ammo',
+        description: 'Use attack up to 5 times consecutively (then unavailable for battle)',
+        disabled: blocked,
+        disabledReason: reason,
       })
     }
 
