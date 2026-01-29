@@ -210,7 +210,7 @@ function getTypeColor(type: 'damage' | 'support') {
   return type === 'damage' ? 'bg-orange-900/30 text-orange-400' : 'bg-green-900/30 text-green-400'
 }
 
-// Calculate attack stats based on base stats, data optimization, and tags
+// Calculate attack stats based on base stats, data optimization, qualities, and tags
 function getAttackStats(attack: Attack) {
   const baseAccuracy = props.baseStats?.accuracy ?? 0
   const baseDamage = props.baseStats?.damage ?? 0
@@ -218,6 +218,9 @@ function getAttackStats(attack: Attack) {
   let damageBonus = 0
   let accuracyBonus = 0
   let notes: string[] = []
+
+  // Helper to check if Digimon has a quality
+  const hasQuality = (id: string) => props.currentQualities?.some(q => q.id === id)
 
   // Data Optimization bonuses
   if (props.dataOptimization === 'close-combat') {
@@ -230,17 +233,34 @@ function getAttackStats(attack: Attack) {
     if (attack.range === 'ranged') {
       accuracyBonus += 2
     }
-    // Note: -1 Dodge vs Melee doesn't affect attack accuracy
+  }
+
+  // Data Specialization bonuses from qualities
+  // Mobile Artillery: Add CPU to [Area] attack damage
+  if (hasQuality('mobile-artillery')) {
+    const hasAreaTag = attack.tags.some(t => t.toLowerCase().includes('area'))
+    if (hasAreaTag) {
+      notes.push('+CPU DMG (Area)')
+    }
+  }
+
+  // Hit and Run: [Charge] attacks add RAM to Damage
+  if (hasQuality('hit-and-run')) {
+    const hasChargeTag = attack.tags.some(t => t.toLowerCase().includes('charge'))
+    if (hasChargeTag) {
+      notes.push('+RAM DMG (Charge)')
+    }
   }
 
   for (const tag of attack.tags) {
-    // Weapon I/II/III adds +1/+2/+3 damage
+    // Weapon I/II/III adds +Rank to Accuracy AND Damage
     const weaponMatch = tag.match(/^Weapon\s+(\d+|I{1,3}|IV|V)$/i)
     if (weaponMatch) {
       const rankStr = weaponMatch[1]
       const romanMap: Record<string, number> = { 'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5 }
       const rank = romanMap[rankStr.toUpperCase()] || parseInt(rankStr) || 1
       damageBonus += rank
+      accuracyBonus += rank // Weapon also adds to accuracy!
     }
 
     // Certain Strike adds accuracy
