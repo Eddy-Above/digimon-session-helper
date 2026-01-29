@@ -72,16 +72,23 @@ const currentNegativeDP = computed(() => {
 })
 
 const currentPurchasableDP = computed(() => {
-  return props.currentQualities
-    .filter((q) => {
-      const template = QUALITY_DATABASE.find((t) => t.id === q.id)
-      return template?.type === 'purchasable'
-    })
-    .reduce((sum, q) => {
-      const template = QUALITY_DATABASE.find((t) => t.id === q.id)
-      if (!template) return sum + (q.dpCost * (q.ranks || 1))
-      return sum + getEffectiveDPCost(template, q.ranks || 1, q.dpCost)
-    }, 0)
+  const purchasableQualities = props.currentQualities.filter((q) => {
+    const template = QUALITY_DATABASE.find((t) => t.id === q.id)
+    return template?.type === 'purchasable'
+  })
+
+  // Track which quality IDs we've seen to determine "first of type"
+  const seenIds = new Set<string>()
+
+  return purchasableQualities.reduce((sum, q) => {
+    const template = QUALITY_DATABASE.find((t) => t.id === q.id)
+    if (!template) return sum + (q.dpCost * (q.ranks || 1))
+
+    const isFirstOfType = !seenIds.has(q.id)
+    seenIds.add(q.id)
+
+    return sum + getEffectiveDPCost(template, q.ranks || 1, q.dpCost, props.stage, isFirstOfType)
+  }, 0)
 })
 
 const hasFreeQuality = computed(() => {
@@ -293,6 +300,11 @@ function getCostDisplay(template: QualityTemplate) {
   if (template.type === 'free') return 'Free'
   if (template.type === 'negative') return `${template.dpCost} DP`
   if (template.freeFirstRank) return `Free 1st, +${template.dpCost}/rank`
+  if (template.firstRankDiscountAtStage) {
+    const { stage: discountStage, discount } = template.firstRankDiscountAtStage
+    const stageName = discountStage.charAt(0).toUpperCase() + discountStage.slice(1)
+    return `+${template.dpCost} DP (${stageName}+: -${discount})`
+  }
   return `+${template.dpCost} DP`
 }
 
@@ -319,7 +331,7 @@ function getCurrentQualityTemplate(quality: Quality): QualityTemplate | undefine
   return QUALITY_DATABASE.find((t) => t.id === quality.id)
 }
 
-function getDisplayCost(quality: Quality): string {
+function getDisplayCost(quality: Quality, index?: number): string {
   const template = getCurrentQualityTemplate(quality)
   if (!template) return `${quality.dpCost} DP`
 
@@ -328,7 +340,13 @@ function getDisplayCost(quality: Quality): string {
     const total = Math.abs(quality.dpCost) * (quality.ranks || 1)
     return `-${total} DP`
   }
-  const total = getEffectiveDPCost(template, quality.ranks || 1, quality.dpCost)
+
+  // Check if this is the first instance of this quality for stage-based discount
+  const isFirstOfType = index !== undefined
+    ? props.currentQualities.findIndex((q) => q.id === quality.id) === index
+    : true
+
+  const total = getEffectiveDPCost(template, quality.ranks || 1, quality.dpCost, props.stage, isFirstOfType)
   if (total === 0) return 'Free'
   return `+${total} DP`
 }
@@ -439,7 +457,7 @@ function isChoicePrereqMet(choice: NonNullable<QualityTemplate['choices']>[0]): 
               </span>
             </template>
             <span :class="['text-xs px-2 py-0.5 rounded', getDisplayCostClass(quality)]">
-              {{ getDisplayCost(quality) }}
+              {{ getDisplayCost(quality, index) }}
             </span>
           </div>
           <p class="text-sm text-digimon-dark-400 mt-1">{{ quality.description }}</p>

@@ -72,6 +72,7 @@ export interface QualityTemplate {
   exclusiveOnSameAttackWith?: string[] // IDs of qualities that can't be on same attack (unless Signature Move)
   requiresGMApproval?: boolean // Some qualities need GM approval
   freeFirstRank?: boolean // First rank is free, subsequent ranks cost dpCost
+  firstRankDiscountAtStage?: { stage: DigimonStage; discount: number } // Discount on first rank at certain stage+
 }
 
 export const QUALITY_DATABASE: QualityTemplate[] = [
@@ -536,6 +537,7 @@ Rank 2 (requires Avoidance): After Agility and Avoidance trigger, must reroll al
     dpCost: 1,
     maxRanks: 5,
     prerequisites: [],
+    firstRankDiscountAtStage: { stage: 'champion', discount: 1 }, // Champion+ gets 1 DP discount
     description: 'Gain a new movement type. Champion+ gets 1 DP discount on first rank.',
     effect: `Choose a movement type. Move in that terrain at Speed score.`,
     choices: [
@@ -992,7 +994,7 @@ Rank 2 (requires Avoidance): After Agility and Avoidance trigger, must reroll al
     dpCost: 2,
     maxRanks: 1,
     prerequisites: ['Combat Monster'],
-    exclusiveWith: ['berserker', 'gain-force-overwrite', 'undying-inforce'],
+    exclusiveWith: ['berserker', 'overwrite', 'undying-inforce'],
     description: 'Guard stance when low HP.',
     effect: `Below ½ Wound Boxes: Take [Brave Stance] as Simple Action. [Guard] (Simple): Armor ×1.5, Movement -Stage Bonus. If healed above ½, return to Neutral Stance.`,
   },
@@ -2240,7 +2242,13 @@ export function getMaxRanksAtStage(quality: QualityTemplate, stage: DigimonStage
 
 // Calculate effective DP cost for a quality at a given rank
 // Accounts for freeFirstRank (e.g., Naturewalk: first rank free, second costs 1 DP)
-export function getEffectiveDPCost(quality: QualityTemplate, ranks: number, choiceDpCost?: number): number {
+export function getEffectiveDPCost(
+  quality: QualityTemplate,
+  ranks: number,
+  choiceDpCost?: number,
+  stage?: DigimonStage,
+  isFirstOfType?: boolean
+): number {
   const baseCost = choiceDpCost ?? quality.dpCost
 
   if (quality.freeFirstRank) {
@@ -2249,8 +2257,17 @@ export function getEffectiveDPCost(quality: QualityTemplate, ranks: number, choi
     return Math.max(0, ranks - 1) * baseCost
   }
 
-  // Standard pricing: dpCost per rank
-  return ranks * baseCost
+  let totalCost = ranks * baseCost
+
+  // Apply stage-based discount on first rank (e.g., Extra Movement at Champion+)
+  if (quality.firstRankDiscountAtStage && stage && isFirstOfType) {
+    const { stage: discountStage, discount } = quality.firstRankDiscountAtStage
+    if (compareStages(stage, discountStage) >= 0) {
+      totalCost = Math.max(0, totalCost - discount)
+    }
+  }
+
+  return totalCost
 }
 
 // Check if prerequisites are met
