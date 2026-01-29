@@ -1,11 +1,19 @@
 <script setup lang="ts">
-import { QUALITY_DATABASE, getFreeQualities, getNegativeQualities, getMaxNegativeDP, type QualityTemplate } from '../data/qualities'
+import {
+  QUALITY_DATABASE,
+  getFreeQualities,
+  getNegativeQualities,
+  getMaxNegativeDP,
+  getQualityTypeTags,
+  type QualityTemplate,
+  type QualityTypeTag,
+} from '../data/qualities'
 import type { DigimonStage } from '../types'
 
 interface Quality {
   id: string
   name: string
-  type: 'static' | 'trigger' | 'attack'
+  type: QualityTypeTag | QualityTypeTag[]
   dpCost: number
   description: string
   effect: string
@@ -96,7 +104,7 @@ function selectQuality(template: QualityTemplate) {
   showSelector.value = false
 }
 
-function getTypeColor(qualityType: string) {
+function getTypeColor(qualityType: QualityTypeTag) {
   switch (qualityType) {
     case 'static':
       return 'bg-blue-900/30 text-blue-400'
@@ -110,9 +118,17 @@ function getTypeColor(qualityType: string) {
 }
 
 function getCategoryColor(type: 'free' | 'negative') {
-  return type === 'free'
-    ? 'bg-green-900/30 text-green-400'
-    : 'bg-purple-900/30 text-purple-400'
+  return type === 'free' ? 'bg-green-900/30 text-green-400' : 'bg-purple-900/30 text-purple-400'
+}
+
+function formatQualityTypes(qualityType: QualityTypeTag | QualityTypeTag[]): string {
+  const tags = getQualityTypeTags(qualityType)
+  return tags.map((t) => t.charAt(0).toUpperCase()).join(', ')
+}
+
+function getQualityTypeLabel(qualityType: QualityTypeTag | QualityTypeTag[]): string {
+  const tags = getQualityTypeTags(qualityType)
+  return tags.join(', ')
 }
 </script>
 
@@ -128,9 +144,7 @@ function getCategoryColor(type: 'free' | 'negative') {
       </div>
       <div>
         <span class="text-digimon-dark-400">Negative DP:</span>
-        <span class="text-purple-400 ml-1">
-          {{ Math.abs(currentNegativeDP) }}/{{ maxNegativeDP }}
-        </span>
+        <span class="text-purple-400 ml-1"> {{ Math.abs(currentNegativeDP) }}/{{ maxNegativeDP }} </span>
       </div>
     </div>
 
@@ -144,13 +158,15 @@ function getCategoryColor(type: 'free' | 'negative') {
         <div class="flex-1">
           <div class="flex items-center gap-2 flex-wrap">
             <span class="font-semibold text-white">{{ quality.name }}</span>
-            <span :class="['text-xs px-2 py-0.5 rounded uppercase', getTypeColor(quality.type)]">
-              {{ quality.type }}
-            </span>
+            <template v-for="tag in getQualityTypeTags(quality.type)" :key="tag">
+              <span :class="['text-xs px-2 py-0.5 rounded uppercase', getTypeColor(tag)]">
+                {{ tag }}
+              </span>
+            </template>
             <span
               :class="[
                 'text-xs px-2 py-0.5 rounded',
-                quality.dpCost === 0 ? 'bg-green-900/30 text-green-400' : 'bg-purple-900/30 text-purple-400'
+                quality.dpCost === 0 ? 'bg-green-900/30 text-green-400' : 'bg-purple-900/30 text-purple-400',
               ]"
             >
               {{ quality.dpCost === 0 ? 'Free' : `${quality.dpCost} DP` }}
@@ -159,11 +175,7 @@ function getCategoryColor(type: 'free' | 'negative') {
           <p class="text-sm text-digimon-dark-400 mt-1">{{ quality.description }}</p>
           <p class="text-xs text-digimon-dark-300 mt-2 whitespace-pre-line">{{ quality.effect }}</p>
         </div>
-        <button
-          type="button"
-          class="text-red-400 hover:text-red-300 text-sm ml-2"
-          @click="emit('remove', index)"
-        >
+        <button type="button" class="text-red-400 hover:text-red-300 text-sm ml-2" @click="emit('remove', index)">
           Remove
         </button>
       </div>
@@ -173,9 +185,7 @@ function getCategoryColor(type: 'free' | 'negative') {
     <div v-if="!showSelector">
       <button
         type="button"
-        class="w-full border-2 border-dashed border-digimon-dark-600 rounded-lg p-4
-               text-digimon-dark-400 hover:border-digimon-dark-500 hover:text-digimon-dark-300
-               transition-colors"
+        class="w-full border-2 border-dashed border-digimon-dark-600 rounded-lg p-4 text-digimon-dark-400 hover:border-digimon-dark-500 hover:text-digimon-dark-300 transition-colors"
         @click="showSelector = true"
       >
         + Add Quality
@@ -186,11 +196,7 @@ function getCategoryColor(type: 'free' | 'negative') {
     <div v-else class="border border-digimon-dark-600 rounded-lg p-4 bg-digimon-dark-750">
       <div class="flex justify-between items-center mb-4">
         <h4 class="font-semibold text-white">Select Quality</h4>
-        <button
-          type="button"
-          class="text-digimon-dark-400 hover:text-white"
-          @click="showSelector = false"
-        >
+        <button type="button" class="text-digimon-dark-400 hover:text-white" @click="showSelector = false">
           ✕
         </button>
       </div>
@@ -201,13 +207,11 @@ function getCategoryColor(type: 'free' | 'negative') {
           v-model="searchQuery"
           type="text"
           placeholder="Search qualities..."
-          class="flex-1 bg-digimon-dark-700 border border-digimon-dark-600 rounded px-3 py-2
-                 text-white text-sm focus:border-digimon-orange-500 focus:outline-none"
+          class="flex-1 bg-digimon-dark-700 border border-digimon-dark-600 rounded px-3 py-2 text-white text-sm focus:border-digimon-orange-500 focus:outline-none"
         />
         <select
           v-model="filterType"
-          class="bg-digimon-dark-700 border border-digimon-dark-600 rounded px-3 py-2
-                 text-white text-sm focus:border-digimon-orange-500 focus:outline-none"
+          class="bg-digimon-dark-700 border border-digimon-dark-600 rounded px-3 py-2 text-white text-sm focus:border-digimon-orange-500 focus:outline-none"
         >
           <option value="all">All Types</option>
           <option value="free">Free (0 DP)</option>
@@ -221,14 +225,13 @@ function getCategoryColor(type: 'free' | 'negative') {
           v-for="quality in availableQualities"
           :key="quality.id"
           type="button"
-          class="w-full text-left bg-digimon-dark-700 hover:bg-digimon-dark-600 rounded-lg p-3
-                 transition-colors"
+          class="w-full text-left bg-digimon-dark-700 hover:bg-digimon-dark-600 rounded-lg p-3 transition-colors"
           @click="selectQuality(quality)"
         >
           <div class="flex items-center gap-2 flex-wrap">
             <span class="font-semibold text-white">{{ quality.name }}</span>
-            <span :class="['text-xs px-2 py-0.5 rounded uppercase', getTypeColor(quality.qualityType)]">
-              {{ quality.qualityType }}
+            <span class="text-xs px-2 py-0.5 rounded uppercase bg-digimon-dark-600 text-digimon-dark-300">
+              [{{ formatQualityTypes(quality.qualityType) }}]
             </span>
             <span :class="['text-xs px-2 py-0.5 rounded', getCategoryColor(quality.type)]">
               {{ quality.type === 'free' ? 'Free' : `${quality.dpCost} DP` }}
