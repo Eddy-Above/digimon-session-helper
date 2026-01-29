@@ -392,8 +392,45 @@ function handleAddQuality(quality: Quality) {
   form.qualities = [...(form.qualities || []), quality]
 }
 
+// Map quality ID to tag pattern for attack filtering
+function getTagPatternForQuality(qualityId: string): string | null {
+  const patterns: Record<string, string> = {
+    'weapon': 'Weapon',
+    'armor-piercing': 'Armor Piercing',
+    'certain-strike': 'Certain Strike',
+    'charge-attack': 'Charge Attack',
+    'mighty-blow': 'Mighty Blow',
+    'signature-move': 'Signature Move',
+    'ammo': 'Ammo',
+    'area-attack': 'Area Attack',
+  }
+  return patterns[qualityId] || null
+}
+
 function removeQuality(index: number) {
+  const qualityToRemove = form.qualities?.[index]
+  if (!qualityToRemove) return
+
+  // Remove the quality
   form.qualities = form.qualities?.filter((_, i) => i !== index) || []
+
+  // Remove attacks that use tags from this quality
+  const tagPattern = getTagPatternForQuality(qualityToRemove.id)
+  if (tagPattern) {
+    form.attacks = form.attacks?.filter((attack) => {
+      // Check if any tag starts with the pattern
+      const hasTag = attack.tags.some((t) => t.startsWith(tagPattern))
+      return !hasTag
+    }) || []
+  }
+
+  // If it's an effect quality, remove attacks that use this effect
+  if (qualityToRemove.id.startsWith('effect-')) {
+    const effectName = qualityToRemove.name
+    form.attacks = form.attacks?.filter((attack) => {
+      return attack.effect !== effectName
+    }) || []
+  }
 }
 
 // Sprite preview
