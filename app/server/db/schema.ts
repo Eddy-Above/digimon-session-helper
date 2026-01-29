@@ -89,7 +89,7 @@ export const digimon = sqliteTable('digimon', {
 
   attribute: text('attribute').notNull().$type<'vaccine' | 'data' | 'virus' | 'free'>(),
   family: text('family').notNull(),
-  type: text('type').notNull(), // e.g., "Dinosaur", "Dragon"
+  type: text('type'), // e.g., "Dinosaur", "Dragon" - optional
   size: text('size').notNull().default('medium').$type<
     'tiny' | 'small' | 'medium' | 'large' | 'huge' | 'gigantic'
   >(),

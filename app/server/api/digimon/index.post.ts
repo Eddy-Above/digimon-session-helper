@@ -13,7 +13,7 @@ interface CreateDigimonBody {
   stage: DigimonStage
   attribute: DigimonAttribute
   family: string
-  type: string
+  type?: string
   size?: DigimonSize
   baseStats: {
     accuracy: number
@@ -79,7 +79,7 @@ export default defineEventHandler(async (event) => {
     stage: body.stage,
     attribute: body.attribute,
     family: body.family,
-    type: body.type,
+    type: body.type || null,
     size: body.size || 'medium',
     baseStats: body.baseStats,
     attacks: body.attacks || [],

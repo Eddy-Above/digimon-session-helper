@@ -597,7 +597,7 @@ onMounted(async () => {
     form.stage = fetched.stage as DigimonStage
     form.attribute = fetched.attribute
     form.family = (fetched.family as DigimonFamily) || 'nature-spirits'
-    form.type = fetched.type
+    form.type = fetched.type || ''
     form.size = (fetched.size as DigimonSize) || 'medium'
     Object.assign(form.baseStats, fetched.baseStats)
     form.attacks = [...(fetched.attacks || [])]
@@ -619,7 +619,7 @@ async function handleSubmit() {
     stage: form.stage,
     attribute: form.attribute,
     family: form.family,
-    type: form.type,
+    type: form.type || undefined,
     size: form.size,
     baseStats: { ...form.baseStats },
     attacks: [...form.attacks],
