@@ -245,12 +245,12 @@ function selectChoice(template: QualityTemplate, choice: NonNullable<QualityTemp
     (q) => q.id === template.id && q.choiceId === choice.id
   )
 
-  if (existingIndex >= 0) {
-    // Add a rank to existing choice
+  if (existingIndex >= 0 && !template.singleRankPerChoice) {
+    // Add a rank to existing choice (only if not singleRankPerChoice)
     const existing = props.currentQualities[existingIndex]
     const newRanks = (existing.ranks || 1) + 1
     emit('updateRanks', existingIndex, newRanks)
-  } else {
+  } else if (existingIndex < 0) {
     // Add new quality with this choice
     const quality: Quality = {
       id: template.id,
@@ -366,6 +366,11 @@ function getQualityMaxRanks(quality: Quality): number {
   return getMaxRanksAtStage(template, props.stage)
 }
 
+function qualityHasSingleRankPerChoice(quality: Quality): boolean {
+  const template = getCurrentQualityTemplate(quality)
+  return template?.singleRankPerChoice === true
+}
+
 // Check if a choice's prerequisites are met (for Data Specialization tree validation)
 // For example, "Fistful of Force" requires Data Optimization: Close Combat
 function isChoicePrereqMet(choice: NonNullable<QualityTemplate['choices']>[0]): { met: boolean; missing: string[] } {
@@ -427,8 +432,8 @@ function isChoicePrereqMet(choice: NonNullable<QualityTemplate['choices']>[0]): 
             <span v-if="quality.choiceName" class="text-xs bg-cyan-900/30 text-cyan-400 px-2 py-0.5 rounded">
               {{ quality.choiceName }}
             </span>
-            <!-- Rank controls for multi-rank qualities -->
-            <template v-if="getQualityMaxRanks(quality) > 1">
+            <!-- Rank controls for multi-rank qualities (not for singleRankPerChoice like Naturewalk) -->
+            <template v-if="getQualityMaxRanks(quality) > 1 && !qualityHasSingleRankPerChoice(quality)">
               <div class="flex items-center gap-1">
                 <button
                   type="button"

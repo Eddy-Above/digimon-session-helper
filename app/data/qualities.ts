@@ -67,6 +67,7 @@ export interface QualityTemplate {
   maxRanksByStage?: Partial<Record<DigimonStage, number>> // Stage-limited rank caps
   choices?: QualityChoice[] // Sub-options (e.g., Data Optimization options)
   exclusiveChoices?: boolean // If true, can only take ONE choice total (not one of each)
+  singleRankPerChoice?: boolean // If true, each choice can only be taken once (no ranks per individual choice)
   limitedTag?: boolean // [LIMITED] - can only apply to one attack
   exclusiveWith?: string[] // IDs of mutually exclusive qualities
   exclusiveOnSameAttackWith?: string[] // IDs of qualities that can't be on same attack (unless Signature Move)
@@ -1147,6 +1148,7 @@ Rank 2 (requires Avoidance): After Agility and Avoidance trigger, must reroll al
     dpCost: 1, // 1 DP per rank after first
     freeFirstRank: true, // First rank is free
     maxRanks: 2,
+    singleRankPerChoice: true, // Each element can only be taken once
     prerequisites: [],
     description: 'At home in certain terrain. First rank free.',
     effect: `Choose an Element. No difficult terrain penalty in that environment. Element-specific bonuses (Fire: +2 Damage, can't be Burned; Water: breathe underwater, +2 Temp WB with Adv Swimmer; etc.).`,
