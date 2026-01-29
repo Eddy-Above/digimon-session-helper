@@ -219,10 +219,42 @@ function getAttackStats(attack: Attack) {
   let accuracyBonus = 0
   let notes: string[] = []
 
-  // Helper to check if Digimon has a quality
+  // Helper to check if Digimon has a quality and get its ranks
   const hasQuality = (id: string) => props.currentQualities?.some(q => q.id === id)
+  const getQualityRanks = (id: string) => props.currentQualities?.find(q => q.id === id)?.ranks ?? 1
 
-  // Data Optimization bonuses
+  // Check if attack has a specific tag
+  const hasTag = (pattern: string) => attack.tags.some(t => t.toLowerCase().includes(pattern.toLowerCase()))
+  const hasWeaponTag = attack.tags.some(t => /^Weapon\s+/i.test(t))
+  const hasSignatureTag = attack.tags.some(t => t.toLowerCase().includes('signature'))
+
+  // === GLOBAL QUALITY BONUSES (apply to all attacks) ===
+
+  // True Guardian: -2 Accuracy (global penalty)
+  if (hasQuality('true-guardian')) {
+    accuracyBonus -= 2
+  }
+
+  // Huge Power: Reroll 1s on Accuracy
+  if (hasQuality('huge-power')) {
+    if (attack.range === 'melee') {
+      notes.push('Reroll 1s')
+    } else {
+      notes.push('Reroll 1s (1/round)')
+    }
+  }
+
+  // Overkill: Reroll 2s on Accuracy (once per round)
+  if (hasQuality('overkill')) {
+    notes.push('Reroll 2s (1/round)')
+  }
+
+  // Aggressive Flank: +RAM to Accuracy when near allies
+  if (hasQuality('aggressive-flank')) {
+    notes.push('+RAM ACC (near ally)')
+  }
+
+  // === DATA OPTIMIZATION BONUSES ===
   if (props.dataOptimization === 'close-combat') {
     if (attack.range === 'melee') {
       accuracyBonus += 2
@@ -235,23 +267,64 @@ function getAttackStats(attack: Attack) {
     }
   }
 
-  // Data Specialization bonuses from qualities
+  // === DATA SPECIALIZATION BONUSES ===
+
   // Mobile Artillery: Add CPU to [Area] attack damage
-  if (hasQuality('mobile-artillery')) {
-    const hasAreaTag = attack.tags.some(t => t.toLowerCase().includes('area'))
-    if (hasAreaTag) {
-      notes.push('+CPU DMG (Area)')
-    }
+  if (hasQuality('mobile-artillery') && hasTag('area')) {
+    notes.push('+CPU DMG (Area)')
   }
 
   // Hit and Run: [Charge] attacks add RAM to Damage
-  if (hasQuality('hit-and-run')) {
-    const hasChargeTag = attack.tags.some(t => t.toLowerCase().includes('charge'))
-    if (hasChargeTag) {
-      notes.push('+RAM DMG (Charge)')
+  if (hasQuality('hit-and-run') && hasTag('charge')) {
+    notes.push('+RAM DMG (Charge)')
+  }
+
+  // === WEAPON-TAGGED ATTACK BONUSES ===
+  if (hasWeaponTag) {
+    // Digizoid Weapon: Chrome - +2 ACC, +1 DMG
+    if (hasQuality('digizoid-weapon-chrome')) {
+      accuracyBonus += 2
+      damageBonus += 1
+    }
+    // Digizoid Weapon: Black - +2 ACC + random bonus
+    if (hasQuality('digizoid-weapon-black')) {
+      accuracyBonus += 2
+      notes.push('+random (d6)')
+    }
+    // Digizoid Weapon: Brown - +2 Dodge, +2 DMG
+    if (hasQuality('digizoid-weapon-brown')) {
+      damageBonus += 2
+    }
+    // Digizoid Weapon: Blue - +2 ACC, +2 DMG, auto success
+    if (hasQuality('digizoid-weapon-blue')) {
+      accuracyBonus += 2
+      damageBonus += 2
+      notes.push('+1 auto success')
+    }
+    // Digizoid Weapon: Gold - +4 ACC, +1 DMG
+    if (hasQuality('digizoid-weapon-gold')) {
+      accuracyBonus += 4
+      damageBonus += 1
+    }
+    // Digizoid Weapon: Obsidian - +2 ACC, +2 DMG, +1 AP
+    if (hasQuality('digizoid-weapon-obsidian')) {
+      accuracyBonus += 2
+      damageBonus += 2
+      notes.push('+1 Armor Piercing')
+    }
+    // Digizoid Weapon: Red - +6 DMG
+    if (hasQuality('digizoid-weapon-red')) {
+      damageBonus += 6
     }
   }
 
+  // === SIGNATURE MOVE BONUSES ===
+  if (hasSignatureTag) {
+    // Signature Move: +Attacks to Accuracy and Damage (round 3+)
+    notes.push('+Attacks ACC/DMG (R3+)')
+  }
+
+  // === TAG-BASED BONUSES ===
   for (const tag of attack.tags) {
     // Weapon I/II/III adds +Rank to Accuracy AND Damage
     const weaponMatch = tag.match(/^Weapon\s+(\d+|I{1,3}|IV|V)$/i)
@@ -260,10 +333,10 @@ function getAttackStats(attack: Attack) {
       const romanMap: Record<string, number> = { 'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5 }
       const rank = romanMap[rankStr.toUpperCase()] || parseInt(rankStr) || 1
       damageBonus += rank
-      accuracyBonus += rank // Weapon also adds to accuracy!
+      accuracyBonus += rank
     }
 
-    // Certain Strike adds accuracy
+    // Certain Strike adds +2 accuracy
     if (tag.startsWith('Certain Strike')) {
       accuracyBonus += 2
     }
