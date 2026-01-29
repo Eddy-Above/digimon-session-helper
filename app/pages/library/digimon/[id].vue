@@ -97,6 +97,16 @@ function removeAttack(index: number) {
   form.attacks = form.attacks.filter((_, i) => i !== index)
 }
 
+type Quality = Digimon['qualities'][0]
+
+function handleAddQuality(quality: Quality) {
+  form.qualities = [...form.qualities, quality]
+}
+
+function removeQuality(index: number) {
+  form.qualities = form.qualities.filter((_, i) => i !== index)
+}
+
 function addTag() {
   if (newTag.value && !newAttack.tags.includes(newTag.value)) {
     newAttack.tags.push(newTag.value)
@@ -516,6 +526,17 @@ async function handleSubmit() {
             </button>
           </div>
         </div>
+      </div>
+
+      <!-- Qualities -->
+      <div class="bg-digimon-dark-800 rounded-xl p-6 border border-digimon-dark-700">
+        <h2 class="font-display text-xl font-semibold text-white mb-4">Qualities</h2>
+        <QualitySelector
+          :stage="form.stage"
+          :current-qualities="form.qualities"
+          @add="handleAddQuality"
+          @remove="removeQuality"
+        />
       </div>
 
       <!-- Sprite -->
