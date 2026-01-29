@@ -17,6 +17,7 @@ interface Quality {
   id: string
   name: string
   ranks?: number
+  choiceId?: string
 }
 
 interface BaseStats {
@@ -255,13 +256,17 @@ function getAttackStats(attack: Attack) {
   }
 
   // === DATA OPTIMIZATION BONUSES ===
-  if (props.dataOptimization === 'close-combat') {
+  // Check both the prop (legacy) and the quality's choiceId
+  const dataOptQuality = props.currentQualities?.find(q => q.id === 'data-optimization')
+  const dataOpt = dataOptQuality?.choiceId || props.dataOptimization
+
+  if (dataOpt === 'close-combat') {
     if (attack.range === 'melee') {
       accuracyBonus += 2
     } else if (attack.range === 'ranged') {
       accuracyBonus -= 1
     }
-  } else if (props.dataOptimization === 'ranged-striker') {
+  } else if (dataOpt === 'ranged-striker') {
     if (attack.range === 'ranged') {
       accuracyBonus += 2
     }
