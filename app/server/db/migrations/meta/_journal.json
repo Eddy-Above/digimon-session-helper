@@ -15,6 +15,13 @@
       "when": 1769712189219,
       "tag": "0001_silky_monster_badoon",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1769720030931,
+      "tag": "0002_kind_the_hunter",
+      "breakpoints": true
     }
   ]
 }

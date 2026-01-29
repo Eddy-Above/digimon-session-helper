@@ -107,6 +107,15 @@ const derivedStats = computed(() => {
   const cpu = Math.floor(body / 10) + stageConfig.stageBonus
   const ram = Math.floor(agility / 10) + stageConfig.stageBonus
 
+  // Movement calculation with Speedy bonus
+  const baseMovement = stageConfig.movement
+  const speedyQuality = form.qualities.find(q => q.id === 'speedy')
+  const speedyRanks = speedyQuality?.ranks || 0
+  const speedyBonus = speedyRanks * 2
+  // Speedy cannot more than double base movement
+  const maxSpeedyBonus = baseMovement
+  const movement = baseMovement + Math.min(speedyBonus, maxSpeedyBonus)
+
   return {
     // Primary derived stats
     brains,
@@ -118,7 +127,8 @@ const derivedStats = computed(() => {
     ram,
     // Combat stats
     woundBoxes: health + stageConfig.woundBonus,
-    movement: stageConfig.movement,
+    movement,
+    baseMovement,
     stageBonus: stageConfig.stageBonus,
     // Attack/Defense pools (raw stats)
     accuracyPool: accuracy,
@@ -344,11 +354,12 @@ const availableAttackTags = computed(() => {
     }
 
     // Area Attack options (with range restrictions)
+    // Each Area Attack sub-option can only be used on ONE attack
     if (quality.id === 'area-attack') {
-      const alreadyUsed = isTagAlreadyUsed('area-attack')
       const choiceId = quality.choiceId
       // Blast - RANGED ONLY
       if (!choiceId || choiceId === 'blast') {
+        const alreadyUsed = isTagAlreadyUsed('area-attack-blast')
         const blocked = alreadyUsed || currentRange !== 'ranged'
         tags.push({
           id: 'area-blast',
@@ -361,6 +372,7 @@ const availableAttackTags = computed(() => {
       }
       // Pass - MELEE ONLY
       if (!choiceId || choiceId === 'pass') {
+        const alreadyUsed = isTagAlreadyUsed('area-attack-pass')
         const blocked = alreadyUsed || currentRange !== 'melee'
         tags.push({
           id: 'area-pass',
@@ -373,6 +385,7 @@ const availableAttackTags = computed(() => {
       }
       // Burst, Close Blast, Cone, Line - both ranges allowed
       if (!choiceId || choiceId === 'burst') {
+        const alreadyUsed = isTagAlreadyUsed('area-attack-burst')
         tags.push({
           id: 'area-burst',
           name: 'Area Attack: Burst',
@@ -382,6 +395,7 @@ const availableAttackTags = computed(() => {
         })
       }
       if (!choiceId || choiceId === 'close-blast') {
+        const alreadyUsed = isTagAlreadyUsed('area-attack-close-blast')
         tags.push({
           id: 'area-close-blast',
           name: 'Area Attack: Close Blast',
@@ -391,6 +405,7 @@ const availableAttackTags = computed(() => {
         })
       }
       if (!choiceId || choiceId === 'cone') {
+        const alreadyUsed = isTagAlreadyUsed('area-attack-cone')
         tags.push({
           id: 'area-cone',
           name: 'Area Attack: Cone',
@@ -400,6 +415,7 @@ const availableAttackTags = computed(() => {
         })
       }
       if (!choiceId || choiceId === 'line') {
+        const alreadyUsed = isTagAlreadyUsed('area-attack-line')
         tags.push({
           id: 'area-line',
           name: 'Area Attack: Line',

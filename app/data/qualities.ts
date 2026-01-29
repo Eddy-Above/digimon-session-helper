@@ -568,7 +568,17 @@ Rank 2 (requires Avoidance): After Agility and Avoidance trigger, must reroll al
     category: 'extra-movement',
     qualityType: 'static',
     dpCost: 1,
-    maxRanks: 10,
+    maxRanks: 7,
+    // Max useful ranks = Base Movement / 2 (since +2 per rank, can't exceed 2× base)
+    maxRanksByStage: {
+      'fresh': 1,        // 2m base → max +2m = 1 rank
+      'in-training': 2,  // 4m base → max +4m = 2 ranks
+      'rookie': 3,       // 6m base → max +6m = 3 ranks
+      'champion': 4,     // 8m base → max +8m = 4 ranks
+      'ultimate': 5,     // 10m base → max +10m = 5 ranks
+      'mega': 6,         // 12m base → max +12m = 6 ranks
+      'ultra': 7,        // 14m base → max +14m = 7 ranks
+    },
     prerequisites: [],
     description: '+2 Movement per rank. Cannot more than double Base Movement.',
     effect: `Per Rank: +2 Movement. Cannot exceed 2× Base Movement.`,
@@ -734,10 +744,10 @@ Rank 2 (requires Avoidance): After Agility and Avoidance trigger, must reroll al
     category: 'offensive',
     qualityType: ['trigger', 'attack'],
     dpCost: 2,
-    maxRanks: 6,
+    maxRanks: 1,
     prerequisites: [],
-    description: 'Add an area tag to an attack. Different tag per rank.',
-    effect: `Apply an [Area Tag] to an Attack. Each rank = different tag and attack. Targets get +RAM to Dodge. Can use as single-target without penalty.`,
+    description: 'Add an area tag to an attack.',
+    effect: `Apply an [Area Tag] to an Attack. Targets get +RAM to Dodge. Can use as single-target without penalty.`,
     choices: [
       { id: 'blast', name: 'Blast', effect: '[Ranged only] Circle at range. 3m diameter +BIT.' },
       { id: 'burst', name: 'Burst', effect: '[Melee/Ranged] Circle from user. 1m radius +BIT+1. User not targeted.' },

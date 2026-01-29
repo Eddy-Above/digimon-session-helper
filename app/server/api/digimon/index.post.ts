@@ -52,11 +52,11 @@ interface CreateDigimonBody {
 export default defineEventHandler(async (event) => {
   const body = await readBody<CreateDigimonBody>(event)
 
-  // Validate required fields
-  if (!body.name || !body.species || !body.stage || !body.attribute || !body.family || !body.type || !body.baseStats) {
+  // Validate required fields (type is optional)
+  if (!body.name || !body.species || !body.stage || !body.attribute || !body.family || !body.baseStats) {
     throw createError({
       statusCode: 400,
-      message: 'Missing required fields: name, species, stage, attribute, family, type, baseStats',
+      message: 'Missing required fields: name, species, stage, attribute, family, baseStats',
     })
   }
 
@@ -98,7 +98,15 @@ export default defineEventHandler(async (event) => {
     updatedAt: now,
   }
 
-  await db.insert(digimon).values(newDigimon)
+  try {
+    await db.insert(digimon).values(newDigimon)
+  } catch (e) {
+    console.error('Database insert error:', e)
+    throw createError({
+      statusCode: 500,
+      message: e instanceof Error ? e.message : 'Database insert failed',
+    })
+  }
 
   return newDigimon
 })

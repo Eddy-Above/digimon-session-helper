@@ -121,28 +121,39 @@ const filteredQualities = computed(() => {
 // Get detailed availability status for a quality
 function getFullQualityStatus(template: QualityTemplate): { canSelect: boolean; reasons: string[] } {
   const reasons: string[] = []
-  const existing = props.currentQualities.find((cq) => cq.id === template.id)
+  const hasAnyOfThisQuality = props.currentQualities.some((cq) => cq.id === template.id)
 
   // Check stage requirement
   if (!isQualityAvailableAtStage(template, props.stage)) {
     reasons.push(`Requires ${template.stageRequirement || 'higher'} stage`)
   }
 
-  // Check if already at max ranks
-  if (existing) {
-    const maxRanks = getMaxRanksAtStage(template, props.stage)
-    if ((existing.ranks || 1) >= maxRanks) {
-      reasons.push(`Already at max ranks (${maxRanks})`)
+  // For qualities WITH choices, each choice is independent - check in choice selector instead
+  // For qualities WITHOUT choices, check max ranks normally
+  if (!template.choices || template.choices.length === 0) {
+    const existing = props.currentQualities.find((cq) => cq.id === template.id)
+    if (existing) {
+      const maxRanks = getMaxRanksAtStage(template, props.stage)
+      if ((existing.ranks || 1) >= maxRanks) {
+        reasons.push(`Already at max ranks (${maxRanks})`)
+      }
+    }
+  } else {
+    // For qualities with choices, check if ALL choices are already taken
+    const takenChoices = props.currentQualities.filter((cq) => cq.id === template.id).map((cq) => cq.choiceId)
+    const availableChoices = template.choices.filter((c) => !takenChoices.includes(c.id))
+    if (availableChoices.length === 0) {
+      reasons.push('All options already selected')
     }
   }
 
   // Can only have one free quality
-  if (template.type === 'free' && hasFreeQuality.value && !existing) {
+  if (template.type === 'free' && hasFreeQuality.value && !hasAnyOfThisQuality) {
     reasons.push('Already have a free quality')
   }
 
   // Check negative DP limit
-  if (template.type === 'negative' && !existing) {
+  if (template.type === 'negative' && !hasAnyOfThisQuality) {
     const newTotal = currentNegativeDP.value + Math.abs(template.dpCost)
     if (newTotal > maxNegativeDP.value) {
       reasons.push(`Would exceed negative DP limit (${currentNegativeDP.value}/${maxNegativeDP.value})`)
@@ -156,7 +167,7 @@ function getFullQualityStatus(template: QualityTemplate): { canSelect: boolean; 
   }
 
   // Check exclusive conflicts
-  if (!existing) {
+  if (!hasAnyOfThisQuality) {
     const exclusiveCheck = hasExclusiveConflict(template, props.currentQualities)
     if (exclusiveCheck.conflict) {
       const conflictNames = exclusiveCheck.conflictingIds
@@ -318,6 +329,12 @@ function getDisplayCostClass(quality: Quality): string {
   if (template.type === 'negative') return 'bg-purple-900/30 text-purple-400'
   return 'bg-digimon-orange-900/30 text-digimon-orange-400'
 }
+
+function getQualityMaxRanks(quality: Quality): number {
+  const template = getCurrentQualityTemplate(quality)
+  if (!template) return 1
+  return getMaxRanksAtStage(template, props.stage)
+}
 </script>
 
 <template>
@@ -353,9 +370,30 @@ function getDisplayCostClass(quality: Quality): string {
             <span v-if="quality.choiceName" class="text-xs bg-cyan-900/30 text-cyan-400 px-2 py-0.5 rounded">
               {{ quality.choiceName }}
             </span>
-            <span v-if="quality.ranks && quality.ranks > 1" class="text-xs text-digimon-dark-300">
-              (Rank {{ quality.ranks }})
-            </span>
+            <!-- Rank controls for multi-rank qualities -->
+            <template v-if="getQualityMaxRanks(quality) > 1">
+              <div class="flex items-center gap-1">
+                <button
+                  type="button"
+                  class="w-6 h-6 bg-digimon-dark-600 hover:bg-digimon-dark-500 rounded text-white text-sm font-bold disabled:opacity-50 disabled:cursor-not-allowed"
+                  :disabled="(quality.ranks || 1) <= 1"
+                  @click="emit('updateRanks', index, (quality.ranks || 1) - 1)"
+                >
+                  -
+                </button>
+                <span class="text-xs text-digimon-dark-300 min-w-[60px] text-center">
+                  Rank {{ quality.ranks || 1 }}/{{ getQualityMaxRanks(quality) }}
+                </span>
+                <button
+                  type="button"
+                  class="w-6 h-6 bg-digimon-dark-600 hover:bg-digimon-dark-500 rounded text-white text-sm font-bold disabled:opacity-50 disabled:cursor-not-allowed"
+                  :disabled="(quality.ranks || 1) >= getQualityMaxRanks(quality)"
+                  @click="emit('updateRanks', index, (quality.ranks || 1) + 1)"
+                >
+                  +
+                </button>
+              </div>
+            </template>
             <template v-for="tag in getQualityTypeTags(quality.type)" :key="tag">
               <span :class="['text-xs px-2 py-0.5 rounded uppercase', getTypeColor(tag)]">
                 {{ tag }}
@@ -522,24 +560,37 @@ function getDisplayCostClass(quality: Quality): string {
           <p class="text-sm text-cyan-400 mb-4">Select a sub-option:</p>
 
           <div class="space-y-2">
-            <button
-              v-for="choice in pendingQuality.choices"
-              :key="choice.id"
-              type="button"
-              class="w-full text-left bg-digimon-dark-700 hover:bg-digimon-dark-600 border border-digimon-dark-600 hover:border-cyan-500/50 rounded-lg p-4 transition-colors"
-              @click="selectChoice(pendingQuality, choice)"
-            >
-              <div class="flex items-center gap-2 mb-2">
-                <span class="font-semibold text-white">{{ choice.name }}</span>
-                <span
-                  v-if="choice.dpCost !== undefined && choice.dpCost !== pendingQuality.dpCost"
-                  class="text-xs px-2 py-0.5 rounded bg-digimon-orange-900/30 text-digimon-orange-400"
-                >
-                  +{{ choice.dpCost }} DP
-                </span>
+            <template v-for="choice in pendingQuality?.choices" :key="choice.id">
+              <!-- Check if this choice is already taken -->
+              <button
+                v-if="pendingQuality && !currentQualities.some((q) => q.id === pendingQuality?.id && q.choiceId === choice.id)"
+                type="button"
+                class="w-full text-left bg-digimon-dark-700 hover:bg-digimon-dark-600 border border-digimon-dark-600 hover:border-cyan-500/50 rounded-lg p-4 transition-colors"
+                @click="selectChoice(pendingQuality, choice)"
+              >
+                <div class="flex items-center gap-2 mb-2">
+                  <span class="font-semibold text-white">{{ choice.name }}</span>
+                  <span
+                    v-if="choice.dpCost !== undefined && choice.dpCost !== pendingQuality?.dpCost"
+                    class="text-xs px-2 py-0.5 rounded bg-digimon-orange-900/30 text-digimon-orange-400"
+                  >
+                    +{{ choice.dpCost }} DP
+                  </span>
+                </div>
+                <p class="text-sm text-digimon-dark-300 whitespace-pre-line">{{ choice.effect }}</p>
+              </button>
+              <!-- Show disabled state for already-taken choices -->
+              <div
+                v-else
+                class="w-full text-left bg-digimon-dark-800 border border-digimon-dark-700 rounded-lg p-4 opacity-50"
+              >
+                <div class="flex items-center gap-2 mb-2">
+                  <span class="font-semibold text-digimon-dark-400">{{ choice.name }}</span>
+                  <span class="text-xs px-2 py-0.5 rounded bg-green-900/30 text-green-400">Already owned</span>
+                </div>
+                <p class="text-sm text-digimon-dark-500 whitespace-pre-line">{{ choice.effect }}</p>
               </div>
-              <p class="text-sm text-digimon-dark-300 whitespace-pre-line">{{ choice.effect }}</p>
-            </button>
+            </template>
           </div>
 
           <div class="mt-4 pt-4 border-t border-digimon-dark-600">

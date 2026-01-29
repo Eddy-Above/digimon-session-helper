@@ -7,7 +7,7 @@ export interface CreateDigimonData {
   stage: DigimonStage
   attribute: 'vaccine' | 'data' | 'virus' | 'free'
   family: string
-  type: string
+  type?: string
   size?: DigimonSize
   baseStats: {
     accuracy: number

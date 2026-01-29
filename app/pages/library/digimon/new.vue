@@ -108,6 +108,15 @@ const derivedStats = computed(() => {
   const cpu = Math.floor(body / 10) + stageConfig.stageBonus
   const ram = Math.floor(agility / 10) + stageConfig.stageBonus
 
+  // Movement calculation with Speedy bonus
+  const baseMovement = stageConfig.movement
+  const speedyQuality = (form.qualities || []).find(q => q.id === 'speedy')
+  const speedyRanks = speedyQuality?.ranks || 0
+  const speedyBonus = speedyRanks * 2
+  // Speedy cannot more than double base movement
+  const maxSpeedyBonus = baseMovement
+  const movement = baseMovement + Math.min(speedyBonus, maxSpeedyBonus)
+
   return {
     brains,
     body,
@@ -116,7 +125,8 @@ const derivedStats = computed(() => {
     cpu,
     ram,
     woundBoxes: health + stageConfig.woundBonus,
-    movement: stageConfig.movement,
+    movement,
+    baseMovement,
     stageBonus: stageConfig.stageBonus,
   }
 })
@@ -279,9 +289,11 @@ const availableAttackTags = computed(() => {
     }
 
     if (quality.id === 'area-attack') {
-      const alreadyUsed = isTagAlreadyUsed('area-attack')
       const choiceId = quality.choiceId
+      // Each Area Attack sub-option can only be used on ONE attack
+      // Check for the specific sub-option's normalized tag name
       if (!choiceId || choiceId === 'blast') {
+        const alreadyUsed = isTagAlreadyUsed('area-attack-blast')
         const blocked = alreadyUsed || currentRange !== 'ranged'
         tags.push({
           id: 'area-blast',
@@ -293,6 +305,7 @@ const availableAttackTags = computed(() => {
         })
       }
       if (!choiceId || choiceId === 'pass') {
+        const alreadyUsed = isTagAlreadyUsed('area-attack-pass')
         const blocked = alreadyUsed || currentRange !== 'melee'
         tags.push({
           id: 'area-pass',
@@ -304,20 +317,20 @@ const availableAttackTags = computed(() => {
         })
       }
       if (!choiceId || choiceId === 'burst') {
-        const blocked = alreadyUsed
-        tags.push({ id: 'area-burst', name: 'Area Attack: Burst', description: 'Circle from user', disabled: blocked, disabledReason: blocked ? 'Already used on another attack' : undefined })
+        const alreadyUsed = isTagAlreadyUsed('area-attack-burst')
+        tags.push({ id: 'area-burst', name: 'Area Attack: Burst', description: 'Circle from user', disabled: alreadyUsed, disabledReason: alreadyUsed ? 'Already used on another attack' : undefined })
       }
       if (!choiceId || choiceId === 'close-blast') {
-        const blocked = alreadyUsed
-        tags.push({ id: 'area-close-blast', name: 'Area Attack: Close Blast', description: 'Circle adjacent to user', disabled: blocked, disabledReason: blocked ? 'Already used on another attack' : undefined })
+        const alreadyUsed = isTagAlreadyUsed('area-attack-close-blast')
+        tags.push({ id: 'area-close-blast', name: 'Area Attack: Close Blast', description: 'Circle adjacent to user', disabled: alreadyUsed, disabledReason: alreadyUsed ? 'Already used on another attack' : undefined })
       }
       if (!choiceId || choiceId === 'cone') {
-        const blocked = alreadyUsed
-        tags.push({ id: 'area-cone', name: 'Area Attack: Cone', description: 'Triangle from user', disabled: blocked, disabledReason: blocked ? 'Already used on another attack' : undefined })
+        const alreadyUsed = isTagAlreadyUsed('area-attack-cone')
+        tags.push({ id: 'area-cone', name: 'Area Attack: Cone', description: 'Triangle from user', disabled: alreadyUsed, disabledReason: alreadyUsed ? 'Already used on another attack' : undefined })
       }
       if (!choiceId || choiceId === 'line') {
-        const blocked = alreadyUsed
-        tags.push({ id: 'area-line', name: 'Area Attack: Line', description: 'Pillar from user', disabled: blocked, disabledReason: blocked ? 'Already used on another attack' : undefined })
+        const alreadyUsed = isTagAlreadyUsed('area-attack-line')
+        tags.push({ id: 'area-line', name: 'Area Attack: Line', description: 'Pillar from user', disabled: alreadyUsed, disabledReason: alreadyUsed ? 'Already used on another attack' : undefined })
       }
     }
   }
@@ -526,9 +539,22 @@ watch(() => newAttack.type, (newType) => {
 })
 
 async function handleSubmit() {
-  const data = {
-    ...form,
+  const data: CreateDigimonData = {
+    name: form.name,
+    species: form.species,
+    stage: form.stage,
+    attribute: form.attribute,
+    family: form.family,
+    type: form.type || undefined,
+    size: form.size,
+    baseStats: form.baseStats,
+    attacks: form.attacks,
+    qualities: form.qualities,
+    dataOptimization: form.dataOptimization || undefined,
     partnerId: form.partnerId || undefined,
+    isEnemy: form.isEnemy,
+    notes: form.notes,
+    spriteUrl: form.spriteUrl || undefined,
   }
   const created = await createDigimon(data)
   if (created) {
