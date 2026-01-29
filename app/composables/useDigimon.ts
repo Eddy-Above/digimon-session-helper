@@ -116,6 +116,27 @@ export function useDigimon() {
     }
   }
 
+  async function copyDigimon(digimon: Digimon): Promise<Digimon | null> {
+    const copyData: CreateDigimonData = {
+      name: `Copy of ${digimon.name}`,
+      species: digimon.species,
+      stage: digimon.stage as DigimonStage,
+      attribute: digimon.attribute as 'vaccine' | 'data' | 'virus' | 'free',
+      family: digimon.family,
+      type: digimon.type || undefined,
+      size: digimon.size as DigimonSize,
+      baseStats: { ...digimon.baseStats },
+      attacks: digimon.attacks ? [...digimon.attacks] : [],
+      qualities: digimon.qualities ? [...digimon.qualities] : [],
+      dataOptimization: digimon.dataOptimization || undefined,
+      partnerId: digimon.partnerId || undefined,
+      isEnemy: digimon.isEnemy,
+      notes: digimon.notes || undefined,
+      spriteUrl: digimon.spriteUrl || undefined,
+    }
+    return createDigimon(copyData)
+  }
+
   // Calculate derived stats from base stats, stage, and size (DDA 1.4 page 111)
   function calculateDerivedStats(digimon: Digimon) {
     const { baseStats, stage, size } = digimon
@@ -173,6 +194,7 @@ export function useDigimon() {
     createDigimon,
     updateDigimon,
     deleteDigimon,
+    copyDigimon,
     calculateDerivedStats,
     rollInitiative,
     getStageConfig,

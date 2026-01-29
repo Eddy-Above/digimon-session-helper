@@ -9,8 +9,9 @@ definePageMeta({
 
 const route = useRoute()
 const router = useRouter()
-const { fetchDigimonById, updateDigimon, loading, error } = useDigimon()
+const { fetchDigimonById, updateDigimon, copyDigimon, loading, error } = useDigimon()
 const { tamers, fetchTamers } = useTamers()
+const copying = ref(false)
 
 const digimon = ref<Digimon | null>(null)
 const initialLoading = ref(true)
@@ -732,6 +733,19 @@ async function handleSubmit() {
     router.push('/library/digimon')
   }
 }
+
+async function handleCopy() {
+  if (!digimon.value) return
+  copying.value = true
+  try {
+    const copy = await copyDigimon(digimon.value)
+    if (copy) {
+      router.push(`/library/digimon/${copy.id}`)
+    }
+  } finally {
+    copying.value = false
+  }
+}
 </script>
 
 <template>
@@ -1309,6 +1323,15 @@ async function handleSubmit() {
                  text-white px-6 py-2 rounded-lg font-semibold transition-colors"
         >
           {{ loading ? 'Saving...' : 'Save Changes' }}
+        </button>
+        <button
+          type="button"
+          :disabled="copying"
+          class="bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50
+                 text-white px-6 py-2 rounded-lg font-semibold transition-colors"
+          @click="handleCopy"
+        >
+          {{ copying ? 'Copying...' : 'Copy' }}
         </button>
         <NuxtLink
           to="/library/digimon"
