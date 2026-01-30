@@ -43,6 +43,7 @@ interface CreateDigimonBody {
     choiceName?: string
   }>
   dataOptimization?: string
+  bonusDP?: number
   partnerId?: string
   isEnemy?: boolean
   notes?: string
@@ -86,10 +87,11 @@ export default defineEventHandler(async (event) => {
     qualities: body.qualities || [],
     dataOptimization: body.dataOptimization || null,
     baseDP: stageConfig.dp,
-    bonusDP: 0,
+    bonusDP: body.bonusDP || 0,
     currentWounds: 0,
     currentStance: 'neutral',
     evolutionPathIds: [],
+    evolvesFromId: null,
     partnerId: body.partnerId || null,
     isEnemy: body.isEnemy || false,
     notes: body.notes || '',

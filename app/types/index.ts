@@ -228,6 +228,7 @@ export interface Digimon {
   currentWounds: number
   currentStance: Stance
   evolutionPathIds: string[]  // IDs of evolutions this can evolve to
+  evolvesFromId: string | null  // ID of the Digimon this evolves from
   partnerId: string | null    // Tamer ID if partnered
   isEnemy: boolean
   notes: string

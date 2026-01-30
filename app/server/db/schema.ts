@@ -140,6 +140,9 @@ export const digimon = sqliteTable('digimon', {
   // Evolution paths (array of Digimon IDs this can evolve to)
   evolutionPathIds: text('evolution_path_ids', { mode: 'json' }).notNull().$type<string[]>(),
 
+  // Evolution link (ID of the Digimon this evolves from)
+  evolvesFromId: text('evolves_from_id'),
+
   partnerId: text('partner_id').references(() => tamers.id),
   isEnemy: integer('is_enemy', { mode: 'boolean' }).notNull().default(false),
 
@@ -248,7 +251,7 @@ export const evolutionLines = sqliteTable('evolution_lines', {
   // The ordered chain of Digimon species in this evolution line
   // Each entry is a "slot" in the line (Fresh → In-Training → Rookie → etc.)
   chain: text('chain', { mode: 'json' }).notNull().$type<Array<{
-    stage: 'fresh' | 'in-training' | 'rookie' | 'champion' | 'ultimate' | 'mega'
+    stage: 'fresh' | 'in-training' | 'rookie' | 'champion' | 'ultimate' | 'mega' | 'ultra'
     species: string // Species name (e.g., "Agumon", "Greymon")
     digimonId: string | null // Link to actual Digimon if created
     requirements: {

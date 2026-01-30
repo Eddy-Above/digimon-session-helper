@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { EvolutionLine } from '../../../server/db/schema'
+import type { EvolutionLine, Digimon } from '../../../server/db/schema'
 import type { EvolutionChainEntry, EvolutionProgress } from '../../../composables/useEvolution'
 import type { DigimonStage } from '../../../types'
 
@@ -22,10 +22,12 @@ const {
   getCurrentStage,
   getNextStage,
   canEvolve,
+  linkDigimonToChainEntry,
   loading,
   error,
 } = useEvolution()
 
+const { digimonList, fetchDigimon } = useDigimon()
 const { tamers, fetchTamers } = useTamers()
 
 const evolutionLine = ref<EvolutionLine | null>(null)
@@ -40,6 +42,7 @@ const tamerMap = computed(() => {
 onMounted(async () => {
   await Promise.all([
     fetchTamers(),
+    fetchDigimon(),
     (async () => {
       const line = await fetchEvolutionLine(route.params.id as string)
       evolutionLine.value = line
@@ -47,6 +50,21 @@ onMounted(async () => {
   ])
   initialLoading.value = false
 })
+
+// Get linked Digimon for a chain entry
+function getLinkedDigimon(entry: EvolutionChainEntry): Digimon | null {
+  if (!entry.digimonId) return null
+  return digimonList.value.find((d) => d.id === entry.digimonId) || null
+}
+
+// Handle linking a Digimon to a chain entry
+async function handleLinkDigimon(index: number, digimonId: string | null) {
+  if (!evolutionLine.value) return
+  const updated = await linkDigimonToChainEntry(evolutionLine.value.id, index, digimonId)
+  if (updated) {
+    evolutionLine.value = updated
+  }
+}
 
 // Computed values
 const chain = computed(() => (evolutionLine.value?.chain as EvolutionChainEntry[]) || [])
@@ -200,8 +218,26 @@ function getStageBgColor(stage: DigimonStage): string {
                 />
 
                 <div class="flex items-center gap-4">
-                  <!-- Stage indicator -->
+                  <!-- Stage indicator / Linked Digimon sprite -->
                   <div
+                    v-if="getLinkedDigimon(entry)?.spriteUrl"
+                    class="w-16 h-16 rounded-lg overflow-hidden bg-digimon-dark-600 shrink-0 border-2"
+                    :class="[
+                      index === evolutionLine.currentStageIndex
+                        ? 'border-digimon-orange-500'
+                        : index < evolutionLine.currentStageIndex
+                          ? 'border-green-500'
+                          : 'border-digimon-dark-500',
+                    ]"
+                  >
+                    <img
+                      :src="getLinkedDigimon(entry)!.spriteUrl!"
+                      :alt="getLinkedDigimon(entry)!.name"
+                      class="w-full h-full object-contain"
+                    />
+                  </div>
+                  <div
+                    v-else
                     :class="[
                       'w-16 h-16 rounded-full flex items-center justify-center text-2xl font-bold shrink-0',
                       index === evolutionLine.currentStageIndex
@@ -216,7 +252,7 @@ function getStageBgColor(stage: DigimonStage): string {
 
                   <!-- Stage info -->
                   <div class="flex-1">
-                    <div class="flex items-center gap-3">
+                    <div class="flex items-center gap-3 flex-wrap">
                       <h3 class="text-xl font-semibold text-white">{{ entry.species }}</h3>
                       <span :class="['text-sm capitalize', getStageColor(entry.stage)]">
                         {{ entry.stage }}
@@ -224,6 +260,32 @@ function getStageBgColor(stage: DigimonStage): string {
                       <span v-if="index === evolutionLine.currentStageIndex" class="text-xs bg-digimon-orange-500 text-white px-2 py-0.5 rounded">
                         Current
                       </span>
+                    </div>
+
+                    <!-- Linked Digimon info -->
+                    <div v-if="getLinkedDigimon(entry)" class="mt-2 flex items-center gap-2">
+                      <span class="text-sm text-cyan-400">Linked:</span>
+                      <NuxtLink
+                        :to="`/library/digimon/${entry.digimonId}`"
+                        class="text-sm text-white hover:text-digimon-orange-400 underline"
+                      >
+                        {{ getLinkedDigimon(entry)!.name }}
+                      </NuxtLink>
+                      <button
+                        type="button"
+                        class="text-xs text-red-400 hover:text-red-300"
+                        @click="handleLinkDigimon(index, null)"
+                      >
+                        (unlink)
+                      </button>
+                    </div>
+                    <div v-else class="mt-2">
+                      <DigimonSelector
+                        :model-value="null"
+                        :stage="entry.stage"
+                        placeholder="Link Digimon sheet..."
+                        @update:model-value="handleLinkDigimon(index, $event)"
+                      />
                     </div>
 
                     <!-- Requirements for next evolution -->

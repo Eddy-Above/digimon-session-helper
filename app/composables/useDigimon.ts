@@ -19,6 +19,7 @@ export interface CreateDigimonData {
   attacks?: Digimon['attacks']
   qualities?: Digimon['qualities']
   dataOptimization?: string
+  bonusDP?: number
   partnerId?: string
   isEnemy?: boolean
   notes?: string
@@ -129,6 +130,7 @@ export function useDigimon() {
       attacks: digimon.attacks ? [...digimon.attacks] : [],
       qualities: digimon.qualities ? [...digimon.qualities] : [],
       dataOptimization: digimon.dataOptimization || undefined,
+      bonusDP: digimon.bonusDP || 0,
       partnerId: digimon.partnerId || undefined,
       isEnemy: digimon.isEnemy,
       notes: digimon.notes || undefined,
@@ -185,12 +187,72 @@ export function useDigimon() {
     return STAGE_CONFIG[stage]
   }
 
+  // Fetch Digimon filtered by stage
+  async function fetchDigimonByStage(stage: DigimonStage): Promise<Digimon[]> {
+    try {
+      return await $fetch<Digimon[]>(`/api/digimon?stage=${stage}`)
+    } catch (e) {
+      console.error('Failed to fetch digimon by stage:', e)
+      return []
+    }
+  }
+
+  // Stage order for navigation
+  const STAGE_ORDER: DigimonStage[] = ['fresh', 'in-training', 'rookie', 'champion', 'ultimate', 'mega', 'ultra']
+
+  // Get the previous stage (for "evolves from" filter)
+  function getPreviousStages(stage: DigimonStage): DigimonStage[] {
+    const index = STAGE_ORDER.indexOf(stage)
+    if (index <= 0) return []
+    // Return all stages before the current one
+    return STAGE_ORDER.slice(0, index)
+  }
+
+  // Get the next stages (for "evolves to" filter)
+  function getNextStages(stage: DigimonStage): DigimonStage[] {
+    const index = STAGE_ORDER.indexOf(stage)
+    if (index < 0 || index >= STAGE_ORDER.length - 1) return []
+    // Return all stages after the current one
+    return STAGE_ORDER.slice(index + 1)
+  }
+
+  // Build evolution chain for display
+  function getEvolutionChain(
+    digimon: Digimon,
+    allDigimon: Digimon[]
+  ): { ancestors: Digimon[]; current: Digimon; descendants: Digimon[] } {
+    const ancestors: Digimon[] = []
+    const descendants: Digimon[] = []
+
+    // Find ancestors (follow evolvesFromId chain)
+    let currentAncestor = digimon.evolvesFromId
+      ? allDigimon.find((d) => d.id === digimon.evolvesFromId)
+      : null
+    while (currentAncestor) {
+      ancestors.unshift(currentAncestor)
+      currentAncestor = currentAncestor.evolvesFromId
+        ? allDigimon.find((d) => d.id === currentAncestor!.evolvesFromId)
+        : null
+    }
+
+    // Find direct descendants (from evolutionPathIds)
+    for (const pathId of digimon.evolutionPathIds || []) {
+      const descendant = allDigimon.find((d) => d.id === pathId)
+      if (descendant) {
+        descendants.push(descendant)
+      }
+    }
+
+    return { ancestors, current: digimon, descendants }
+  }
+
   return {
     digimonList,
     loading,
     error,
     fetchDigimon,
     fetchDigimonById,
+    fetchDigimonByStage,
     createDigimon,
     updateDigimon,
     deleteDigimon,
@@ -198,5 +260,8 @@ export function useDigimon() {
     calculateDerivedStats,
     rollInitiative,
     getStageConfig,
+    getPreviousStages,
+    getNextStages,
+    getEvolutionChain,
   }
 }

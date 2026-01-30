@@ -260,6 +260,30 @@ export function useEvolution() {
     return chain[nextIndex] || null
   }
 
+  // Link a Digimon sheet to a chain entry
+  async function linkDigimonToChainEntry(
+    evolutionLineId: string,
+    chainIndex: number,
+    digimonId: string | null
+  ): Promise<EvolutionLine | null> {
+    const line = evolutionLines.value.find((l) => l.id === evolutionLineId)
+    if (!line) {
+      // Try fetching it
+      const fetchedLine = await fetchEvolutionLine(evolutionLineId)
+      if (!fetchedLine) return null
+      const chain = [...(fetchedLine.chain as EvolutionChainEntry[])]
+      if (chainIndex < 0 || chainIndex >= chain.length) return null
+      chain[chainIndex] = { ...chain[chainIndex], digimonId }
+      return updateEvolutionLine(evolutionLineId, { chain })
+    }
+
+    const chain = [...(line.chain as EvolutionChainEntry[])]
+    if (chainIndex < 0 || chainIndex >= chain.length) return null
+
+    chain[chainIndex] = { ...chain[chainIndex], digimonId }
+    return updateEvolutionLine(evolutionLineId, { chain })
+  }
+
   // Check if can evolve
   function canEvolve(evolutionLine: EvolutionLine): { canEvolve: boolean; reason: string } {
     const chain = evolutionLine.chain as EvolutionChainEntry[]
@@ -324,5 +348,6 @@ export function useEvolution() {
     getCurrentStage,
     getNextStage,
     canEvolve,
+    linkDigimonToChainEntry,
   }
 }

@@ -33,6 +33,7 @@ const form = reactive<CreateDigimonData>({
   attacks: [],
   qualities: [],
   dataOptimization: '',
+  bonusDP: 0,
   partnerId: '',
   isEnemy: false,
   notes: '',
@@ -88,8 +89,12 @@ const dpUsed = computed(() => {
   return dpUsedOnStats.value + dpUsedOnQualities.value
 })
 
+const totalDP = computed(() => {
+  return currentStageConfig.value.dp + (form.bonusDP || 0)
+})
+
 const dpRemaining = computed(() => {
-  return currentStageConfig.value.dp - dpUsed.value
+  return totalDP.value - dpUsed.value
 })
 
 // Derived Stats calculation - DDA 1.4 rules (page 111)
@@ -772,10 +777,20 @@ async function handleSubmit() {
       <!-- Stage Info -->
       <div class="bg-digimon-dark-700/50 rounded-xl p-4 border border-digimon-dark-600">
         <h3 class="font-semibold text-digimon-orange-400 mb-2 capitalize">{{ form.stage }} Stage Stats</h3>
-        <div class="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
+        <div class="grid grid-cols-2 md:grid-cols-6 gap-4 text-sm">
           <div>
-            <span class="text-digimon-dark-400">DP:</span>
+            <span class="text-digimon-dark-400">Base DP:</span>
             <span class="text-white ml-1">{{ currentStageConfig.dp }}</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="text-digimon-dark-400">Bonus DP:</span>
+            <input
+              v-model.number="form.bonusDP"
+              type="number"
+              min="0"
+              class="w-16 bg-digimon-dark-600 border border-digimon-dark-500 rounded px-2 py-0.5
+                     text-white text-center focus:border-digimon-orange-500 focus:outline-none"
+            />
           </div>
           <div>
             <span class="text-digimon-dark-400">Movement:</span>
@@ -812,7 +827,7 @@ async function handleSubmit() {
               {{ dpRemaining }} DP remaining
             </span>
             <span class="text-xs text-digimon-dark-400">
-              Stats: {{ dpUsedOnStats }} | Qualities: {{ dpUsedOnQualities }} | Total: {{ dpUsed }} / {{ currentStageConfig.dp }}
+              Stats: {{ dpUsedOnStats }} | Qualities: {{ dpUsedOnQualities }} | Total: {{ dpUsed }} / {{ totalDP }}
             </span>
           </div>
         </div>

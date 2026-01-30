@@ -9,7 +9,7 @@ definePageMeta({
 
 const route = useRoute()
 const router = useRouter()
-const { fetchDigimonById, updateDigimon, copyDigimon, loading, error } = useDigimon()
+const { digimonList, fetchDigimonById, fetchDigimon, updateDigimon, copyDigimon, loading, error, getPreviousStages, getNextStages, getEvolutionChain } = useDigimon()
 const { tamers, fetchTamers } = useTamers()
 const copying = ref(false)
 
@@ -34,10 +34,13 @@ const form = reactive({
   attacks: [] as Digimon['attacks'],
   qualities: [] as Digimon['qualities'],
   dataOptimization: '',
+  bonusDP: 0,
   partnerId: '' as string | null,
   isEnemy: false,
   notes: '',
   spriteUrl: '',
+  evolvesFromId: null as string | null,
+  evolutionPathIds: [] as string[],
 })
 
 const stages: DigimonStage[] = ['fresh', 'in-training', 'rookie', 'champion', 'ultimate', 'mega']
@@ -88,8 +91,12 @@ const dpUsed = computed(() => {
   return dpUsedOnStats.value + dpUsedOnQualities.value
 })
 
+const totalDP = computed(() => {
+  return currentStageConfig.value.dp + (form.bonusDP || 0)
+})
+
 const dpRemaining = computed(() => {
-  return currentStageConfig.value.dp - dpUsed.value
+  return totalDP.value - dpUsed.value
 })
 
 // Derived Stats calculation - DDA 1.4 rules (page 111)
@@ -644,7 +651,8 @@ watch(() => form.spriteUrl, () => {
 })
 
 onMounted(async () => {
-  await fetchTamers()
+  await Promise.all([fetchTamers(), fetchDigimon()])
+
   const id = route.params.id as string
   const fetched = await fetchDigimonById(id)
   if (fetched) {
@@ -660,10 +668,13 @@ onMounted(async () => {
     form.attacks = [...(fetched.attacks || [])]
     form.qualities = [...(fetched.qualities || [])]
     form.dataOptimization = fetched.dataOptimization || ''
-    form.partnerId = fetched.partnerId
+    form.bonusDP = fetched.bonusDP || 0
+    form.partnerId = fetched.partnerId || ''
     form.isEnemy = fetched.isEnemy
     form.notes = fetched.notes || ''
     form.spriteUrl = fetched.spriteUrl || ''
+    form.evolvesFromId = fetched.evolvesFromId || null
+    form.evolutionPathIds = [...(fetched.evolutionPathIds || [])]
   }
   initialLoading.value = false
 })
@@ -724,10 +735,13 @@ async function handleSubmit() {
     attacks: [...form.attacks],
     qualities: [...form.qualities],
     dataOptimization: form.dataOptimization || undefined,
-    partnerId: form.partnerId || undefined,
+    bonusDP: form.bonusDP || 0,
+    partnerId: form.partnerId || null,
     isEnemy: form.isEnemy,
     notes: form.notes || undefined,
     spriteUrl: form.spriteUrl || undefined,
+    evolvesFromId: form.evolvesFromId || null,
+    evolutionPathIds: [...form.evolutionPathIds],
   })
   if (updated) {
     router.push('/library/digimon')
@@ -868,7 +882,7 @@ async function handleCopy() {
               class="w-full bg-digimon-dark-700 border border-digimon-dark-600 rounded-lg px-3 py-2
                      text-white focus:border-digimon-orange-500 focus:outline-none"
             >
-              <option :value="null">No Partner (Wild/Enemy)</option>
+              <option value="">No Partner (Wild/Enemy)</option>
               <option v-for="tamer in tamers" :key="tamer.id" :value="tamer.id">
                 {{ tamer.name }}
               </option>
@@ -891,10 +905,24 @@ async function handleCopy() {
       <!-- Stage Info -->
       <div class="bg-digimon-dark-700/50 rounded-xl p-4 border border-digimon-dark-600">
         <h3 class="font-semibold text-digimon-orange-400 mb-2 capitalize">{{ form.stage }} Stage Stats</h3>
-        <div class="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
+        <div class="grid grid-cols-2 md:grid-cols-6 gap-4 text-sm">
           <div>
-            <span class="text-digimon-dark-400">DP:</span>
+            <span class="text-digimon-dark-400">Base DP:</span>
             <span class="text-white ml-1">{{ currentStageConfig.dp }}</span>
+          </div>
+          <div>
+            <label class="text-digimon-dark-400 block mb-1">Bonus DP:</label>
+            <input
+              v-model.number="form.bonusDP"
+              type="number"
+              min="0"
+              class="w-20 bg-digimon-dark-700 border border-digimon-dark-600 rounded px-2 py-1
+                     text-white text-sm focus:border-digimon-orange-500 focus:outline-none"
+            />
+          </div>
+          <div>
+            <span class="text-digimon-dark-400">Total DP:</span>
+            <span class="text-white ml-1 font-semibold">{{ totalDP }}</span>
           </div>
           <div>
             <span class="text-digimon-dark-400">Movement:</span>
@@ -903,10 +931,6 @@ async function handleCopy() {
           <div>
             <span class="text-digimon-dark-400">Wound Bonus:</span>
             <span class="text-white ml-1">+{{ currentStageConfig.woundBonus }}</span>
-          </div>
-          <div>
-            <span class="text-digimon-dark-400">Brains Bonus:</span>
-            <span class="text-white ml-1">+{{ currentStageConfig.brainsBonus }}</span>
           </div>
           <div>
             <span class="text-digimon-dark-400">Attacks:</span>
@@ -931,7 +955,7 @@ async function handleCopy() {
               {{ dpRemaining }} DP remaining
             </span>
             <span class="text-xs text-digimon-dark-400">
-              Stats: {{ dpUsedOnStats }} | Qualities: {{ dpUsedOnQualities }} | Total: {{ dpUsed }} / {{ currentStageConfig.dp }}
+              Stats: {{ dpUsedOnStats }} | Qualities: {{ dpUsedOnQualities }} | Total: {{ dpUsed }} / {{ totalDP }}
             </span>
           </div>
         </div>
@@ -1307,6 +1331,121 @@ async function handleCopy() {
           class="w-full bg-digimon-dark-700 border border-digimon-dark-600 rounded-lg px-3 py-2
                  text-white focus:border-digimon-orange-500 focus:outline-none resize-none"
         />
+      </div>
+
+      <!-- Evolution Links -->
+      <div class="bg-digimon-dark-800 rounded-xl p-6 border border-digimon-dark-700">
+        <h2 class="font-display text-xl font-semibold text-white mb-4">Evolution Links</h2>
+        <p class="text-sm text-digimon-dark-400 mb-4">
+          Link this Digimon to its pre-evolution and evolutions. Changes sync automatically.
+        </p>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <!-- Evolves From -->
+          <div>
+            <DigimonSelector
+              v-model="form.evolvesFromId"
+              :stage="getPreviousStages(form.stage)"
+              :exclude-ids="digimon ? [digimon.id] : []"
+              label="Evolves From"
+              placeholder="Select pre-evolution..."
+            />
+            <p v-if="getPreviousStages(form.stage).length === 0" class="text-xs text-digimon-dark-500 mt-1">
+              No earlier stages available (already at Fresh)
+            </p>
+          </div>
+
+          <!-- Evolves To -->
+          <div>
+            <DigimonMultiSelector
+              v-model="form.evolutionPathIds"
+              :stage="getNextStages(form.stage)"
+              :exclude-ids="digimon ? [digimon.id] : []"
+              label="Evolves To"
+              placeholder="Select evolutions..."
+            />
+            <p v-if="getNextStages(form.stage).length === 0" class="text-xs text-digimon-dark-500 mt-1">
+              No later stages available (already at Ultra)
+            </p>
+          </div>
+        </div>
+
+        <!-- Evolution Chain Preview -->
+        <div v-if="digimon && digimonList.length > 0" class="mt-6 pt-4 border-t border-digimon-dark-600">
+          <h3 class="text-sm font-semibold text-digimon-dark-300 mb-3">Evolution Chain</h3>
+          <div class="flex items-center gap-2 flex-wrap">
+            <!-- Ancestors -->
+            <template v-for="(ancestor, index) in getEvolutionChain(digimon, digimonList).ancestors" :key="ancestor.id">
+              <NuxtLink
+                :to="`/library/digimon/${ancestor.id}`"
+                class="flex items-center gap-2 bg-digimon-dark-700 rounded-lg px-3 py-2 hover:bg-digimon-dark-600 transition-colors"
+              >
+                <div class="w-8 h-8 bg-digimon-dark-600 rounded overflow-hidden flex items-center justify-center shrink-0">
+                  <img
+                    v-if="ancestor.spriteUrl"
+                    :src="ancestor.spriteUrl"
+                    :alt="ancestor.name"
+                    class="max-w-full max-h-full object-contain"
+                  />
+                  <span v-else class="text-sm">🦖</span>
+                </div>
+                <div>
+                  <div class="text-white text-sm font-medium">{{ ancestor.name }}</div>
+                  <div class="text-xs text-digimon-dark-400 capitalize">{{ ancestor.stage }}</div>
+                </div>
+              </NuxtLink>
+              <span class="text-digimon-dark-500">→</span>
+            </template>
+
+            <!-- Current (highlighted) -->
+            <div class="flex items-center gap-2 bg-digimon-orange-500/20 border border-digimon-orange-500 rounded-lg px-3 py-2">
+              <div class="w-8 h-8 bg-digimon-dark-600 rounded overflow-hidden flex items-center justify-center shrink-0">
+                <img
+                  v-if="form.spriteUrl"
+                  :src="form.spriteUrl"
+                  :alt="form.name"
+                  class="max-w-full max-h-full object-contain"
+                />
+                <span v-else class="text-sm">🦖</span>
+              </div>
+              <div>
+                <div class="text-digimon-orange-400 text-sm font-medium">{{ form.name || 'Current' }}</div>
+                <div class="text-xs text-digimon-dark-400 capitalize">{{ form.stage }}</div>
+              </div>
+            </div>
+
+            <!-- Descendants -->
+            <template v-for="descendant in getEvolutionChain(digimon, digimonList).descendants" :key="descendant.id">
+              <span class="text-digimon-dark-500">→</span>
+              <NuxtLink
+                :to="`/library/digimon/${descendant.id}`"
+                class="flex items-center gap-2 bg-digimon-dark-700 rounded-lg px-3 py-2 hover:bg-digimon-dark-600 transition-colors"
+              >
+                <div class="w-8 h-8 bg-digimon-dark-600 rounded overflow-hidden flex items-center justify-center shrink-0">
+                  <img
+                    v-if="descendant.spriteUrl"
+                    :src="descendant.spriteUrl"
+                    :alt="descendant.name"
+                    class="max-w-full max-h-full object-contain"
+                  />
+                  <span v-else class="text-sm">🦖</span>
+                </div>
+                <div>
+                  <div class="text-white text-sm font-medium">{{ descendant.name }}</div>
+                  <div class="text-xs text-digimon-dark-400 capitalize">{{ descendant.stage }}</div>
+                </div>
+              </NuxtLink>
+            </template>
+
+            <!-- No links message -->
+            <span
+              v-if="getEvolutionChain(digimon, digimonList).ancestors.length === 0 && getEvolutionChain(digimon, digimonList).descendants.length === 0"
+              class="text-digimon-dark-500 text-sm ml-2"
+            >
+              No evolution links yet
+            </span>
+          </div>
+        </div>
       </div>
 
       <!-- Error message -->
