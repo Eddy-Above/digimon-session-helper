@@ -16,13 +16,17 @@ export interface TormentEntry {
   severity: TormentSeverity
   totalBoxes: number
   markedBoxes: number
+  cpMarkedBoxes: number
 }
 
 export function useTamerForm(initialData?: Partial<CreateTamerData>) {
   // ========================
   // Form State
   // ========================
-  const form = reactive<CreateTamerData>({
+  const form = reactive<CreateTamerData & {
+    majorAspect: { name: string; description: string }
+    minorAspect: { name: string; description: string }
+  }>({
     name: initialData?.name || '',
     age: initialData?.age || 14,
     campaignLevel: initialData?.campaignLevel || 'standard',
@@ -56,6 +60,14 @@ export function useTamerForm(initialData?: Partial<CreateTamerData>) {
     inspiration: initialData?.inspiration ?? 1,
     notes: initialData?.notes || '',
     spriteUrl: initialData?.spriteUrl || '',
+    majorAspect: {
+      name: initialData?.aspects?.find(a => a.type === 'major')?.name || '',
+      description: initialData?.aspects?.find(a => a.type === 'major')?.description || '',
+    },
+    minorAspect: {
+      name: initialData?.aspects?.find(a => a.type === 'minor')?.name || '',
+      description: initialData?.aspects?.find(a => a.type === 'minor')?.description || '',
+    },
   })
 
   // XP Bonuses - tracked separately from CP-allocated values
@@ -79,6 +91,7 @@ export function useTamerForm(initialData?: Partial<CreateTamerData>) {
     severity: t.severity,
     totalBoxes: t.totalBoxes,
     markedBoxes: t.markedBoxes,
+    cpMarkedBoxes: t.cpMarkedBoxes,
   })) || [])
 
   const showAddTorment = ref(false)
@@ -179,6 +192,7 @@ export function useTamerForm(initialData?: Partial<CreateTamerData>) {
       severity,
       totalBoxes: getTormentBoxCount(severity),
       markedBoxes: 0,
+      cpMarkedBoxes: 0,
     })
     showAddTorment.value = false
   }
