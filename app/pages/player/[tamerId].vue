@@ -285,14 +285,15 @@ const digimonChains = computed(() => {
     const chainId = root?.id || d.id
     chains.push({ chainId, rootId: root?.id || d.id, allMembers: chainMembers })
 
-    // Initialize currentDigimonId to the highest stage member by default
+    // Initialize currentDigimonId to Rookie stage by default, or lowest stage if no Rookie
     if (!currentDigimonId.value[chainId]) {
-      const highestStage = chainMembers.reduce((highest, current) => {
-        const highestIdx = stageOrder.indexOf(highest.stage as DigimonStage)
+      const rookieMember = chainMembers.find(m => m.stage === 'rookie')
+      const defaultMember = rookieMember || chainMembers.reduce((lowest, current) => {
+        const lowestIdx = stageOrder.indexOf(lowest.stage as DigimonStage)
         const currentIdx = stageOrder.indexOf(current.stage as DigimonStage)
-        return currentIdx > highestIdx ? current : highest
+        return currentIdx < lowestIdx ? current : lowest
       }, chainMembers[0])
-      currentDigimonId.value[chainId] = highestStage?.id || root?.id || d.id
+      currentDigimonId.value[chainId] = defaultMember?.id || root?.id || d.id
     }
   }
 
@@ -643,6 +644,18 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
               </div>
             </div>
 
+            <!-- Partner Digimon Header -->
+            <div class="flex items-center justify-between">
+              <h2 class="font-display text-xl font-semibold text-white">Partner Digimon</h2>
+              <NuxtLink
+                :to="`/player/${tamerId}/digimon/new`"
+                class="bg-digimon-orange-500 hover:bg-digimon-orange-600 text-white px-4 py-2 rounded-lg
+                       font-semibold transition-colors text-sm"
+              >
+                + Create Digimon
+              </NuxtLink>
+            </div>
+
             <!-- Partner Digimon (grouped by evolution chain) -->
             <div v-for="chain in digimonChains" :key="chain.chainId" class="bg-digimon-dark-800 rounded-xl p-6 border border-digimon-dark-700">
               <template v-if="getCurrentForm(chain.chainId)">
@@ -691,7 +704,15 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
                         </template>
                       </div>
                     </div>
-                    <p class="text-digimon-dark-400 text-sm">{{ getCurrentForm(chain.chainId)!.species }} • {{ getCurrentForm(chain.chainId)!.attribute }}</p>
+                    <div class="flex items-center gap-3 text-sm">
+                      <p class="text-digimon-dark-400">{{ getCurrentForm(chain.chainId)!.species }} • {{ getCurrentForm(chain.chainId)!.attribute }}</p>
+                      <NuxtLink
+                        :to="`/player/${tamerId}/digimon/${getCurrentForm(chain.chainId)!.id}`"
+                        class="text-digimon-orange-400 hover:text-digimon-orange-300 transition-colors"
+                      >
+                        Edit
+                      </NuxtLink>
+                    </div>
 
                     <!-- Health -->
                     <div class="mt-2">
@@ -836,7 +857,7 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
                           ACC: {{ getAttackAccuracy(getCurrentForm(chain.chainId)!, { range: attack.range, tags: attack.tags || [] }) }}d6
                         </span>
                         <span class="text-orange-400">
-                          DMG: +{{ getAttackDamage(getCurrentForm(chain.chainId)!, { range: attack.range, tags: attack.tags || [] }) }}
+                          DMG: {{ getAttackDamage(getCurrentForm(chain.chainId)!, { range: attack.range, tags: attack.tags || [] }) }}
                         </span>
                       </div>
                     </div>
