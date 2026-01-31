@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm'
-import { db, tamers } from '../../db'
+import { db, tamers, digimon, evolutionLines } from '../../db'
 
 export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, 'id')
@@ -20,6 +20,12 @@ export default defineEventHandler(async (event) => {
       message: `Tamer with ID ${id} not found`,
     })
   }
+
+  // Delete all digimon associated with this tamer
+  await db.delete(digimon).where(eq(digimon.partnerId, id))
+
+  // Delete all evolution lines associated with this tamer
+  await db.delete(evolutionLines).where(eq(evolutionLines.partnerId, id))
 
   // Delete tamer
   await db.delete(tamers).where(eq(tamers.id, id))
