@@ -24,5 +24,5 @@ EXPOSE 3000
 ENV HOST=0.0.0.0
 ENV PORT=3000
 
-# Start command - push db schema then start server
-CMD ["sh", "-c", "npm run db:push && npm run start"]
+# Start command - push db schema (with force flag for non-interactive) then start server
+CMD ["sh", "-c", "npx drizzle-kit push --force && npm run start"]
