@@ -685,30 +685,44 @@ watch(() => form.baseStats, (stats) => {
   }
 }, { deep: true })
 
-// Sync bonus DP from linked evolution when link is added
+// Sync partnerId and bonus DP from linked evolution when link is added
 watch(() => form.evolvesFromId, async (newId) => {
-  if (newId && form.syncBonusDP) {
+  if (newId) {
     const linkedDigimon = await fetchDigimonById(newId)
-    if (linkedDigimon && linkedDigimon.bonusDP) {
-      form.bonusDP = linkedDigimon.bonusDP
-      form.bonusStats = { ...(linkedDigimon as any).bonusStats || { accuracy: 0, damage: 0, dodge: 0, armor: 0, health: 0 } }
-      form.bonusDPForQualities = (linkedDigimon as any).bonusDPForQualities || 0
-      // Update prev values to prevent reversion
-      prevBonusStats.value = { ...form.bonusStats }
+    if (linkedDigimon) {
+      // Always sync partnerId from linked Digimon
+      if (linkedDigimon.partnerId && !form.partnerId) {
+        form.partnerId = linkedDigimon.partnerId
+      }
+      // Sync bonus DP if enabled
+      if (form.syncBonusDP && linkedDigimon.bonusDP) {
+        form.bonusDP = linkedDigimon.bonusDP
+        form.bonusStats = { ...(linkedDigimon as any).bonusStats || { accuracy: 0, damage: 0, dodge: 0, armor: 0, health: 0 } }
+        form.bonusDPForQualities = (linkedDigimon as any).bonusDPForQualities || 0
+        // Update prev values to prevent reversion
+        prevBonusStats.value = { ...form.bonusStats }
+      }
     }
   }
 })
 
 // Also sync from evolutionPathIds if no evolvesFromId
 watch(() => form.evolutionPathIds, async (newIds) => {
-  if (newIds.length > 0 && !form.evolvesFromId && form.syncBonusDP) {
+  if (newIds.length > 0 && !form.evolvesFromId) {
     const linkedDigimon = await fetchDigimonById(newIds[0])
-    if (linkedDigimon && linkedDigimon.bonusDP) {
-      form.bonusDP = linkedDigimon.bonusDP
-      form.bonusStats = { ...(linkedDigimon as any).bonusStats || { accuracy: 0, damage: 0, dodge: 0, armor: 0, health: 0 } }
-      form.bonusDPForQualities = (linkedDigimon as any).bonusDPForQualities || 0
-      // Update prev values to prevent reversion
-      prevBonusStats.value = { ...form.bonusStats }
+    if (linkedDigimon) {
+      // Always sync partnerId from linked Digimon
+      if (linkedDigimon.partnerId && !form.partnerId) {
+        form.partnerId = linkedDigimon.partnerId
+      }
+      // Sync bonus DP if enabled
+      if (form.syncBonusDP && linkedDigimon.bonusDP) {
+        form.bonusDP = linkedDigimon.bonusDP
+        form.bonusStats = { ...(linkedDigimon as any).bonusStats || { accuracy: 0, damage: 0, dodge: 0, armor: 0, health: 0 } }
+        form.bonusDPForQualities = (linkedDigimon as any).bonusDPForQualities || 0
+        // Update prev values to prevent reversion
+        prevBonusStats.value = { ...form.bonusStats }
+      }
     }
   }
 }, { deep: true })
