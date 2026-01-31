@@ -1,8 +1,6 @@
 <script setup lang="ts">
 import type { Tamer } from '../../../server/db/schema'
-import { getTormentBoxCount, type TormentSeverity } from '../../../types'
-import { skillsByAttribute, skillLabels } from '../../../constants/tamer-skills'
-import { specialOrderThresholds, specialOrdersData } from '../../../data/special-orders'
+import { useTamerForm } from '../../../composables/useTamerForm'
 
 definePageMeta({
   layout: 'player',
@@ -27,328 +25,51 @@ const sectionsCollapsed = reactive({
   xp: false, // XP & Inspiration section expanded by default in edit
 })
 
-// Torment management
-interface TormentEntry {
-  id: string
-  name: string
-  description: string
-  severity: TormentSeverity
-  totalBoxes: number
-  markedBoxes: number
-  cpMarkedBoxes: number // Persisted: boxes marked at creation with CP
-  originalMarkedBoxes: number // For UI locking logic (same as cpMarkedBoxes)
-}
+// Initialize form composable (will be populated when tamer loads)
+const {
+  form,
+  xpBonuses,
+  torments,
+  showAddTorment,
+  newTormentSeverity,
+  spriteError,
+  skillLabels,
+  skillsByAttribute,
+  getTotalAttribute,
+  getTotalSkill,
+  handleSpriteError,
+  getNextAttributeCost,
+  getNextSkillCost,
+  getNextInspirationCost,
+  spendXPOnAttribute,
+  refundXPFromAttribute,
+  spendXPOnSkill,
+  refundXPFromSkill,
+  spendXPOnInspiration,
+  refundXPFromInspiration,
+  addTorment,
+  removeTorment,
+  updateTormentSeverity,
+  campaignConfig,
+  attributePoints,
+  skillPoints,
+  tormentCP,
+  totalCP,
+  totalInspiration,
+  maxInspiration,
+  cappedAttributes,
+  cappedSkillGroups,
+  zeroSkills,
+  skillsExceedingAttribute,
+  tormentValidation,
+  derivedStats,
+  canAffordAttributeIncrease,
+  canAffordSkillIncrease,
+  canAffordInspiration,
+  canAffordTormentBox,
+  unlockedSpecialOrders,
+} = useTamerForm()
 
-const torments = ref<TormentEntry[]>([])
-const showAddTorment = ref(false)
-const newTormentSeverity = ref<TormentSeverity>('minor')
-
-// Sprite preview
-const spriteError = ref(false)
-
-function handleSpriteError() {
-  spriteError.value = true
-}
-
-function addTorment() {
-  const severity = newTormentSeverity.value
-  torments.value.push({
-    id: crypto.randomUUID(),
-    name: '',
-    description: '',
-    severity,
-    totalBoxes: getTormentBoxCount(severity),
-    markedBoxes: 0,
-    cpMarkedBoxes: 0, // New torments added during edit have no CP-locked boxes
-    originalMarkedBoxes: 0,
-  })
-  showAddTorment.value = false
-}
-
-function removeTorment(id: string) {
-  torments.value = torments.value.filter(t => t.id !== id)
-}
-
-function updateTormentSeverity(torment: TormentEntry, severity: TormentSeverity) {
-  torment.severity = severity
-  torment.totalBoxes = getTormentBoxCount(severity)
-}
-
-const form = reactive({
-  name: '',
-  age: 14,
-  campaignLevel: 'standard' as 'standard' | 'enhanced' | 'extreme',
-  attributes: {
-    agility: 2,
-    body: 2,
-    charisma: 2,
-    intelligence: 2,
-    willpower: 2,
-  },
-  skills: {
-    dodge: 0,
-    fight: 0,
-    stealth: 0,
-    athletics: 0,
-    endurance: 0,
-    featsOfStrength: 0,
-    manipulate: 0,
-    perform: 0,
-    persuasion: 0,
-    computer: 0,
-    survival: 0,
-    knowledge: 0,
-    perception: 0,
-    decipherIntent: 0,
-    bravery: 0,
-  },
-  majorAspect: { name: '', description: '' },
-  minorAspect: { name: '', description: '' },
-  xp: 0,
-  inspiration: 1,
-  notes: '',
-  spriteUrl: '',
-})
-
-// XP Bonuses - tracked separately from base values
-// This ensures XP spending doesn't affect the Attributes/Skills sections
-const xpBonuses = reactive({
-  attributes: { agility: 0, body: 0, charisma: 0, intelligence: 0, willpower: 0 },
-  skills: {
-    dodge: 0, fight: 0, stealth: 0,
-    athletics: 0, endurance: 0, featsOfStrength: 0,
-    manipulate: 0, perform: 0, persuasion: 0,
-    computer: 0, survival: 0, knowledge: 0,
-    perception: 0, decipherIntent: 0, bravery: 0,
-  },
-  inspiration: 0,
-})
-
-// Get total attribute value (base + XP bonuses)
-function getTotalAttribute(attr: keyof typeof form.attributes): number {
-  return form.attributes[attr] + xpBonuses.attributes[attr]
-}
-
-// Get total skill value (base + XP bonuses)
-function getTotalSkill(skill: keyof typeof form.skills): number {
-  return form.skills[skill] + xpBonuses.skills[skill]
-}
-
-// Get total inspiration (base + XP bonuses)
-const totalInspiration = computed(() => (form.inspiration ?? 1) + (xpBonuses.inspiration ?? 0))
-
-// XP Cost Calculation Functions
-function getNextAttributeCost(currentVal: number): number {
-  return (currentVal + 1) * 2  // new rating × 2
-}
-
-function getNextSkillCost(currentVal: number): number {
-  return currentVal + 1  // new rating
-}
-
-function getNextInspirationCost(currentInspiration: number): number {
-  return currentInspiration * 2  // 2 × current inspiration
-}
-
-function getTormentBoxCost(torment: TormentEntry): number {
-  const xpMarkedBoxes = Math.max(0, torment.markedBoxes - torment.cpMarkedBoxes)
-  return xpMarkedBoxes + 1  // currently marked (XP) boxes + 1
-}
-
-// XP spending/refunding functions - modify xpBonuses, not form
-function spendXPOnAttribute(attr: keyof typeof form.attributes) {
-  const currentTotal = getTotalAttribute(attr)
-  const cost = (currentTotal + 1) * 2
-  if (form.xp >= cost && currentTotal < campaignConfig.value.finalCap) {
-    form.xp -= cost
-    xpBonuses.attributes[attr]++
-  }
-}
-
-function refundXPFromAttribute(attr: keyof typeof form.attributes) {
-  if (xpBonuses.attributes[attr] > 0) {
-    const currentTotal = getTotalAttribute(attr)
-    const refund = currentTotal * 2  // refund = current total × 2
-    form.xp += refund
-    xpBonuses.attributes[attr]--
-  }
-}
-
-function spendXPOnSkill(skill: keyof typeof form.skills) {
-  const currentTotal = getTotalSkill(skill)
-  const cost = currentTotal + 1
-  if (form.xp >= cost && currentTotal < campaignConfig.value.finalCap) {
-    form.xp -= cost
-    xpBonuses.skills[skill]++
-  }
-}
-
-function refundXPFromSkill(skill: keyof typeof form.skills) {
-  if (xpBonuses.skills[skill] > 0) {
-    const currentTotal = getTotalSkill(skill)
-    const refund = currentTotal  // refund = current total
-    form.xp += refund
-    xpBonuses.skills[skill]--
-  }
-}
-
-function spendXPOnInspiration() {
-  const currentTotal = totalInspiration.value
-  const cost = currentTotal * 2
-  if (form.xp >= cost && currentTotal < maxInspiration.value) {
-    form.xp -= cost
-    xpBonuses.inspiration++
-  }
-}
-
-function refundXPFromInspiration() {
-  if (xpBonuses.inspiration > 0) {
-    const currentTotal = totalInspiration.value
-    const refund = (currentTotal - 1) * 2  // refund = (current total - 1) × 2
-    form.xp += refund
-    xpBonuses.inspiration--
-  }
-}
-
-// Campaign level configuration based on official rules
-const campaignConfig = computed(() => {
-  switch (form.campaignLevel) {
-    case 'enhanced':
-      return { startingCP: 40, attrCap: 18, skillCap: 22, startingCap: 5, finalCap: 7 }
-    case 'extreme':
-      return { startingCP: 50, attrCap: 22, skillCap: 28, startingCap: 7, finalCap: 10 }
-    default: // standard
-      return { startingCP: 30, attrCap: 12, skillCap: 18, startingCap: 3, finalCap: 5 }
-  }
-})
-
-const attributePoints = computed(() => {
-  const total = Object.values(form.attributes).reduce((a, b) => a + b, 0)
-  return { used: total, max: campaignConfig.value.attrCap }
-})
-
-const skillPoints = computed(() => {
-  const total = Object.values(form.skills).reduce((a, b) => a + b, 0)
-  return { used: total, max: campaignConfig.value.skillCap }
-})
-
-const totalCP = computed(() => {
-  const total = attributePoints.value.used + skillPoints.value.used
-  return { used: total, max: campaignConfig.value.startingCP }
-})
-
-// Validation: only 1 attribute can be at the highest value
-const cappedAttributes = computed(() => {
-  const values = Object.values(form.attributes)
-  const maxValue = Math.max(...values)
-  return values.filter(v => v === maxValue).length
-})
-
-// Validation: only 1 skill can be at the highest value per skill group
-const cappedSkillGroups = computed(() => {
-  const violations: string[] = []
-  for (const [attr, skills] of Object.entries(skillsByAttribute)) {
-    const values = skills.map(s => form.skills[s as keyof typeof form.skills])
-    const maxValue = Math.max(...values)
-    const countAtMax = values.filter(v => v === maxValue).length
-    if (countAtMax > 1) {
-      violations.push(attr)
-    }
-  }
-  return violations
-})
-
-// Warning: skills at 0 have -1 modifier
-const zeroSkills = computed(() => {
-  return Object.values(form.skills).filter(v => v === 0).length
-})
-
-// Validation: skills cannot exceed their linked attribute
-const skillsExceedingAttribute = computed(() => {
-  const violations: string[] = []
-  const skillToAttr: Record<string, keyof typeof form.attributes> = {
-    dodge: 'agility', fight: 'agility', stealth: 'agility',
-    athletics: 'body', endurance: 'body', featsOfStrength: 'body',
-    manipulate: 'charisma', perform: 'charisma', persuasion: 'charisma',
-    computer: 'intelligence', survival: 'intelligence', knowledge: 'intelligence',
-    perception: 'willpower', decipherIntent: 'willpower', bravery: 'willpower',
-  }
-  for (const [skill, attr] of Object.entries(skillToAttr)) {
-    const skillVal = form.skills[skill as keyof typeof form.skills]
-    const attrVal = form.attributes[attr]
-    if (skillVal > attrVal) {
-      violations.push(`${skillLabels[skill]} (${skillVal}) > ${attr} (${attrVal})`)
-    }
-  }
-  return violations
-})
-
-
-// Derived stats calculated from attributes and skills
-const derivedStats = computed(() => ({
-  woundBoxes: Math.max(2, form.attributes.body + form.skills.endurance),
-  speed: form.attributes.agility + form.skills.survival,
-  accuracyPool: form.attributes.agility + form.skills.fight,
-  dodgePool: form.attributes.agility + form.skills.dodge,
-  armor: form.attributes.body + form.skills.endurance,
-  damage: form.attributes.body + form.skills.fight,
-}))
-
-// Max inspiration = Willpower (min 1)
-const maxInspiration = computed(() => Math.max(1, form.attributes.willpower))
-
-// Reset sprite error when URL changes
-watch(() => form.spriteUrl, () => {
-  spriteError.value = false
-})
-
-// Affordability checks - use totals
-function canAffordAttributeIncrease(attr: keyof typeof form.attributes): boolean {
-  const currentTotal = getTotalAttribute(attr)
-  const nextCost = (currentTotal + 1) * 2
-  return form.xp >= nextCost && currentTotal < campaignConfig.value.finalCap
-}
-
-function canAffordSkillIncrease(skill: keyof typeof form.skills): boolean {
-  const currentTotal = getTotalSkill(skill)
-  const nextCost = currentTotal + 1
-  return form.xp >= nextCost && currentTotal < campaignConfig.value.finalCap
-}
-
-const canAffordInspiration = computed(() => {
-  const currentTotal = totalInspiration.value
-  const cost = currentTotal * 2
-  return form.xp >= cost && currentTotal < maxInspiration.value
-})
-
-function canAffordTormentBox(torment: TormentEntry): boolean {
-  const cost = getTormentBoxCost(torment)
-  return form.xp >= cost && torment.markedBoxes < torment.totalBoxes
-}
-
-
-// Compute unlocked Special Orders based on attributes
-const unlockedSpecialOrders = computed(() => {
-  const thresholds = specialOrderThresholds[form.campaignLevel]
-  const unlocked: { attribute: string; orders: { name: string; type: string; effect: string; tier: number }[] }[] = []
-
-  for (const [attr, orders] of Object.entries(specialOrdersData)) {
-    const attrValue = form.attributes[attr as keyof typeof form.attributes]
-    const unlockedOrders: { name: string; type: string; effect: string; tier: number }[] = []
-
-    orders.forEach((order, index) => {
-      if (attrValue >= thresholds[index]) {
-        unlockedOrders.push({ ...order, tier: index + 1 })
-      }
-    })
-
-    if (unlockedOrders.length > 0) {
-      unlocked.push({ attribute: attr, orders: unlockedOrders })
-    }
-  }
-
-  return unlocked
-})
 
 onMounted(async () => {
   const fetched = await fetchTamer(tamerId.value)
