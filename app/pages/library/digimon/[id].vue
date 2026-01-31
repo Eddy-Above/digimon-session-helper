@@ -1,10 +1,6 @@
 <script setup lang="ts">
 import type { Digimon } from '../../../server/db/schema'
-import { STAGE_CONFIG, SIZE_CONFIG, type DigimonStage, type DigimonSize, type DigimonFamily } from '../../../types'
-import { QUALITY_DATABASE, getMaxRanksAtStage } from '../../../data/qualities'
-import { EFFECT_ALIGNMENT, TAG_RESTRICTIONS, getTagPatternForQuality } from '../../../data/attackConstants'
-import { useDigimonDP } from '../../../composables/useDigimonDP'
-import { useAttackTags, type Attack, type NewAttack } from '../../../composables/useAttackTags'
+import { useDigimonForm } from '../../../composables/useDigimonForm'
 
 definePageMeta({
   title: 'Edit Digimon',
@@ -12,931 +8,151 @@ definePageMeta({
 
 const route = useRoute()
 const router = useRouter()
-const { digimonList, fetchDigimonById, fetchDigimon, updateDigimon, copyDigimon, loading, error, getPreviousStages, getNextStages, getEvolutionChain } = useDigimon()
+const { digimonList, fetchDigimonById, updateDigimon, copyDigimon, loading, error, getPreviousStages, getNextStages, getEvolutionChain } = useDigimon()
 const { tamers, fetchTamers } = useTamers()
-const copying = ref(false)
+
+onMounted(async () => {
+  fetchTamers()
+  await loadDigimon()
+})
 
 const digimon = ref<Digimon | null>(null)
 const initialLoading = ref(true)
+const copying = ref(false)
 
-const form = reactive({
-  name: '',
-  species: '',
-  stage: 'rookie' as DigimonStage,
-  attribute: 'data' as 'vaccine' | 'data' | 'virus' | 'free',
-  family: 'nature-spirits' as DigimonFamily,
-  type: '',
-  size: 'medium' as DigimonSize,
-  baseStats: {
-    accuracy: 3,
-    damage: 3,
-    dodge: 3,
-    armor: 3,
-    health: 3,
-  },
-  attacks: [] as Digimon['attacks'],
-  qualities: [] as Digimon['qualities'],
-  dataOptimization: '',
-  bonusDP: 0,
-  bonusStats: {
-    accuracy: 0,
-    damage: 0,
-    dodge: 0,
-    armor: 0,
-    health: 0,
-  },
-  bonusDPForQualities: 0,
-  syncBonusDP: true,
-  partnerId: '' as string | null,
-  isEnemy: false,
-  notes: '',
-  spriteUrl: '',
-  evolvesFromId: null as string | null,
-  evolutionPathIds: [] as string[],
-})
+// Evolution preview state
+const linkedEvolvesFrom = ref<Digimon | null>(null)
+const linkedEvolvesTo = ref<Digimon[]>([])
 
-// Collapsible sections
-const basicInfoExpanded = ref(false)
-const baseStatsExpanded = ref(false)
+// Use the extracted form composable - will be initialized once digimon is loaded
+const {
+  form,
+  basicInfoExpanded,
+  baseStatsExpanded,
+  stages,
+  sizes,
+  attributes,
+  families,
+  familyLabels,
+  currentSizeConfig,
+  baseDP,
+  dpUsedOnStats,
+  dpUsedOnQualities,
+  baseDPRemaining,
+  bonusStatsTotal,
+  bonusDPForStats,
+  bonusDPRemaining,
+  totalDPForQualities,
+  availableDPForQualities,
+  canAddQualities,
+  minBonusDPForQualities,
+  maxBonusDPForQualities,
+  derivedStats,
+  showCustomAttackForm,
+  editingAttackIndex,
+  newAttack,
+  usedAttackTags,
+  countAttacksWithTag,
+  availableAttackTags,
+  availableEffectTags,
+  addTagToAttack,
+  removeTagFromAttack,
+  handleAddQuality,
+  handleUpdateQualityRanks,
+  removeQuality,
+  addCustomAttack,
+  removeAttack,
+  editAttack,
+  spriteError,
+  handleSpriteError,
+} = useDigimonForm()
 
-const stages: DigimonStage[] = ['fresh', 'in-training', 'rookie', 'champion', 'ultimate', 'mega']
-const sizes: DigimonSize[] = ['tiny', 'small', 'medium', 'large', 'huge', 'gigantic']
-const attributes = ['vaccine', 'data', 'virus', 'free'] as const
-const families: DigimonFamily[] = [
-  'dark-empire',
-  'deep-savers',
-  'dragons-roar',
-  'jungle-troopers',
-  'metal-empire',
-  'nature-spirits',
-  'nightmare-soldiers',
-  'unknown',
-  'virus-busters',
-  'wind-guardians',
-]
-
-// Family display names for dropdown
-const familyLabels: Record<DigimonFamily, string> = {
-  'dark-empire': 'Dark Empire',
-  'deep-savers': 'Deep Savers',
-  'dragons-roar': "Dragon's Roar",
-  'jungle-troopers': 'Jungle Troopers',
-  'metal-empire': 'Metal Empire',
-  'nature-spirits': 'Nature Spirits',
-  'nightmare-soldiers': 'Nightmare Soldiers',
-  'unknown': 'Unknown',
-  'virus-busters': 'Virus Busters',
-  'wind-guardians': 'Wind Guardians',
-}
-
-const currentStageConfig = computed(() => STAGE_CONFIG[form.stage])
-const currentSizeConfig = computed(() => SIZE_CONFIG[form.size])
-
-// DP calculation - DDA 1.4 rules:
-// Base stats cost 1 DP per point from BASE DP pool
-// Qualities cost from BASE DP pool OR bonus quality DP pool
-const dpUsedOnStats = computed(() => {
-  return Object.values(form.baseStats).reduce((a, b) => a + b, 0)
-})
-
-const dpUsedOnQualities = computed(() => {
-  return form.qualities.reduce((total, q) => total + (q.dpCost || 0) * (q.ranks || 1), 0)
-})
-
-// Base DP pool (from stage only - NOT including bonus DP)
-const baseDP = computed(() => {
-  return currentStageConfig.value.dp
-})
-
-// How much of quality spending comes from base DP (vs bonus DP for qualities)
-const qualitiesFromBaseDP = computed(() => {
-  const baseDPAvailableForQualities = Math.max(0, baseDP.value - dpUsedOnStats.value)
-  return Math.min(dpUsedOnQualities.value, baseDPAvailableForQualities)
-})
-
-// Base DP used = stats + qualities (only qualities that fit in remaining base DP)
-// Qualities beyond base DP are paid from bonus DP for qualities
-const baseDPUsed = computed(() => {
-  return dpUsedOnStats.value + qualitiesFromBaseDP.value
-})
-
-// Base DP remaining (can go negative if overspent)
-const baseDPRemaining = computed(() => {
-  return baseDP.value - baseDPUsed.value
-})
-
-// Total bonus DP spent on stats
-const bonusStatsTotal = computed(() => {
-  return Object.values(form.bonusStats).reduce((a, b) => a + b, 0)
-})
-
-// Bonus DP available for stats (excluding DP allocated to qualities)
-const bonusDPForStats = computed(() => {
-  return Math.max(0, (form.bonusDP || 0) - (form.bonusDPForQualities || 0))
-})
-
-// Check if bonus stats overspent (using DP meant for qualities)
-const bonusStatsOverspent = computed(() => {
-  return bonusStatsTotal.value > bonusDPForStats.value
-})
-
-// Total bonus DP allocated (stats + qualities)
-const bonusDPAllocated = computed(() => {
-  return bonusStatsTotal.value + (form.bonusDPForQualities || 0)
-})
-
-// Bonus DP remaining
-const bonusDPRemaining = computed(() => {
-  return (form.bonusDP || 0) - bonusDPAllocated.value
-})
-
-// Can add qualities if there's DP available for qualities
-// Available = (base DP not used on stats) + bonus DP for qualities
-// BUT also must not exceed total bonus DP budget
-// Total DP budget for qualities
-const totalDPForQualities = computed(() => {
-  const baseDPAvailableForQualities = Math.max(0, baseDP.value - dpUsedOnStats.value)
-  return baseDPAvailableForQualities + (form.bonusDPForQualities || 0)
-})
-
-// Available DP for adding new qualities
-const availableDPForQualities = computed(() => {
-  return Math.max(0, totalDPForQualities.value - dpUsedOnQualities.value)
-})
-
-const canAddQualities = computed(() => {
-  // Check 1: Is there room in the quality budget?
-  const hasRoomInQualityBudget = dpUsedOnQualities.value < totalDPForQualities.value
-
-  // Check 2: Is the bonus DP allocation valid (not over-allocated)?
-  const bonusDPValid = bonusDPRemaining.value >= 0
-
-  return hasRoomInQualityBudget && bonusDPValid
-})
-
-// Minimum bonus DP required for qualities (quality spending that exceeds base DP coverage)
-const minBonusDPForQualities = computed(() => {
-  const baseDPAvailableForQualities = Math.max(0, baseDP.value - dpUsedOnStats.value)
-  return Math.max(0, dpUsedOnQualities.value - baseDPAvailableForQualities)
-})
-
-// Maximum bonus DP that can be allocated to qualities (total bonus DP minus what's used on stats)
-const maxBonusDPForQualities = computed(() => {
-  return Math.max(minBonusDPForQualities.value, (form.bonusDP || 0) - bonusStatsTotal.value)
-})
-
-// For display compatibility
-const totalDP = computed(() => baseDP.value)
-const dpUsed = computed(() => dpUsedOnStats.value + dpUsedOnQualities.value)
-const dpRemaining = computed(() => baseDPRemaining.value)
-
-// Derived Stats calculation - DDA 1.4 rules (page 111)
-const derivedStats = computed(() => {
-  // Total stats = base + bonus
-  const accuracy = form.baseStats.accuracy + (form.bonusStats.accuracy || 0)
-  const damage = form.baseStats.damage + (form.bonusStats.damage || 0)
-  const dodge = form.baseStats.dodge + (form.bonusStats.dodge || 0)
-  const armor = form.baseStats.armor + (form.bonusStats.armor || 0)
-  const health = form.baseStats.health + (form.bonusStats.health || 0)
-
-  const stageConfig = currentStageConfig.value
-  const sizeConfig = currentSizeConfig.value
-
-  // Primary Derived Stats (always round down)
-  // Size affects Body and Agility differently (page 110)
-  const brains = Math.floor(accuracy / 2) + stageConfig.brainsBonus
-  const body = Math.max(0, Math.floor((health + damage + armor) / 3) + sizeConfig.bodyBonus)
-  const agility = Math.max(0, Math.floor((accuracy + dodge) / 2) + sizeConfig.agilityBonus)
-
-  // Spec Values (derived from derived stats)
-  const bit = Math.floor(brains / 10) + stageConfig.stageBonus
-  const cpu = Math.floor(body / 10) + stageConfig.stageBonus
-  const ram = Math.floor(agility / 10) + stageConfig.stageBonus
-
-  // Movement calculation with Speedy bonus
-  const baseMovement = stageConfig.movement
-  const speedyQuality = form.qualities.find(q => q.id === 'speedy')
-  const speedyRanks = speedyQuality?.ranks || 0
-  const speedyBonus = speedyRanks * 2
-  // Speedy cannot more than double base movement
-  const maxSpeedyBonus = baseMovement
-  const movement = baseMovement + Math.min(speedyBonus, maxSpeedyBonus)
-
-  return {
-    // Primary derived stats
-    brains,
-    body,
-    agility,
-    // Spec Values (BIT, CPU, RAM)
-    bit,
-    cpu,
-    ram,
-    // Combat stats
-    woundBoxes: health + stageConfig.woundBonus,
-    movement,
-    baseMovement,
-    stageBonus: stageConfig.stageBonus,
-    // Attack/Defense pools (total stats = base + bonus)
-    accuracyPool: accuracy,
-    damagePool: damage,
-    dodgePool: dodge,
-    armorValue: armor,
-  }
-})
-
-// Toggle for custom attack form
-const showCustomAttackForm = ref(false)
-
-// Track which attack is being edited (-1 means creating new)
-const editingAttackIndex = ref(-1)
-
-// New attack form - DDA 1.4 structure
-const newAttack = reactive({
-  name: '',
-  range: 'melee' as 'melee' | 'ranged',
-  type: 'damage' as 'damage' | 'support',
-  tags: [] as string[],
-  effect: '' as string | undefined,
-  description: '',
-})
-
-// Watch for attack type changes - clear invalid effects
-// Note: EFFECT_ALIGNMENT and TAG_RESTRICTIONS are now imported from attackConstants.ts
-watch(() => newAttack.type, (newType) => {
-  if (newAttack.effect) {
-    const alignment = EFFECT_ALIGNMENT[newAttack.effect]
-    if (alignment === 'P' && newType !== 'support') {
-      newAttack.effect = ''
-    } else if (alignment === 'N' && newType !== 'damage') {
-      newAttack.effect = ''
-    }
-  }
-})
-
-// Watch for attack range changes - clear invalid tags
-watch(() => newAttack.range, (newRange) => {
-  newAttack.tags = newAttack.tags.filter((tag) => {
-    const restriction = TAG_RESTRICTIONS[tag]
-    if (restriction?.range && restriction.range !== newRange) {
-      return false
-    }
-    return true
-  })
-})
-
-// Watch for attack type changes - clear invalid tags
-watch(() => newAttack.type, (newType) => {
-  newAttack.tags = newAttack.tags.filter((tag) => {
-    const restriction = TAG_RESTRICTIONS[tag]
-    if (restriction?.type && restriction.type !== newType) {
-      return false
-    }
-    return true
-  })
-})
-
-type Attack = Digimon['attacks'][0]
-
-function handleAddAttack(attack: Attack) {
-  form.attacks = [...form.attacks, attack]
-}
-
-// Tag validation rules based on DDA 1.4
-interface AttackTagRule {
-  id: string
-  name: string
-  description: string
-  rangeRestriction?: 'melee' | 'ranged' // null = both allowed
-  typeRestriction?: 'damage' | 'support' // null = both allowed
-  conflictsWith?: string[] // Tags that can't be combined with this one
-  allowedWithSignature?: string[] // Conflicts that Signature Move overrides
-}
-
-// Get tags already used by existing attacks (Attack qualities can only apply to ONE attack, except Weapon which can apply to Rank attacks)
-const usedAttackTags = computed(() => {
-  const used = new Set<string>()
-  for (const attack of form.attacks) {
-    for (const tag of attack.tags) {
-      // Normalize tag name to quality ID (e.g., "Weapon 2" -> "weapon", "Charge Attack" -> "charge-attack")
-      const normalized = tag.toLowerCase().replace(/\s+\d+$/, '').replace(/\s+/g, '-').replace(/:/g, '')
-      used.add(normalized)
-    }
-  }
-  return used
-})
-
-// Count how many attacks have a specific tag
-function countAttacksWithTag(qualityId: string): number {
-  let count = 0
-  const pattern = qualityId.replace(/-/g, ' ')
-  for (const attack of form.attacks) {
-    for (const tag of attack.tags) {
-      const normalized = tag.toLowerCase().replace(/\s+\d+$/, '').replace(/\s+/g, '-').replace(/:/g, '')
-      if (normalized === qualityId) {
-        count++
-      }
-    }
-  }
-  return count
-}
-
-// Check if a quality-based tag is already used on another attack
-function isTagAlreadyUsed(qualityId: string): boolean {
-  return usedAttackTags.value.has(qualityId)
-}
-
-// Get available tags based on owned qualities AND current attack state
-const availableAttackTags = computed(() => {
-  const tags: Array<AttackTagRule & { disabled: boolean; disabledReason?: string }> = []
-  const currentRange = newAttack.range
-  const currentType = newAttack.type
-  const currentTags = newAttack.tags
-  const hasSignatureMove = currentTags.some((t) => t.includes('Signature Move'))
-
-  for (const quality of form.qualities) {
-    // Weapon - can be applied to a number of attacks equal to its rank
-    if (quality.id === 'weapon') {
-      const weaponRank = quality.ranks || 1
-      const weaponUsedCount = countAttacksWithTag('weapon')
-      const atMaxUses = weaponUsedCount >= weaponRank
-      tags.push({
-        id: 'weapon',
-        name: `Weapon ${weaponRank}`,
-        description: `+${weaponRank} Accuracy and Damage (${weaponUsedCount}/${weaponRank} attacks tagged)`,
-        disabled: atMaxUses,
-        disabledReason: atMaxUses ? `Already applied to ${weaponRank} attack${weaponRank > 1 ? 's' : ''} (max for rank ${weaponRank})` : undefined,
+async function loadDigimon() {
+  try {
+    const id = route.params.id as string
+    const data = await fetchDigimonById(id)
+    if (data) {
+      digimon.value = data
+      // Populate form with loaded data
+      Object.assign(form, {
+        name: data.name,
+        species: data.species,
+        stage: data.stage,
+        attribute: data.attribute,
+        family: data.family,
+        type: data.type,
+        size: data.size,
+        baseStats: data.baseStats,
+        bonusStats: data.bonusStats || { accuracy: 0, damage: 0, dodge: 0, armor: 0, health: 0 },
+        bonusDP: data.bonusDP || 0,
+        bonusDPForQualities: data.bonusDPForQualities || 0,
+        attacks: data.attacks || [],
+        qualities: data.qualities || [],
+        dataOptimization: data.dataOptimization || '',
+        partnerId: data.partnerId || null,
+        isEnemy: data.isEnemy || false,
+        notes: data.notes || '',
+        spriteUrl: data.spriteUrl || '',
+        evolvesFromId: data.evolvesFromId || null,
+        evolutionPathIds: data.evolutionPathIds || [],
+        syncBonusDP: data.syncBonusDP ?? true,
       })
     }
-
-    // Armor Piercing - conflicts with Certain Strike (unless Signature Move)
-    if (quality.id === 'armor-piercing') {
-      const alreadyUsed = isTagAlreadyUsed('armor-piercing')
-      const hasCertainStrike = currentTags.some((t) => t.includes('Certain Strike'))
-      const blocked = alreadyUsed || (hasCertainStrike && !hasSignatureMove)
-      tags.push({
-        id: 'armor-piercing',
-        name: `Armor Piercing ${quality.ranks || 1}`,
-        description: `Ignores ${(quality.ranks || 1) * 2} Armor`,
-        conflictsWith: ['certain-strike'],
-        allowedWithSignature: ['certain-strike'],
-        disabled: blocked,
-        disabledReason: alreadyUsed ? 'Already used on another attack' : blocked ? 'Cannot combine with Certain Strike (unless Signature Move)' : undefined,
-      })
-    }
-
-    // Certain Strike - conflicts with Armor Piercing (unless Signature Move)
-    if (quality.id === 'certain-strike') {
-      const alreadyUsed = isTagAlreadyUsed('certain-strike')
-      const hasArmorPiercing = currentTags.some((t) => t.includes('Armor Piercing'))
-      const blocked = alreadyUsed || (hasArmorPiercing && !hasSignatureMove)
-      tags.push({
-        id: 'certain-strike',
-        name: `Certain Strike ${quality.ranks || 1}`,
-        description: 'Auto-successes on accuracy',
-        conflictsWith: ['armor-piercing'],
-        allowedWithSignature: ['armor-piercing'],
-        disabled: blocked,
-        disabledReason: alreadyUsed ? 'Already used on another attack' : blocked ? 'Cannot combine with Armor Piercing (unless Signature Move)' : undefined,
-      })
-    }
-
-    // Charge Attack - MELEE ONLY
-    if (quality.id === 'charge-attack') {
-      const alreadyUsed = isTagAlreadyUsed('charge-attack')
-      const blocked = alreadyUsed || currentRange !== 'melee'
-      tags.push({
-        id: 'charge-attack',
-        name: 'Charge Attack',
-        description: 'Move and attack as one Simple Action',
-        rangeRestriction: 'melee',
-        disabled: blocked,
-        disabledReason: alreadyUsed ? 'Already used on another attack' : blocked ? 'Requires [Melee] attack' : undefined,
-      })
-    }
-
-    // Mighty Blow - MELEE ONLY
-    if (quality.id === 'mighty-blow') {
-      const alreadyUsed = isTagAlreadyUsed('mighty-blow')
-      const blocked = alreadyUsed || currentRange !== 'melee'
-      tags.push({
-        id: 'mighty-blow',
-        name: 'Mighty Blow',
-        description: 'Stun on high damage',
-        rangeRestriction: 'melee',
-        disabled: blocked,
-        disabledReason: alreadyUsed ? 'Already used on another attack' : blocked ? 'Requires [Melee] attack' : undefined,
-      })
-    }
-
-    // Signature Move - restrictions with certain effects
-    if (quality.id === 'signature-move') {
-      const alreadyUsed = isTagAlreadyUsed('signature-move')
-      const hasPoison = currentTags.some((t) => t.includes('Poison'))
-      const hasHazard = currentTags.some((t) => t.includes('Hazard'))
-      const hasRevitalize = currentTags.some((t) => t.includes('Revitalize'))
-      const hasAmmo = currentTags.some((t) => t.includes('Ammo'))
-      const blocked = alreadyUsed || hasPoison || hasHazard || hasRevitalize || hasAmmo
-      tags.push({
-        id: 'signature-move',
-        name: 'Signature Move',
-        description: 'Powerful attack (available Round 3+, 2 round cooldown)',
-        disabled: blocked,
-        disabledReason: alreadyUsed ? 'Already used on another attack' : blocked ? 'Cannot combine with Poison, Hazard, Revitalize, or Ammo' : undefined,
-      })
-    }
-
-    // Ammo - requires 3 tags total (including free Damage/Support + Melee/Ranged), cannot combine with Signature Move
-    if (quality.id === 'ammo') {
-      const alreadyUsed = isTagAlreadyUsed('ammo')
-      const hasSignature = currentTags.some((t) => t.includes('Signature Move'))
-      // Need at least 1 other quality-based tag (since Damage/Support and Melee/Ranged are free)
-      const hasEnoughTags = currentTags.length >= 1
-      const blocked = alreadyUsed || hasSignature || !hasEnoughTags
-      let reason: string | undefined
-      if (alreadyUsed) reason = 'Already used on another attack'
-      else if (hasSignature) reason = 'Cannot combine with Signature Move'
-      else if (!hasEnoughTags) reason = 'Requires at least 1 other tag first'
-      tags.push({
-        id: 'ammo',
-        name: 'Ammo',
-        description: 'Use attack up to 5 times consecutively (then unavailable for battle)',
-        disabled: blocked,
-        disabledReason: reason,
-      })
-    }
-
-    // Area Attack options (with range restrictions)
-    // Each Area Attack sub-option can only be used on ONE attack
-    if (quality.id === 'area-attack') {
-      const choiceId = quality.choiceId
-      // Blast - RANGED ONLY
-      if (!choiceId || choiceId === 'blast') {
-        const alreadyUsed = isTagAlreadyUsed('area-attack-blast')
-        const blocked = alreadyUsed || currentRange !== 'ranged'
-        tags.push({
-          id: 'area-blast',
-          name: 'Area Attack: Blast',
-          description: `Circle at range (3m +BIT diameter)`,
-          rangeRestriction: 'ranged',
-          disabled: blocked,
-          disabledReason: alreadyUsed ? 'Already used on another attack' : blocked ? 'Requires [Ranged] attack' : undefined,
-        })
-      }
-      // Pass - MELEE ONLY
-      if (!choiceId || choiceId === 'pass') {
-        const alreadyUsed = isTagAlreadyUsed('area-attack-pass')
-        const blocked = alreadyUsed || currentRange !== 'melee'
-        tags.push({
-          id: 'area-pass',
-          name: 'Area Attack: Pass',
-          description: 'Charge through enemies in a line',
-          rangeRestriction: 'melee',
-          disabled: blocked,
-          disabledReason: alreadyUsed ? 'Already used on another attack' : blocked ? 'Requires [Melee] attack' : undefined,
-        })
-      }
-      // Burst, Close Blast, Cone, Line - both ranges allowed
-      if (!choiceId || choiceId === 'burst') {
-        const alreadyUsed = isTagAlreadyUsed('area-attack-burst')
-        tags.push({
-          id: 'area-burst',
-          name: 'Area Attack: Burst',
-          description: 'Circle from user (1m +BIT+1 radius)',
-          disabled: alreadyUsed,
-          disabledReason: alreadyUsed ? 'Already used on another attack' : undefined,
-        })
-      }
-      if (!choiceId || choiceId === 'close-blast') {
-        const alreadyUsed = isTagAlreadyUsed('area-attack-close-blast')
-        tags.push({
-          id: 'area-close-blast',
-          name: 'Area Attack: Close Blast',
-          description: 'Circle adjacent to user (2m +BIT radius)',
-          disabled: alreadyUsed,
-          disabledReason: alreadyUsed ? 'Already used on another attack' : undefined,
-        })
-      }
-      if (!choiceId || choiceId === 'cone') {
-        const alreadyUsed = isTagAlreadyUsed('area-attack-cone')
-        tags.push({
-          id: 'area-cone',
-          name: 'Area Attack: Cone',
-          description: 'Triangle from user (3m +BIT length)',
-          disabled: alreadyUsed,
-          disabledReason: alreadyUsed ? 'Already used on another attack' : undefined,
-        })
-      }
-      if (!choiceId || choiceId === 'line') {
-        const alreadyUsed = isTagAlreadyUsed('area-attack-line')
-        tags.push({
-          id: 'area-line',
-          name: 'Area Attack: Line',
-          description: 'Pillar from user (5m +BIT×2 length)',
-          disabled: alreadyUsed,
-          disabledReason: alreadyUsed ? 'Already used on another attack' : undefined,
-        })
-      }
-    }
-  }
-
-  return tags
-})
-
-// Get effects already used by existing attacks
-const usedEffects = computed(() => {
-  const used = new Set<string>()
-  for (let i = 0; i < form.attacks.length; i++) {
-    // Skip the attack being edited
-    if (i === editingAttackIndex.value) continue
-    const attack = form.attacks[i]
-    if (attack.effect) {
-      used.add(attack.effect.toLowerCase())
-    }
-  }
-  return used
-})
-
-// Get available effect tags based on owned qualities AND attack type
-// [P] Positive effects = Support attacks only
-// [N] Negative effects = Damage attacks only
-// [N/A] = Both types allowed
-const availableEffectTags = computed(() => {
-  const currentType = newAttack.type
-  const currentTags = newAttack.tags
-  const hasSignatureMove = currentTags.some((t) => t.includes('Signature Move'))
-
-  // Effect alignment: P = Support only, N = Damage only, NA = Both
-  const effectAlignment: Record<string, 'P' | 'N' | 'NA'> = {
-    'effect-vigor': 'P',
-    'effect-fury': 'P',
-    'effect-cleanse': 'P',
-    'effect-haste': 'P',
-    'effect-revitalize': 'P',
-    'effect-shield': 'P',
-    'effect-poison': 'N',
-    'effect-confuse': 'N',
-    'effect-stun': 'N',
-    'effect-fear': 'N',
-    'effect-immobilize': 'N',
-    'effect-taunt': 'N',
-    'effect-lifesteal': 'NA',
-    'effect-knockback': 'NA',
-    'effect-pull': 'NA',
-  }
-
-  // Signature Move restrictions
-  const signatureRestricted = ['effect-poison', 'effect-hazard', 'effect-revitalize']
-
-  return form.qualities
-    .filter((q) => q.id.startsWith('effect-'))
-    .map((q) => {
-      const alignment = effectAlignment[q.id] || 'NA'
-      const effectName = q.name
-      const alreadyUsed = usedEffects.value.has(effectName.toLowerCase())
-      let disabled = alreadyUsed
-      let disabledReason: string | undefined = alreadyUsed ? 'Already used on another attack' : undefined
-
-      // Check type restriction
-      if (!disabled && alignment === 'P' && currentType !== 'support') {
-        disabled = true
-        disabledReason = 'Requires [Support] attack'
-      } else if (!disabled && alignment === 'N' && currentType !== 'damage') {
-        disabled = true
-        disabledReason = 'Requires [Damage] attack'
-      }
-
-      // Check Signature Move restriction
-      if (!disabled && hasSignatureMove && signatureRestricted.includes(q.id)) {
-        disabled = true
-        disabledReason = 'Cannot use with Signature Move'
-      }
-
-      return {
-        id: q.id.replace('effect-', ''),
-        name: q.name,
-        alignment,
-        disabled,
-        disabledReason,
-      }
-    })
-})
-
-function addTagToAttack(tagName: string) {
-  if (!newAttack.tags.includes(tagName)) {
-    newAttack.tags = [...newAttack.tags, tagName]
+  } finally {
+    initialLoading.value = false
   }
 }
 
-function removeTagFromAttack(tagName: string) {
-  newAttack.tags = newAttack.tags.filter((t) => t !== tagName)
-}
-
-function addCustomAttack() {
-  if (!newAttack.name) return
-
-  const attackData = {
-    id: editingAttackIndex.value >= 0
-      ? form.attacks[editingAttackIndex.value].id
-      : `attack-${Date.now()}`,
-    name: newAttack.name,
-    range: newAttack.range,
-    type: newAttack.type,
-    tags: [...newAttack.tags],
-    effect: newAttack.effect || undefined,
-    description: newAttack.description,
-  }
-
-  if (editingAttackIndex.value >= 0) {
-    // Update existing attack
-    form.attacks = form.attacks.map((attack, i) =>
-      i === editingAttackIndex.value ? attackData : attack
-    )
-  } else {
-    // Add new attack
-    form.attacks = [...form.attacks, attackData]
-  }
-
-  // Reset form
-  newAttack.name = ''
-  newAttack.range = 'melee'
-  newAttack.type = 'damage'
-  newAttack.tags = []
-  newAttack.effect = ''
-  newAttack.description = ''
-  editingAttackIndex.value = -1
-  showCustomAttackForm.value = false
-}
-
-function removeAttack(index: number) {
-  form.attacks = form.attacks.filter((_, i) => i !== index)
-}
-
-function editAttack(index: number) {
-  const attack = form.attacks[index]
-  if (!attack) return
-
-  // Populate the form with existing attack data
-  newAttack.name = attack.name
-  newAttack.range = attack.range
-  newAttack.type = attack.type
-  newAttack.tags = [...attack.tags]
-  newAttack.effect = attack.effect || ''
-  newAttack.description = attack.description
-
-  editingAttackIndex.value = index
-  showCustomAttackForm.value = true
-}
-
-type Quality = Digimon['qualities'][0]
-
-function handleAddQuality(quality: Quality) {
-  // Check if adding this quality would exceed the budget
-  const qualityCost = (quality.dpCost || 0) * (quality.ranks || 1)
-  const baseDPAvailableForQualities = Math.max(0, baseDP.value - dpUsedOnStats.value)
-  const totalDPForQualities = baseDPAvailableForQualities + (form.bonusDPForQualities || 0)
-  const newTotalUsed = dpUsedOnQualities.value + qualityCost
-
-  if (newTotalUsed > totalDPForQualities) {
-    // Would exceed budget - don't add
-    return
-  }
-
-  form.qualities = [...form.qualities, quality]
-}
-
-function handleUpdateQualityRanks(index: number, ranks: number) {
-  if (!form.qualities[index]) return
-
-  const quality = form.qualities[index]
-  const currentCost = (quality.dpCost || 0) * (quality.ranks || 1)
-  const newCost = (quality.dpCost || 0) * ranks
-  const costIncrease = newCost - currentCost
-
-  // Check if the increase would exceed the budget
-  if (costIncrease > 0) {
-    const baseDPAvailableForQualities = Math.max(0, baseDP.value - dpUsedOnStats.value)
-    const totalDPForQualities = baseDPAvailableForQualities + (form.bonusDPForQualities || 0)
-    const newTotalUsed = dpUsedOnQualities.value + costIncrease
-
-    if (newTotalUsed > totalDPForQualities) {
-      return
-    }
-  }
-
-  // Create a new array with the updated quality
-  form.qualities = form.qualities.map((q, i) =>
-    i === index ? { ...q, ranks } : q
-  )
-}
-
-// Note: getTagPatternForQuality is now imported from attackConstants.ts
-
-function removeQuality(index: number) {
-  const qualityToRemove = form.qualities[index]
-  if (!qualityToRemove) return
-
-  // Remove the quality
-  form.qualities = form.qualities.filter((_, i) => i !== index)
-
-  // Remove attacks that use tags from this quality
-  const tagPattern = getTagPatternForQuality(qualityToRemove.id)
-  if (tagPattern) {
-    form.attacks = form.attacks.filter((attack) => {
-      // Check if any tag starts with the pattern
-      const hasTag = attack.tags.some((t) => t.startsWith(tagPattern))
-      return !hasTag
-    })
-  }
-
-  // If it's an effect quality, remove attacks that use this effect
-  if (qualityToRemove.id.startsWith('effect-')) {
-    const effectName = qualityToRemove.name
-    form.attacks = form.attacks.filter((attack) => {
-      return attack.effect !== effectName
-    })
-  }
-}
-
-// Old free-form tag functions removed - now using quality-based tags
-
-// Sprite preview
-const spriteError = ref(false)
-function handleSpriteError() {
-  spriteError.value = true
-}
-watch(() => form.spriteUrl, () => {
-  spriteError.value = false
-})
-
-// Enforce bonus DP for qualities stays within valid range
-watch(() => form.bonusDPForQualities, (newVal) => {
-  if (newVal < minBonusDPForQualities.value) {
-    form.bonusDPForQualities = minBonusDPForQualities.value
-  } else if (newVal > maxBonusDPForQualities.value) {
-    form.bonusDPForQualities = maxBonusDPForQualities.value
-  }
-})
-
-// Also enforce when bonus stats change (which affects maxBonusDPForQualities)
-watch(() => bonusStatsTotal.value, () => {
-  if (form.bonusDPForQualities > maxBonusDPForQualities.value) {
-    form.bonusDPForQualities = maxBonusDPForQualities.value
-  }
-})
-
-// Enforce when quality spending changes (which affects minBonusDPForQualities)
-watch(() => minBonusDPForQualities.value, (newMin) => {
-  if (form.bonusDPForQualities < newMin) {
-    form.bonusDPForQualities = newMin
-  }
-})
-
-// Track previous stat values to revert changes that exceed limits
-const prevBonusStats = ref({ ...form.bonusStats })
-const prevBaseStats = ref({ ...form.baseStats })
-
-// Enforce bonus stats don't exceed available bonus DP for stats
-watch(() => form.bonusStats, (stats) => {
-  const total = Object.values(stats).reduce((a, b) => a + b, 0)
-  const max = bonusDPForStats.value
-  if (total > max) {
-    // Find which stat changed and revert it
-    for (const key of Object.keys(stats) as (keyof typeof stats)[]) {
-      if (stats[key] !== prevBonusStats.value[key]) {
-        form.bonusStats[key] = prevBonusStats.value[key]
-      }
-    }
-  } else {
-    // Update previous values
-    prevBonusStats.value = { ...stats }
-  }
-}, { deep: true })
-
-// Enforce base stats don't exceed base DP (accounting for qualities that use base DP)
-watch(() => form.baseStats, (stats) => {
-  const total = Object.values(stats).reduce((a, b) => a + b, 0)
-  // Qualities not covered by bonus DP must come from base DP
-  const qualitiesFromBaseDP = Math.max(0, dpUsedOnQualities.value - (form.bonusDPForQualities || 0))
-  const maxForStats = baseDP.value - qualitiesFromBaseDP
-  if (total > maxForStats) {
-    // Find which stat changed and revert it
-    for (const key of Object.keys(stats) as (keyof typeof stats)[]) {
-      if (stats[key] !== prevBaseStats.value[key]) {
-        form.baseStats[key] = prevBaseStats.value[key]
-      }
-    }
-  } else {
-    // Update previous values
-    prevBaseStats.value = { ...stats }
-  }
-}, { deep: true })
-
-onMounted(async () => {
-  await Promise.all([fetchTamers(), fetchDigimon()])
-
-  const id = route.params.id as string
-  const fetched = await fetchDigimonById(id)
-  if (fetched) {
-    digimon.value = fetched
-    form.name = fetched.name
-    form.species = fetched.species
-    form.stage = fetched.stage as DigimonStage
-    form.attribute = fetched.attribute
-    form.family = (fetched.family as DigimonFamily) || 'nature-spirits'
-    form.type = fetched.type || ''
-    form.size = (fetched.size as DigimonSize) || 'medium'
-    Object.assign(form.baseStats, fetched.baseStats)
-    form.attacks = [...(fetched.attacks || [])]
-    form.qualities = [...(fetched.qualities || [])]
-    form.dataOptimization = fetched.dataOptimization || ''
-    form.bonusDP = fetched.bonusDP || 0
-    const defaultBonusStats = { accuracy: 0, damage: 0, dodge: 0, armor: 0, health: 0 }
-    form.bonusStats = { ...defaultBonusStats, ...((fetched as any).bonusStats || {}) }
-    form.bonusDPForQualities = (fetched as any).bonusDPForQualities || 0
-    // Initialize previous values for stat enforcement
-    prevBaseStats.value = { ...form.baseStats }
-    prevBonusStats.value = { ...form.bonusStats }
-    form.partnerId = fetched.partnerId || ''
-    form.isEnemy = fetched.isEnemy
-    form.notes = fetched.notes || ''
-    form.spriteUrl = fetched.spriteUrl || ''
-    form.evolvesFromId = fetched.evolvesFromId || null
-    form.evolutionPathIds = [...(fetched.evolutionPathIds || [])]
-  }
-  initialLoading.value = false
-})
-
-// Watch for evolvesFromId changes - sync bonus DP if enabled
+// Sync partnerId and bonus DP from linked evolution when link is added
 watch(() => form.evolvesFromId, async (newId) => {
-  if (newId && form.syncBonusDP) {
+  if (newId) {
     const linkedDigimon = await fetchDigimonById(newId)
-    if (linkedDigimon && linkedDigimon.bonusDP) {
-      form.bonusDP = linkedDigimon.bonusDP
-      form.bonusStats = { ...(linkedDigimon as any).bonusStats || { accuracy: 0, damage: 0, dodge: 0, armor: 0, health: 0 } }
-      form.bonusDPForQualities = (linkedDigimon as any).bonusDPForQualities || 0
-      prevBonusStats.value = { ...form.bonusStats }
+    if (linkedDigimon) {
+      linkedEvolvesFrom.value = linkedDigimon
+      if (linkedDigimon.partnerId && !form.partnerId) {
+        form.partnerId = linkedDigimon.partnerId
+      }
+      if (form.syncBonusDP && linkedDigimon.bonusDP) {
+        form.bonusDP = linkedDigimon.bonusDP
+        form.bonusStats = linkedDigimon.bonusStats ? { ...linkedDigimon.bonusStats } : { accuracy: 0, damage: 0, dodge: 0, armor: 0, health: 0 }
+        form.bonusDPForQualities = linkedDigimon.bonusDPForQualities || 0
+      }
     }
+  } else {
+    linkedEvolvesFrom.value = null
   }
 })
 
-// Watch for evolutionPathIds changes - sync bonus DP if enabled and no evolvesFrom set
+// Also sync from evolutionPathIds
 watch(() => form.evolutionPathIds, async (newIds) => {
-  if (newIds.length > 0 && !form.evolvesFromId && form.syncBonusDP) {
-    const linkedDigimon = await fetchDigimonById(newIds[0])
-    if (linkedDigimon && linkedDigimon.bonusDP) {
-      form.bonusDP = linkedDigimon.bonusDP
-      form.bonusStats = { ...(linkedDigimon as any).bonusStats || { accuracy: 0, damage: 0, dodge: 0, armor: 0, health: 0 } }
-      form.bonusDPForQualities = (linkedDigimon as any).bonusDPForQualities || 0
-      prevBonusStats.value = { ...form.bonusStats }
+  if (newIds.length > 0) {
+    const fetched: Digimon[] = []
+    for (const id of newIds) {
+      const d = await fetchDigimonById(id)
+      if (d) fetched.push(d)
     }
+    linkedEvolvesTo.value = fetched
+
+    if (!form.evolvesFromId && fetched.length > 0) {
+      const linkedDigimon = fetched[0]
+      if (linkedDigimon.partnerId && !form.partnerId) {
+        form.partnerId = linkedDigimon.partnerId
+      }
+      if (form.syncBonusDP && linkedDigimon.bonusDP) {
+        form.bonusDP = linkedDigimon.bonusDP
+        form.bonusStats = { ...(linkedDigimon as any).bonusStats || { accuracy: 0, damage: 0, dodge: 0, armor: 0, health: 0 } }
+        form.bonusDPForQualities = (linkedDigimon as any).bonusDPForQualities || 0
+      }
+    }
+  } else {
+    linkedEvolvesTo.value = []
   }
 }, { deep: true })
-
-// Watch for stage changes - adjust quality ranks and attack tags to new max
-watch(() => form.stage, (newStage) => {
-  if (!form.qualities) return
-
-  // Adjust quality ranks to max allowed at new stage
-  form.qualities = form.qualities.map(quality => {
-    const template = QUALITY_DATABASE.find(t => t.id === quality.id)
-    if (!template) return quality
-
-    const maxRanks = getMaxRanksAtStage(template, newStage)
-    if ((quality.ranks || 1) > maxRanks) {
-      return { ...quality, ranks: maxRanks }
-    }
-    return quality
-  })
-
-  // Update attack tags that have ranks (e.g., "Weapon 2" -> "Weapon 1")
-  if (form.attacks) {
-    form.attacks = form.attacks.map(attack => {
-      const updatedTags = attack.tags.map(tag => {
-        // Check for ranked tags like "Weapon 2", "Armor Piercing 2", "Certain Strike 2"
-        const rankMatch = tag.match(/^(.+?)\s+(\d+)$/)
-        if (rankMatch) {
-          const tagName = rankMatch[1]
-          const qualityId = tagName.toLowerCase().replace(/\s+/g, '-')
-          const quality = form.qualities.find(q => q.id === qualityId)
-          if (quality) {
-            const template = QUALITY_DATABASE.find(t => t.id === qualityId)
-            if (template) {
-              const maxRanks = getMaxRanksAtStage(template, newStage)
-              const newRank = Math.min(quality.ranks || 1, maxRanks)
-              return `${tagName} ${newRank}`
-            }
-          }
-        }
-        return tag
-      })
-      return { ...attack, tags: updatedTags }
-    })
-  }
-})
 
 async function handleSubmit() {
   if (!digimon.value) return
-  const updated = await updateDigimon(digimon.value.id, {
+
+  const data = {
     name: form.name,
     species: form.species,
     stage: form.stage,
@@ -944,37 +160,34 @@ async function handleSubmit() {
     family: form.family,
     type: form.type || undefined,
     size: form.size,
-    baseStats: { ...form.baseStats },
-    attacks: [...form.attacks],
-    qualities: [...form.qualities],
+    baseStats: form.baseStats,
+    bonusStats: form.bonusStats,
+    bonusDP: form.bonusDP,
+    bonusDPForQualities: form.bonusDPForQualities,
+    attacks: form.attacks,
+    qualities: form.qualities,
     dataOptimization: form.dataOptimization || undefined,
-    bonusDP: form.bonusDP || 0,
-    bonusStats: { ...form.bonusStats },
-    bonusDPForQualities: form.bonusDPForQualities || 0,
-    syncBonusDP: form.syncBonusDP,
-    partnerId: form.partnerId || null,
+    partnerId: form.partnerId || undefined,
     isEnemy: form.isEnemy,
-    notes: form.notes || undefined,
+    notes: form.notes,
     spriteUrl: form.spriteUrl || undefined,
-    evolvesFromId: form.evolvesFromId || null,
-    evolutionPathIds: [...form.evolutionPathIds],
-  })
-  if (updated) {
-    router.push('/library/digimon')
+    evolvesFromId: form.evolvesFromId || undefined,
+    evolutionPathIds: form.evolutionPathIds,
+    syncBonusDP: form.syncBonusDP,
   }
+
+  await updateDigimon(digimon.value.id, data)
+  router.push('/library/digimon')
 }
 
 async function handleCopy() {
   if (!digimon.value) return
   copying.value = true
-  try {
-    const copy = await copyDigimon(digimon.value)
-    if (copy) {
-      router.push(`/library/digimon/${copy.id}`)
-    }
-  } finally {
-    copying.value = false
+  const newDigimon = await copyDigimon(digimon.value.id)
+  if (newDigimon) {
+    router.push(`/library/digimon/${newDigimon.id}`)
   }
+  copying.value = false
 }
 </script>
 
