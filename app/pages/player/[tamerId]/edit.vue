@@ -3,11 +3,13 @@ import type { Tamer } from '../../../server/db/schema'
 import { getTormentBoxCount, type TormentSeverity } from '../../../types'
 
 definePageMeta({
+  layout: 'player',
   title: 'Edit Tamer',
 })
 
 const route = useRoute()
 const router = useRouter()
+const tamerId = computed(() => route.params.tamerId as string)
 const { fetchTamer, updateTamer, loading, error } = useTamers()
 
 const tamer = ref<Tamer | null>(null)
@@ -263,8 +265,7 @@ const unlockedSpecialOrders = computed(() => {
 })
 
 onMounted(async () => {
-  const id = route.params.id as string
-  const fetched = await fetchTamer(id)
+  const fetched = await fetchTamer(tamerId.value)
   if (fetched) {
     tamer.value = fetched
     form.name = fetched.name
@@ -347,7 +348,7 @@ async function handleSubmit() {
     notes: form.notes,
   })
   if (updated) {
-    router.push('/library/tamers')
+    router.push(`/player/${tamerId.value}`)
   }
 }
 </script>
@@ -355,8 +356,8 @@ async function handleSubmit() {
 <template>
   <div class="container mx-auto px-4 py-8 max-w-4xl">
     <div class="mb-8">
-      <NuxtLink to="/library/tamers" class="text-digimon-dark-400 hover:text-white text-sm mb-2 inline-block">
-        &larr; Back to Tamers
+      <NuxtLink :to="`/player/${tamerId}`" class="text-digimon-dark-400 hover:text-white text-sm mb-2 inline-block">
+        &larr; Back to Dashboard
       </NuxtLink>
       <h1 class="font-display text-3xl font-bold text-white">Edit Tamer</h1>
     </div>
@@ -369,10 +370,10 @@ async function handleSubmit() {
       <div class="text-6xl mb-4">❌</div>
       <h2 class="text-xl font-semibold text-white mb-2">Tamer Not Found</h2>
       <NuxtLink
-        to="/library/tamers"
+        :to="`/player/${tamerId}`"
         class="text-digimon-orange-400 hover:text-digimon-orange-300"
       >
-        Return to Tamers list
+        Return to Dashboard
       </NuxtLink>
     </div>
 
@@ -880,7 +881,7 @@ async function handleSubmit() {
           {{ loading ? 'Saving...' : 'Save Changes' }}
         </button>
         <NuxtLink
-          to="/library/tamers"
+          :to="`/player/${tamerId}`"
           class="bg-digimon-dark-700 hover:bg-digimon-dark-600 text-white px-6 py-2 rounded-lg
                  font-semibold transition-colors"
         >

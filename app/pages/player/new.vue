@@ -140,8 +140,12 @@ const skillPoints = computed(() => {
   return { used: total, max: campaignConfig.value.skillCap }
 })
 
+const tormentCP = computed(() => {
+  return torments.value.reduce((sum, t) => sum + t.markedBoxes, 0)
+})
+
 const totalCP = computed(() => {
-  const total = attributePoints.value.used + skillPoints.value.used
+  const total = attributePoints.value.used + skillPoints.value.used + tormentCP.value
   return { used: total, max: campaignConfig.value.startingCP }
 })
 
@@ -316,6 +320,7 @@ async function handleSubmit() {
     severity: t.severity,
     totalBoxes: t.totalBoxes,
     markedBoxes: t.markedBoxes,
+    cpMarkedBoxes: t.markedBoxes, // Lock boxes marked at creation with CP
   }))
 
   const created = await createTamer(form)

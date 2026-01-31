@@ -56,6 +56,7 @@ export const tamers = sqliteTable('tamers', {
     severity: 'minor' | 'major' | 'terrible'
     totalBoxes: number
     markedBoxes: number
+    cpMarkedBoxes: number // Boxes marked at creation with CP (locked, can't be removed)
   }>>(),
 
   // Special Orders (array of unlocked order IDs)
