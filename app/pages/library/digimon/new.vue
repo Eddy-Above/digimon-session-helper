@@ -1444,12 +1444,12 @@ async function handleSubmit() {
                     'text-xs px-2 py-1 rounded transition-colors relative group',
                     effect.disabled
                       ? 'bg-digimon-dark-700 text-digimon-dark-500 cursor-not-allowed opacity-50'
-                      : newAttack.effect === effect.name
+                      : newAttack.effect?.toLowerCase() === effect.name.toLowerCase()
                         ? 'bg-purple-500 text-white'
                         : 'bg-digimon-dark-600 text-digimon-dark-300 hover:bg-digimon-dark-500'
                   ]"
                   :title="effect.disabled ? effect.disabledReason : `${effect.alignment === 'P' ? '[Support only]' : effect.alignment === 'N' ? '[Damage only]' : '[Any type]'}`"
-                  @click="!effect.disabled && (newAttack.effect = newAttack.effect === effect.name ? '' : effect.name)"
+                  @click="!effect.disabled && (newAttack.effect = newAttack.effect?.toLowerCase() === effect.name.toLowerCase() ? '' : effect.name)"
                 >
                   {{ effect.name }}
                   <span class="ml-1 text-digimon-dark-500">[{{ effect.alignment === 'P' ? 'S' : effect.alignment === 'N' ? 'D' : '±' }}]</span>
