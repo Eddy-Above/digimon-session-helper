@@ -22,8 +22,7 @@ const activeEncounter = ref<Encounter | null>(null)
 const loading = ref(true)
 const lastRefresh = ref(new Date())
 
-// Track current displayed form for each evolution chain (keyed by root Digimon ID)
-const currentFormIndex = ref<Record<string, number>>({})
+// Note: Evolution chain navigation now uses currentDigimonId (see digimonChains computed)
 
 // Composables
 const { fetchTamer, calculateDerivedStats: calcTamerStats } = useTamers()
@@ -232,10 +231,16 @@ function getAttackDamage(digimon: Digimon, attack: { range: 'melee' | 'ranged'; 
 // Stage order for sorting evolution chains
 const stageOrder: DigimonStage[] = ['fresh', 'in-training', 'rookie', 'champion', 'ultimate', 'mega', 'ultra']
 
+// Track current Digimon ID being viewed for each chain (instead of index)
+const currentDigimonId = ref<Record<string, string>>({})
+
+// Track which evolution branch is selected when there are multiple options
+const showEvolutionPicker = ref<string | null>(null)
+
 // Group partner Digimon by evolution chains
-// Returns an array of { chainId: string, forms: Digimon[] } where forms are ordered by stage
+// Returns an array of { chainId: string, rootId: string, allMembers: Digimon[] }
 const digimonChains = computed(() => {
-  const chains: { chainId: string; forms: Digimon[] }[] = []
+  const chains: { chainId: string; rootId: string; allMembers: Digimon[] }[] = []
   const processed = new Set<string>()
 
   for (const d of partnerDigimon.value) {
@@ -268,18 +273,26 @@ const digimonChains = computed(() => {
       }
     }
 
-    // Sort by stage order
-    chainMembers.sort((a, b) => {
-      return stageOrder.indexOf(a.stage as DigimonStage) - stageOrder.indexOf(b.stage as DigimonStage)
-    })
+    // Find root (earliest stage with no evolvesFromId in our set)
+    const root = chainMembers.reduce((earliest, current) => {
+      const earliestStageIdx = stageOrder.indexOf(earliest.stage as DigimonStage)
+      const currentStageIdx = stageOrder.indexOf(current.stage as DigimonStage)
+      if (currentStageIdx < earliestStageIdx) return current
+      if (currentStageIdx === earliestStageIdx && !current.evolvesFromId) return current
+      return earliest
+    }, chainMembers[0])
 
-    // Use the first member's ID as chain identifier
-    const chainId = chainMembers[0]?.id || d.id
-    chains.push({ chainId, forms: chainMembers })
+    const chainId = root?.id || d.id
+    chains.push({ chainId, rootId: root?.id || d.id, allMembers: chainMembers })
 
-    // Initialize currentFormIndex if not set (default to last = highest stage)
-    if (currentFormIndex.value[chainId] === undefined) {
-      currentFormIndex.value[chainId] = chainMembers.length - 1
+    // Initialize currentDigimonId to the highest stage member by default
+    if (!currentDigimonId.value[chainId]) {
+      const highestStage = chainMembers.reduce((highest, current) => {
+        const highestIdx = stageOrder.indexOf(highest.stage as DigimonStage)
+        const currentIdx = stageOrder.indexOf(current.stage as DigimonStage)
+        return currentIdx > highestIdx ? current : highest
+      }, chainMembers[0])
+      currentDigimonId.value[chainId] = highestStage?.id || root?.id || d.id
     }
   }
 
@@ -290,41 +303,98 @@ const digimonChains = computed(() => {
 function getCurrentForm(chainId: string): Digimon | null {
   const chain = digimonChains.value.find(c => c.chainId === chainId)
   if (!chain) return null
-  const index = currentFormIndex.value[chainId] ?? chain.forms.length - 1
-  return chain.forms[index] || null
+  const digimonId = currentDigimonId.value[chainId]
+  return chain.allMembers.find(d => d.id === digimonId) || chain.allMembers[0] || null
+}
+
+// Get parent Digimon (for de-evolution)
+function getParentForm(chainId: string): Digimon | null {
+  const current = getCurrentForm(chainId)
+  if (!current?.evolvesFromId) return null
+  const chain = digimonChains.value.find(c => c.chainId === chainId)
+  return chain?.allMembers.find(d => d.id === current.evolvesFromId) || null
+}
+
+// Get child Digimon options (for evolution) - can be multiple!
+function getEvolutionOptions(chainId: string): Digimon[] {
+  const current = getCurrentForm(chainId)
+  if (!current?.evolutionPathIds?.length) return []
+  const chain = digimonChains.value.find(c => c.chainId === chainId)
+  if (!chain) return []
+  return (current.evolutionPathIds || [])
+    .map(id => chain.allMembers.find(d => d.id === id))
+    .filter((d): d is Digimon => d !== undefined)
 }
 
 // Check if can navigate to previous form (de-evolve)
 function canDeEvolve(chainId: string): boolean {
-  return (currentFormIndex.value[chainId] ?? 0) > 0
+  return getParentForm(chainId) !== null
 }
 
 // Check if can navigate to next form (evolve)
 function canEvolveForm(chainId: string): boolean {
-  const chain = digimonChains.value.find(c => c.chainId === chainId)
-  if (!chain) return false
-  const index = currentFormIndex.value[chainId] ?? chain.forms.length - 1
-  return index < chain.forms.length - 1
+  return getEvolutionOptions(chainId).length > 0
 }
 
-// Navigate to previous form
+// Check if evolution has multiple options (branching)
+function hasMultipleEvolutions(chainId: string): boolean {
+  return getEvolutionOptions(chainId).length > 1
+}
+
+// Navigate to previous form (de-evolve)
 function deEvolve(chainId: string) {
-  if (canDeEvolve(chainId)) {
-    currentFormIndex.value[chainId]--
+  const parent = getParentForm(chainId)
+  if (parent) {
+    currentDigimonId.value[chainId] = parent.id
+    showEvolutionPicker.value = null
   }
 }
 
-// Navigate to next form
-function evolveForm(chainId: string) {
-  if (canEvolveForm(chainId)) {
-    currentFormIndex.value[chainId]++
+// Navigate to next form (evolve) - if only one option, go directly; if multiple, show picker
+function evolveForm(chainId: string, targetId?: string) {
+  const options = getEvolutionOptions(chainId)
+  if (options.length === 0) return
+
+  if (targetId) {
+    // Direct selection from picker
+    currentDigimonId.value[chainId] = targetId
+    showEvolutionPicker.value = null
+  } else if (options.length === 1) {
+    // Only one option, go directly
+    currentDigimonId.value[chainId] = options[0].id
+  } else {
+    // Multiple options, toggle picker
+    showEvolutionPicker.value = showEvolutionPicker.value === chainId ? null : chainId
   }
 }
 
 // Check if a chain has multiple forms
 function hasMultipleForms(chainId: string): boolean {
   const chain = digimonChains.value.find(c => c.chainId === chainId)
-  return (chain?.forms.length || 0) > 1
+  return (chain?.allMembers.length || 0) > 1
+}
+
+// Get the evolution path from root to current (for breadcrumb display)
+function getEvolutionPath(chainId: string): Digimon[] {
+  const chain = digimonChains.value.find(c => c.chainId === chainId)
+  if (!chain) return []
+
+  const current = getCurrentForm(chainId)
+  if (!current) return []
+
+  // Walk back from current to root
+  const path: Digimon[] = [current]
+  let walker: Digimon | undefined = current
+  while (walker?.evolvesFromId) {
+    const parent = chain.allMembers.find(d => d.id === walker!.evolvesFromId)
+    if (parent) {
+      path.unshift(parent)
+      walker = parent
+    } else {
+      break
+    }
+  }
+  return path
 }
 
 // Get all movement types available to a Digimon based on qualities
@@ -607,10 +677,19 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
                       <span :class="['text-sm capitalize', getStageColor(getCurrentForm(chain.chainId)!.stage as DigimonStage)]">
                         {{ getCurrentForm(chain.chainId)!.stage }}
                       </span>
-                      <!-- Form indicator for chains -->
-                      <span v-if="hasMultipleForms(chain.chainId)" class="text-xs text-digimon-dark-500">
-                        ({{ (currentFormIndex[chain.chainId] ?? chain.forms.length - 1) + 1 }}/{{ chain.forms.length }})
-                      </span>
+                      <!-- Evolution path breadcrumb for chains -->
+                      <div v-if="hasMultipleForms(chain.chainId) && getEvolutionPath(chain.chainId).length > 1" class="flex items-center gap-1 text-xs text-digimon-dark-500">
+                        <template v-for="(pathMember, idx) in getEvolutionPath(chain.chainId)" :key="pathMember.id">
+                          <span v-if="idx > 0" class="text-digimon-dark-600">→</span>
+                          <button
+                            class="hover:text-digimon-orange-400 transition-colors"
+                            :class="pathMember.id === getCurrentForm(chain.chainId)?.id ? 'text-digimon-orange-400' : ''"
+                            @click="currentDigimonId[chain.chainId] = pathMember.id; showEvolutionPicker = null"
+                          >
+                            {{ pathMember.name }}
+                          </button>
+                        </template>
+                      </div>
                     </div>
                     <p class="text-digimon-dark-400 text-sm">{{ getCurrentForm(chain.chainId)!.species }} • {{ getCurrentForm(chain.chainId)!.attribute }}</p>
 
@@ -630,18 +709,53 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
                   </div>
 
                   <!-- Evolution navigation buttons (right) -->
-                  <div v-if="hasMultipleForms(chain.chainId)" class="flex flex-col justify-center h-20">
+                  <div v-if="hasMultipleForms(chain.chainId)" class="flex flex-col justify-center h-20 relative">
                     <button
                       :disabled="!canEvolveForm(chain.chainId)"
                       class="w-8 h-8 flex items-center justify-center rounded-lg transition-colors"
                       :class="canEvolveForm(chain.chainId)
                         ? 'bg-digimon-dark-700 hover:bg-digimon-dark-600 text-white'
                         : 'bg-digimon-dark-800 text-digimon-dark-600 cursor-not-allowed'"
-                      title="Evolve to next form"
+                      :title="hasMultipleEvolutions(chain.chainId) ? 'Choose evolution' : 'Evolve to next form'"
                       @click="evolveForm(chain.chainId)"
                     >
-                      ▶
+                      <span v-if="hasMultipleEvolutions(chain.chainId)">▼</span>
+                      <span v-else>▶</span>
                     </button>
+
+                    <!-- Evolution picker dropdown for branching paths -->
+                    <div
+                      v-if="showEvolutionPicker === chain.chainId"
+                      class="absolute right-0 top-full mt-1 z-20 bg-digimon-dark-800 border border-digimon-dark-600 rounded-lg shadow-lg min-w-48"
+                    >
+                      <div class="p-2 text-xs text-digimon-dark-400 border-b border-digimon-dark-600">
+                        Choose evolution:
+                      </div>
+                      <div class="p-1">
+                        <button
+                          v-for="option in getEvolutionOptions(chain.chainId)"
+                          :key="option.id"
+                          class="w-full flex items-center gap-2 px-3 py-2 rounded hover:bg-digimon-dark-700 transition-colors text-left"
+                          @click="evolveForm(chain.chainId, option.id)"
+                        >
+                          <div class="w-8 h-8 bg-digimon-dark-700 rounded flex items-center justify-center text-sm shrink-0 overflow-hidden">
+                            <img
+                              v-if="option.spriteUrl"
+                              :src="option.spriteUrl"
+                              :alt="option.name"
+                              class="max-w-full max-h-full object-contain"
+                            />
+                            <span v-else>🦖</span>
+                          </div>
+                          <div>
+                            <div class="text-white text-sm font-medium">{{ option.name }}</div>
+                            <div :class="['text-xs capitalize', getStageColor(option.stage as DigimonStage)]">
+                              {{ option.stage }}
+                            </div>
+                          </div>
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
