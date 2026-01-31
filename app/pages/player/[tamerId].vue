@@ -22,6 +22,9 @@ const activeEncounter = ref<Encounter | null>(null)
 const loading = ref(true)
 const lastRefresh = ref(new Date())
 
+// Track current displayed form for each evolution chain (keyed by root Digimon ID)
+const currentFormIndex = ref<Record<string, number>>({})
+
 // Composables
 const { fetchTamer, calculateDerivedStats: calcTamerStats } = useTamers()
 const { fetchDigimon, calculateDerivedStats: calcDigimonStats } = useDigimon()
@@ -225,6 +228,156 @@ function getAttackDamage(digimon: Digimon, attack: { range: 'melee' | 'ranged'; 
   const bonuses = getAttackBonuses(digimon, attack)
   return digimon.baseStats.damage + (bonusStats.damage || 0) + bonuses.damage
 }
+
+// Stage order for sorting evolution chains
+const stageOrder: DigimonStage[] = ['fresh', 'in-training', 'rookie', 'champion', 'ultimate', 'mega', 'ultra']
+
+// Group partner Digimon by evolution chains
+// Returns an array of { chainId: string, forms: Digimon[] } where forms are ordered by stage
+const digimonChains = computed(() => {
+  const chains: { chainId: string; forms: Digimon[] }[] = []
+  const processed = new Set<string>()
+
+  for (const d of partnerDigimon.value) {
+    if (processed.has(d.id)) continue
+
+    // Collect all linked Digimon (ancestors and descendants)
+    const chainMembers: Digimon[] = []
+    const toVisit = [d.id]
+    const visited = new Set<string>()
+
+    while (toVisit.length > 0) {
+      const currentId = toVisit.pop()!
+      if (visited.has(currentId)) continue
+      visited.add(currentId)
+
+      const current = partnerDigimon.value.find(x => x.id === currentId)
+      if (!current) continue
+
+      chainMembers.push(current)
+      processed.add(currentId)
+
+      // Add ancestor
+      if (current.evolvesFromId) {
+        toVisit.push(current.evolvesFromId)
+      }
+
+      // Add descendants
+      for (const descendantId of current.evolutionPathIds || []) {
+        toVisit.push(descendantId)
+      }
+    }
+
+    // Sort by stage order
+    chainMembers.sort((a, b) => {
+      return stageOrder.indexOf(a.stage as DigimonStage) - stageOrder.indexOf(b.stage as DigimonStage)
+    })
+
+    // Use the first member's ID as chain identifier
+    const chainId = chainMembers[0]?.id || d.id
+    chains.push({ chainId, forms: chainMembers })
+
+    // Initialize currentFormIndex if not set (default to last = highest stage)
+    if (currentFormIndex.value[chainId] === undefined) {
+      currentFormIndex.value[chainId] = chainMembers.length - 1
+    }
+  }
+
+  return chains
+})
+
+// Get the currently displayed Digimon for a chain
+function getCurrentForm(chainId: string): Digimon | null {
+  const chain = digimonChains.value.find(c => c.chainId === chainId)
+  if (!chain) return null
+  const index = currentFormIndex.value[chainId] ?? chain.forms.length - 1
+  return chain.forms[index] || null
+}
+
+// Check if can navigate to previous form (de-evolve)
+function canDeEvolve(chainId: string): boolean {
+  return (currentFormIndex.value[chainId] ?? 0) > 0
+}
+
+// Check if can navigate to next form (evolve)
+function canEvolveForm(chainId: string): boolean {
+  const chain = digimonChains.value.find(c => c.chainId === chainId)
+  if (!chain) return false
+  const index = currentFormIndex.value[chainId] ?? chain.forms.length - 1
+  return index < chain.forms.length - 1
+}
+
+// Navigate to previous form
+function deEvolve(chainId: string) {
+  if (canDeEvolve(chainId)) {
+    currentFormIndex.value[chainId]--
+  }
+}
+
+// Navigate to next form
+function evolveForm(chainId: string) {
+  if (canEvolveForm(chainId)) {
+    currentFormIndex.value[chainId]++
+  }
+}
+
+// Check if a chain has multiple forms
+function hasMultipleForms(chainId: string): boolean {
+  const chain = digimonChains.value.find(c => c.chainId === chainId)
+  return (chain?.forms.length || 0) > 1
+}
+
+// Get all movement types available to a Digimon based on qualities
+function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
+  const stageBaseMove = calcDigimonStats(digimon).movement
+
+  // Check for Speedy quality (adds +2 movement per rank, max 2x base)
+  const speedyQuality = digimon.qualities.find(q => q.id === 'speedy')
+  const speedyRanks = speedyQuality?.ranks || 0
+  const speedyBonus = Math.min(speedyRanks * 2, stageBaseMove) // Can't exceed 2x base (so bonus = base max)
+  const baseMove = stageBaseMove + speedyBonus
+
+  const halfMove = Math.floor(baseMove / 2)
+
+  // Check which Extra Movement qualities the Digimon has
+  const qualityChoices = new Set(digimon.qualities.map(q => q.choiceId).filter(Boolean))
+  const hasJumper = qualityChoices.has('jumper')
+  const hasSwimmer = qualityChoices.has('swimmer')
+  const hasDigger = qualityChoices.has('digger')
+  const hasFlight = qualityChoices.has('flight')
+  const hasWallclimber = qualityChoices.has('wallclimber')
+
+  // Check for Advanced Mobility (adds RAM to speed)
+  const hasAdvSwimmer = qualityChoices.has('adv-swimmer')
+  const hasAdvDigger = qualityChoices.has('adv-digger')
+  const hasAdvFlight = qualityChoices.has('adv-flight')
+  const hasAdvWallclimber = qualityChoices.has('adv-wallclimber')
+  const hasAdvJumper = qualityChoices.has('adv-jumper')
+
+  // RAM bonus for advanced mobility
+  const ramBonus = digimon.baseStats.armor || 0
+
+  const movements: { type: string; speed: number }[] = [
+    { type: 'Walk', speed: baseMove },
+    // Jump: half movement by default, full with Jumper quality
+    { type: 'Jump', speed: hasJumper ? (hasAdvJumper ? baseMove + ramBonus : baseMove) : halfMove },
+    // Swim: half movement by default, full with Swimmer quality
+    { type: 'Swim', speed: hasSwimmer ? (hasAdvSwimmer ? baseMove + ramBonus : baseMove) : halfMove },
+  ]
+
+  // Add special movement types from qualities
+  if (hasDigger) {
+    movements.push({ type: 'Burrow', speed: hasAdvDigger ? baseMove + ramBonus : baseMove })
+  }
+  if (hasFlight) {
+    movements.push({ type: 'Fly', speed: hasAdvFlight ? baseMove + ramBonus : baseMove })
+  }
+  if (hasWallclimber) {
+    movements.push({ type: 'Climb', speed: hasAdvWallclimber ? baseMove + ramBonus : baseMove })
+  }
+
+  return movements
+}
 </script>
 
 <template>
@@ -420,75 +573,130 @@ function getAttackDamage(digimon: Digimon, attack: { range: 'melee' | 'ranged'; 
               </div>
             </div>
 
-            <!-- Partner Digimon -->
-            <div v-for="digimon in partnerDigimon" :key="digimon.id" class="bg-digimon-dark-800 rounded-xl p-6 border border-digimon-dark-700">
-              <div class="flex items-start gap-4 mb-4">
-                <div class="w-20 h-20 bg-digimon-dark-700 rounded-lg flex items-center justify-center text-4xl shrink-0">
-                  🦖
-                </div>
-                <div class="flex-1">
-                  <div class="flex items-center gap-2">
-                    <h2 class="font-display text-xl font-semibold text-white">{{ digimon.name }}</h2>
-                    <span :class="['text-sm capitalize', getStageColor(digimon.stage as DigimonStage)]">
-                      {{ digimon.stage }}
-                    </span>
+            <!-- Partner Digimon (grouped by evolution chain) -->
+            <div v-for="chain in digimonChains" :key="chain.chainId" class="bg-digimon-dark-800 rounded-xl p-6 border border-digimon-dark-700">
+              <template v-if="getCurrentForm(chain.chainId)">
+                <div class="flex items-start gap-4 mb-4">
+                  <!-- Evolution navigation buttons (left) -->
+                  <div v-if="hasMultipleForms(chain.chainId)" class="flex flex-col justify-center h-20">
+                    <button
+                      :disabled="!canDeEvolve(chain.chainId)"
+                      class="w-8 h-8 flex items-center justify-center rounded-lg transition-colors"
+                      :class="canDeEvolve(chain.chainId)
+                        ? 'bg-digimon-dark-700 hover:bg-digimon-dark-600 text-white'
+                        : 'bg-digimon-dark-800 text-digimon-dark-600 cursor-not-allowed'"
+                      title="De-evolve to previous form"
+                      @click="deEvolve(chain.chainId)"
+                    >
+                      ◀
+                    </button>
                   </div>
-                  <p class="text-digimon-dark-400 text-sm">{{ digimon.species }} • {{ digimon.attribute }}</p>
 
-                  <!-- Health -->
-                  <div class="mt-2">
-                    <div class="flex items-center gap-2 text-sm">
-                      <span class="text-digimon-dark-400">Wounds:</span>
-                      <div class="flex-1 max-w-32 h-2 bg-digimon-dark-600 rounded-full overflow-hidden">
-                        <div
-                          class="h-full bg-green-500 transition-all"
-                          :style="{ width: `${((calcDigimonStats(digimon).woundBoxes - digimon.currentWounds) / calcDigimonStats(digimon).woundBoxes) * 100}%` }"
-                        />
+                  <div class="w-20 h-20 bg-digimon-dark-700 rounded-lg flex items-center justify-center text-4xl shrink-0 overflow-hidden">
+                    <img
+                      v-if="getCurrentForm(chain.chainId)!.spriteUrl"
+                      :src="getCurrentForm(chain.chainId)!.spriteUrl!"
+                      :alt="getCurrentForm(chain.chainId)!.name"
+                      class="max-w-full max-h-full object-contain"
+                    />
+                    <span v-else>🦖</span>
+                  </div>
+                  <div class="flex-1">
+                    <div class="flex items-center gap-2">
+                      <h2 class="font-display text-xl font-semibold text-white">{{ getCurrentForm(chain.chainId)!.name }}</h2>
+                      <span :class="['text-sm capitalize', getStageColor(getCurrentForm(chain.chainId)!.stage as DigimonStage)]">
+                        {{ getCurrentForm(chain.chainId)!.stage }}
+                      </span>
+                      <!-- Form indicator for chains -->
+                      <span v-if="hasMultipleForms(chain.chainId)" class="text-xs text-digimon-dark-500">
+                        ({{ (currentFormIndex[chain.chainId] ?? chain.forms.length - 1) + 1 }}/{{ chain.forms.length }})
+                      </span>
+                    </div>
+                    <p class="text-digimon-dark-400 text-sm">{{ getCurrentForm(chain.chainId)!.species }} • {{ getCurrentForm(chain.chainId)!.attribute }}</p>
+
+                    <!-- Health -->
+                    <div class="mt-2">
+                      <div class="flex items-center gap-2 text-sm">
+                        <span class="text-digimon-dark-400">Wounds:</span>
+                        <div class="flex-1 max-w-32 h-2 bg-digimon-dark-600 rounded-full overflow-hidden">
+                          <div
+                            class="h-full bg-green-500 transition-all"
+                            :style="{ width: `${((calcDigimonStats(getCurrentForm(chain.chainId)!).woundBoxes - getCurrentForm(chain.chainId)!.currentWounds) / calcDigimonStats(getCurrentForm(chain.chainId)!).woundBoxes) * 100}%` }"
+                          />
+                        </div>
+                        <span class="text-digimon-dark-300">{{ calcDigimonStats(getCurrentForm(chain.chainId)!).woundBoxes - getCurrentForm(chain.chainId)!.currentWounds }}/{{ calcDigimonStats(getCurrentForm(chain.chainId)!).woundBoxes }}</span>
                       </div>
-                      <span class="text-digimon-dark-300">{{ calcDigimonStats(digimon).woundBoxes - digimon.currentWounds }}/{{ calcDigimonStats(digimon).woundBoxes }}</span>
                     </div>
                   </div>
+
+                  <!-- Evolution navigation buttons (right) -->
+                  <div v-if="hasMultipleForms(chain.chainId)" class="flex flex-col justify-center h-20">
+                    <button
+                      :disabled="!canEvolveForm(chain.chainId)"
+                      class="w-8 h-8 flex items-center justify-center rounded-lg transition-colors"
+                      :class="canEvolveForm(chain.chainId)
+                        ? 'bg-digimon-dark-700 hover:bg-digimon-dark-600 text-white'
+                        : 'bg-digimon-dark-800 text-digimon-dark-600 cursor-not-allowed'"
+                      title="Evolve to next form"
+                      @click="evolveForm(chain.chainId)"
+                    >
+                      ▶
+                    </button>
+                  </div>
                 </div>
-              </div>
 
               <!-- Stats -->
               <div class="grid grid-cols-5 gap-2 mb-4">
                 <div class="text-center bg-digimon-dark-700 rounded-lg p-2">
                   <div class="text-xs text-digimon-dark-400">ACC</div>
-                  <div class="text-lg font-semibold text-white">{{ digimon.baseStats.accuracy }}</div>
+                  <div class="text-lg font-semibold text-white">{{ getCurrentForm(chain.chainId)!.baseStats.accuracy + (getCurrentForm(chain.chainId)!.bonusStats?.accuracy || 0) }}</div>
                 </div>
                 <div class="text-center bg-digimon-dark-700 rounded-lg p-2">
                   <div class="text-xs text-digimon-dark-400">DMG</div>
-                  <div class="text-lg font-semibold text-white">{{ digimon.baseStats.damage }}</div>
+                  <div class="text-lg font-semibold text-white">{{ getCurrentForm(chain.chainId)!.baseStats.damage + (getCurrentForm(chain.chainId)!.bonusStats?.damage || 0) }}</div>
                 </div>
                 <div class="text-center bg-digimon-dark-700 rounded-lg p-2">
                   <div class="text-xs text-digimon-dark-400">DOD</div>
-                  <div class="text-lg font-semibold text-white">{{ digimon.baseStats.dodge }}</div>
+                  <div class="text-lg font-semibold text-white">{{ getCurrentForm(chain.chainId)!.baseStats.dodge + (getCurrentForm(chain.chainId)!.bonusStats?.dodge || 0) }}</div>
                 </div>
                 <div class="text-center bg-digimon-dark-700 rounded-lg p-2">
                   <div class="text-xs text-digimon-dark-400">ARM</div>
-                  <div class="text-lg font-semibold text-white">{{ digimon.baseStats.armor }}</div>
+                  <div class="text-lg font-semibold text-white">{{ getCurrentForm(chain.chainId)!.baseStats.armor + (getCurrentForm(chain.chainId)!.bonusStats?.armor || 0) }}</div>
                 </div>
                 <div class="text-center bg-digimon-dark-700 rounded-lg p-2">
                   <div class="text-xs text-digimon-dark-400">HP</div>
-                  <div class="text-lg font-semibold text-white">{{ digimon.baseStats.health }}</div>
+                  <div class="text-lg font-semibold text-white">{{ getCurrentForm(chain.chainId)!.baseStats.health + (getCurrentForm(chain.chainId)!.bonusStats?.health || 0) }}</div>
                 </div>
               </div>
 
               <!-- Derived Stats -->
               <div class="flex flex-wrap gap-4 text-sm mb-4">
-                <span><span class="text-digimon-dark-400">Agility:</span> <span class="text-white">{{ calcDigimonStats(digimon).agility }}</span></span>
-                <span><span class="text-digimon-dark-400">Body:</span> <span class="text-white">{{ calcDigimonStats(digimon).body }}</span></span>
-                <span><span class="text-digimon-dark-400">Move:</span> <span class="text-white">{{ calcDigimonStats(digimon).movement }}</span></span>
-                <span><span class="text-digimon-dark-400">Stage Bonus:</span> <span class="text-white">+{{ calcDigimonStats(digimon).stageBonus }}</span></span>
+                <span><span class="text-digimon-dark-400">Agility:</span> <span class="text-white">{{ calcDigimonStats(getCurrentForm(chain.chainId)!).agility }}</span></span>
+                <span><span class="text-digimon-dark-400">Body:</span> <span class="text-white">{{ calcDigimonStats(getCurrentForm(chain.chainId)!).body }}</span></span>
+                <span class="relative group">
+                  <span class="text-digimon-dark-400">Move: </span>
+                  <span class="text-white cursor-help border-b border-dotted border-digimon-dark-500">
+                    {{ getMovementTypes(getCurrentForm(chain.chainId)!)[0].speed }}m
+                  </span>
+                  <!-- Hover tooltip with all movement types -->
+                  <div class="absolute bottom-full left-0 mb-2 hidden group-hover:block z-10">
+                    <div class="bg-digimon-dark-800 border border-digimon-dark-600 rounded-lg p-2 shadow-lg whitespace-nowrap">
+                      <div v-for="move in getMovementTypes(getCurrentForm(chain.chainId)!)" :key="move.type" class="text-sm">
+                        <span class="text-digimon-dark-400">{{ move.type }}:</span>
+                        <span class="text-white ml-1">{{ move.speed }}m</span>
+                      </div>
+                    </div>
+                  </div>
+                </span>
+                <span><span class="text-digimon-dark-400">Stage Bonus:</span> <span class="text-white">+{{ calcDigimonStats(getCurrentForm(chain.chainId)!).stageBonus }}</span></span>
               </div>
 
               <!-- Attacks -->
-              <div v-if="digimon.attacks && digimon.attacks.length > 0">
+              <div v-if="getCurrentForm(chain.chainId)!.attacks && getCurrentForm(chain.chainId)!.attacks.length > 0">
                 <h3 class="text-sm font-semibold text-digimon-dark-400 mb-2">Attacks</h3>
                 <div class="space-y-2">
                   <div
-                    v-for="attack in digimon.attacks"
+                    v-for="attack in getCurrentForm(chain.chainId)!.attacks"
                     :key="attack.id"
                     class="bg-digimon-dark-700 rounded-lg p-3"
                   >
@@ -511,10 +719,10 @@ function getAttackDamage(digimon: Digimon, attack: { range: 'melee' | 'ranged'; 
                       <!-- Attack Stats -->
                       <div class="flex items-center gap-3 text-sm">
                         <span class="text-cyan-400">
-                          ACC: {{ getAttackAccuracy(digimon, { range: attack.range, tags: attack.tags || [] }) }}
+                          ACC: {{ getAttackAccuracy(getCurrentForm(chain.chainId)!, { range: attack.range, tags: attack.tags || [] }) }}d6
                         </span>
                         <span class="text-orange-400">
-                          DMG: {{ getAttackDamage(digimon, { range: attack.range, tags: attack.tags || [] }) }}
+                          DMG: +{{ getAttackDamage(getCurrentForm(chain.chainId)!, { range: attack.range, tags: attack.tags || [] }) }}
                         </span>
                       </div>
                     </div>
@@ -538,6 +746,7 @@ function getAttackDamage(digimon: Digimon, attack: { range: 'melee' | 'ranged'; 
                   </div>
                 </div>
               </div>
+              </template>
             </div>
 
             <!-- Evolution Lines -->

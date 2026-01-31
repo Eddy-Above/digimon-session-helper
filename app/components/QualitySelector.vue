@@ -36,10 +36,12 @@ interface Props {
   stage: DigimonStage
   currentQualities: Quality[]
   canAdd?: boolean // Whether adding new qualities is allowed (has DP remaining)
+  availableDP?: number // How much DP is available for qualities (to grey out expensive ones)
 }
 
 const props = withDefaults(defineProps<Props>(), {
   canAdd: true,
+  availableDP: Infinity,
 })
 const emit = defineEmits<{
   (e: 'add', quality: Quality): void
@@ -137,6 +139,15 @@ const filteredQualities = computed(() => {
 function getFullQualityStatus(template: QualityTemplate): { canSelect: boolean; reasons: string[] } {
   const reasons: string[] = []
   const hasAnyOfThisQuality = props.currentQualities.some((cq) => cq.id === template.id)
+
+  // Check if there's DP available for purchasable qualities (adding new or increasing ranks)
+  if (template.type === 'purchasable') {
+    if (!props.canAdd) {
+      reasons.push('No DP remaining for qualities')
+    } else if (template.dpCost > props.availableDP) {
+      reasons.push(`Costs ${template.dpCost} DP (${props.availableDP} available)`)
+    }
+  }
 
   // Check stage requirement
   if (!isQualityAvailableAtStage(template, props.stage)) {
@@ -390,8 +401,21 @@ function isAtMaxChoices(template: QualityTemplate): boolean {
   return takenCount >= maxRanks
 }
 
-// Check if a choice's prerequisites are met (for Data Specialization tree validation)
+// Data Optimization adjacency ring for Hybrid Drive
+// Close Combat ↔ Speed Striker ↔ Ranged Striker ↔ Effect Warrior ↔ Guardian ↔ Brawler ↔ Close Combat
+const DATA_OPT_ADJACENCY: Record<string, string[]> = {
+  'close-combat': ['speed-striker', 'brawler'],
+  'speed-striker': ['close-combat', 'ranged-striker'],
+  'ranged-striker': ['speed-striker', 'effect-warrior'],
+  'effect-warrior': ['ranged-striker', 'guardian'],
+  'guardian': ['effect-warrior', 'brawler'],
+  'brawler': ['guardian', 'close-combat'],
+}
+
+// Check if a choice's prerequisites are met (for Data Specialization tree and Advanced Mobility)
 // For example, "Fistful of Force" requires Data Optimization: Close Combat
+// And "Adv Swimmer" requires Extra Movement: Swimmer
+// Hybrid Drive allows access to adjacent Data Optimization trees
 function isChoicePrereqMet(choice: NonNullable<QualityTemplate['choices']>[0]): { met: boolean; missing: string[] } {
   if (!choice.prerequisites || choice.prerequisites.length === 0) {
     return { met: true, missing: [] }
@@ -399,18 +423,67 @@ function isChoicePrereqMet(choice: NonNullable<QualityTemplate['choices']>[0]): 
 
   const missing: string[] = []
 
+  // Check if user has Hybrid Drive (allows access to adjacent Data Optimization trees)
+  const hasHybridDrive = props.currentQualities.some((q) => q.id === 'hybrid-drive')
+
+  // Get user's Data Optimization choice if they have one
+  const userDataOpt = props.currentQualities.find((q) => q.id === 'data-optimization')
+  const userDataOptTree = userDataOpt?.choiceId
+
+  // Get adjacent trees if user has Hybrid Drive
+  const adjacentTrees = hasHybridDrive && userDataOptTree ? DATA_OPT_ADJACENCY[userDataOptTree] || [] : []
+
   for (const prereqId of choice.prerequisites) {
-    // Check if user has a Data Optimization with this choiceId
+    // Check if user has an Extra Movement with this choiceId (for Advanced Mobility)
+    const hasExtraMovement = props.currentQualities.some(
+      (q) => q.id === 'extra-movement' && q.choiceId === prereqId
+    )
+
+    // Check if user has a Data Optimization with this choiceId (for Data Specialization)
     const hasDataOpt = props.currentQualities.some(
       (q) => q.id === 'data-optimization' && q.choiceId === prereqId
     )
 
-    if (!hasDataOpt) {
+    // Check if Hybrid Drive grants access to this tree (adjacent tree)
+    const hasHybridAccess = hasHybridDrive && adjacentTrees.includes(prereqId)
+
+    // Check if user has a standalone quality with this id (e.g., 'speedy')
+    const hasStandaloneQuality = props.currentQualities.some(
+      (q) => q.id === prereqId
+    )
+
+    if (!hasExtraMovement && !hasDataOpt && !hasHybridAccess && !hasStandaloneQuality) {
       // Get a friendly name for the missing prerequisite
+      // First try Extra Movement
+      const extraMovementTemplate = QUALITY_DATABASE.find((q) => q.id === 'extra-movement')
+      const extraMovementChoice = extraMovementTemplate?.choices?.find((c) => c.id === prereqId)
+      if (extraMovementChoice) {
+        missing.push(`Extra Movement: ${extraMovementChoice.name}`)
+        continue
+      }
+
+      // Then try Data Optimization
       const dataOptTemplate = QUALITY_DATABASE.find((q) => q.id === 'data-optimization')
-      const prereqChoice = dataOptTemplate?.choices?.find((c) => c.id === prereqId)
-      const prereqName = prereqChoice?.name || prereqId
-      missing.push(`Data Optimization: ${prereqName}`)
+      const dataOptChoice = dataOptTemplate?.choices?.find((c) => c.id === prereqId)
+      if (dataOptChoice) {
+        // If user has Hybrid Drive but this isn't an adjacent tree, mention that
+        if (hasHybridDrive && userDataOptTree) {
+          missing.push(`Data Optimization: ${dataOptChoice.name} (not adjacent to your tree)`)
+        } else {
+          missing.push(`Data Optimization: ${dataOptChoice.name}`)
+        }
+        continue
+      }
+
+      // Finally try standalone quality
+      const standaloneTemplate = QUALITY_DATABASE.find((q) => q.id === prereqId)
+      if (standaloneTemplate) {
+        missing.push(standaloneTemplate.name)
+        continue
+      }
+
+      // Fallback to raw prereqId
+      missing.push(prereqId)
     }
   }
 
@@ -468,7 +541,8 @@ function isChoicePrereqMet(choice: NonNullable<QualityTemplate['choices']>[0]): 
                 <button
                   type="button"
                   class="w-6 h-6 bg-digimon-dark-600 hover:bg-digimon-dark-500 rounded text-white text-sm font-bold disabled:opacity-50 disabled:cursor-not-allowed"
-                  :disabled="(quality.ranks || 1) >= getQualityMaxRanks(quality)"
+                  :disabled="(quality.ranks || 1) >= getQualityMaxRanks(quality) || !canAdd"
+                  :title="!canAdd ? 'No DP remaining' : undefined"
                   @click="emit('updateRanks', index, (quality.ranks || 1) + 1)"
                 >
                   +
@@ -583,7 +657,7 @@ function isChoicePrereqMet(choice: NonNullable<QualityTemplate['choices']>[0]): 
               Requires: {{ quality.prerequisites.join(', ') }}
             </p>
             <p v-if="quality.limitedTag" class="text-xs text-blue-400/70 mt-1">
-              [LIMITED] - Applies to one attack only
+              [LIMITED] - {{ quality.id === 'weapon' ? 'Can tag attacks equal to rank count' : 'Applies to one attack only' }}
             </p>
             <!-- Show what would be locked off -->
             <p v-if="getWouldLockOff(quality).length > 0" class="text-xs text-orange-400/70 mt-1">
@@ -699,6 +773,25 @@ function isChoicePrereqMet(choice: NonNullable<QualityTemplate['choices']>[0]): 
                     </span>
                   </div>
                   <p class="text-sm text-digimon-dark-500 whitespace-pre-line">{{ choice.effect }}</p>
+                </div>
+              </template>
+              <!-- Check if choice DP cost exceeds available budget -->
+              <template v-else-if="(choice.dpCost ?? pendingQuality?.dpCost ?? 0) > availableDP">
+                <!-- Not enough DP -->
+                <div class="w-full text-left bg-digimon-dark-800 border border-digimon-dark-700 rounded-lg p-4 opacity-50">
+                  <div class="flex items-center gap-2 mb-2">
+                    <span class="font-semibold text-digimon-dark-400">{{ choice.name }}</span>
+                    <span
+                      v-if="choice.dpCost !== undefined && choice.dpCost !== pendingQuality?.dpCost"
+                      class="text-xs px-2 py-0.5 rounded bg-digimon-dark-700 text-digimon-dark-500"
+                    >
+                      +{{ choice.dpCost }} DP
+                    </span>
+                  </div>
+                  <p class="text-sm text-digimon-dark-500 whitespace-pre-line">{{ choice.effect }}</p>
+                  <p class="text-xs text-red-400 mt-2">
+                    Costs {{ choice.dpCost ?? pendingQuality?.dpCost ?? 0 }} DP ({{ availableDP }} available)
+                  </p>
                 </div>
               </template>
               <!-- Available choice -->

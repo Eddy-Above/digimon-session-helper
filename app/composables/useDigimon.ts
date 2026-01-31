@@ -147,29 +147,47 @@ export function useDigimon() {
   // Calculate derived stats from base stats, stage, and size (DDA 1.4 page 111)
   function calculateDerivedStats(digimon: Digimon) {
     const { baseStats, stage, size } = digimon
+    const bonusStats = (digimon as any).bonusStats || { accuracy: 0, damage: 0, dodge: 0, armor: 0, health: 0 }
     const stageConfig = STAGE_CONFIG[stage as DigimonStage]
     const sizeConfig = SIZE_CONFIG[size as DigimonSize] || SIZE_CONFIG['medium']
 
+    // Total stats = base + bonus
+    const totalStats = {
+      accuracy: baseStats.accuracy + (bonusStats.accuracy || 0),
+      damage: baseStats.damage + (bonusStats.damage || 0),
+      dodge: baseStats.dodge + (bonusStats.dodge || 0),
+      armor: baseStats.armor + (bonusStats.armor || 0),
+      health: baseStats.health + (bonusStats.health || 0),
+    }
+
     // Primary Derived Stats (always round down)
     // Size affects Body and Agility differently (page 110)
-    const brains = Math.floor(baseStats.accuracy / 2) + stageConfig.brainsBonus
-    const body = Math.max(0, Math.floor((baseStats.health + baseStats.damage + baseStats.armor) / 3) + sizeConfig.bodyBonus)
-    const agility = Math.max(0, Math.floor((baseStats.accuracy + baseStats.dodge) / 2) + sizeConfig.agilityBonus)
+    const brains = Math.floor(totalStats.accuracy / 2) + stageConfig.brainsBonus
+    const body = Math.max(0, Math.floor((totalStats.health + totalStats.damage + totalStats.armor) / 3) + sizeConfig.bodyBonus)
+    const agility = Math.max(0, Math.floor((totalStats.accuracy + totalStats.dodge) / 2) + sizeConfig.agilityBonus)
 
     // Spec Values (derived from derived stats)
     const bit = Math.floor(brains / 10) + stageConfig.stageBonus
     const cpu = Math.floor(body / 10) + stageConfig.stageBonus
     const ram = Math.floor(agility / 10) + stageConfig.stageBonus
 
+    // Calculate movement with Speedy quality (+2 per rank, max 2x base)
+    const qualities = (digimon as any).qualities || []
+    const speedyQuality = qualities.find((q: any) => q.id === 'speedy')
+    const speedyRanks = speedyQuality?.ranks || 0
+    const baseMovement = stageConfig.movement
+    const speedyBonus = Math.min(speedyRanks * 2, baseMovement) // Can't exceed 2x base
+    const movement = baseMovement + speedyBonus
+
     return {
       brains,
       body,
       agility,
-      woundBoxes: baseStats.health + stageConfig.woundBonus,
+      woundBoxes: totalStats.health + stageConfig.woundBonus,
       bit,
       cpu,
       ram,
-      movement: stageConfig.movement,
+      movement,
       stageBonus: stageConfig.stageBonus,
     }
   }

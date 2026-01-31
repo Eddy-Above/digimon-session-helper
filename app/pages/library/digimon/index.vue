@@ -170,23 +170,23 @@ function getAttributeColor(attr: string): string {
               <div class="grid grid-cols-5 gap-4">
                 <div class="text-center">
                   <div class="text-xs text-digimon-dark-400">ACC</div>
-                  <div class="font-semibold text-white">{{ digimon.baseStats.accuracy }}</div>
+                  <div class="font-semibold text-white">{{ digimon.baseStats.accuracy + (digimon.bonusStats?.accuracy || 0) }}</div>
                 </div>
                 <div class="text-center">
                   <div class="text-xs text-digimon-dark-400">DMG</div>
-                  <div class="font-semibold text-white">{{ digimon.baseStats.damage }}</div>
+                  <div class="font-semibold text-white">{{ digimon.baseStats.damage + (digimon.bonusStats?.damage || 0) }}</div>
                 </div>
                 <div class="text-center">
                   <div class="text-xs text-digimon-dark-400">DOD</div>
-                  <div class="font-semibold text-white">{{ digimon.baseStats.dodge }}</div>
+                  <div class="font-semibold text-white">{{ digimon.baseStats.dodge + (digimon.bonusStats?.dodge || 0) }}</div>
                 </div>
                 <div class="text-center">
                   <div class="text-xs text-digimon-dark-400">ARM</div>
-                  <div class="font-semibold text-white">{{ digimon.baseStats.armor }}</div>
+                  <div class="font-semibold text-white">{{ digimon.baseStats.armor + (digimon.bonusStats?.armor || 0) }}</div>
                 </div>
                 <div class="text-center">
                   <div class="text-xs text-digimon-dark-400">HP</div>
-                  <div class="font-semibold text-white">{{ digimon.baseStats.health }}</div>
+                  <div class="font-semibold text-white">{{ digimon.baseStats.health + (digimon.bonusStats?.health || 0) }}</div>
                 </div>
               </div>
 
@@ -194,6 +194,7 @@ function getAttributeColor(attr: string): string {
                 <span>Wounds: {{ calculateDerivedStats(digimon).woundBoxes }}</span>
                 <span>Move: {{ calculateDerivedStats(digimon).movement }}</span>
                 <span>DP: {{ STAGE_CONFIG[digimon.stage as DigimonStage].dp }}</span>
+                <span>Bonus DP: {{ digimon.bonusDP || 0 }}</span>
               </div>
             </div>
           </div>
