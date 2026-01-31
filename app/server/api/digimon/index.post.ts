@@ -1,3 +1,4 @@
+import { eq, inArray } from 'drizzle-orm'
 import { db, digimon, type NewDigimon } from '../../db'
 import { generateId } from '../../utils/id'
 import {
@@ -16,6 +17,13 @@ interface CreateDigimonBody {
   type?: string
   size?: DigimonSize
   baseStats: {
+    accuracy: number
+    damage: number
+    dodge: number
+    armor: number
+    health: number
+  }
+  bonusStats?: {
     accuracy: number
     damage: number
     dodge: number
@@ -44,10 +52,14 @@ interface CreateDigimonBody {
   }>
   dataOptimization?: string
   bonusDP?: number
+  bonusDPForQualities?: number
   partnerId?: string
   isEnemy?: boolean
   notes?: string
   spriteUrl?: string
+  evolvesFromId?: string | null
+  evolutionPathIds?: string[]
+  syncBonusDP?: boolean
 }
 
 export default defineEventHandler(async (event) => {
@@ -88,12 +100,12 @@ export default defineEventHandler(async (event) => {
     dataOptimization: body.dataOptimization || null,
     baseDP: stageConfig.dp,
     bonusDP: body.bonusDP || 0,
-    bonusStats: { accuracy: 0, damage: 0, dodge: 0, armor: 0, health: 0 },
-    bonusDPForQualities: 0,
+    bonusStats: body.bonusStats || { accuracy: 0, damage: 0, dodge: 0, armor: 0, health: 0 },
+    bonusDPForQualities: body.bonusDPForQualities || 0,
     currentWounds: 0,
     currentStance: 'neutral',
-    evolutionPathIds: [],
-    evolvesFromId: null,
+    evolutionPathIds: body.evolutionPathIds || [],
+    evolvesFromId: body.evolvesFromId || null,
     partnerId: body.partnerId || null,
     isEnemy: body.isEnemy || false,
     notes: body.notes || '',
@@ -104,6 +116,21 @@ export default defineEventHandler(async (event) => {
 
   try {
     await db.insert(digimon).values(newDigimon)
+
+    // Handle bidirectional evolution links
+    // If evolvesFromId is set, add this Digimon to the parent's evolutionPathIds
+    if (body.evolvesFromId) {
+      const [parent] = await db.select().from(digimon).where(eq(digimon.id, body.evolvesFromId))
+      if (parent) {
+        const updatedPaths = [...new Set([...(parent.evolutionPathIds || []), id])]
+        await db.update(digimon).set({ evolutionPathIds: updatedPaths, updatedAt: now }).where(eq(digimon.id, body.evolvesFromId))
+      }
+    }
+
+    // If evolutionPathIds is set, set evolvesFromId on those children to point to this Digimon
+    if (body.evolutionPathIds && body.evolutionPathIds.length > 0) {
+      await db.update(digimon).set({ evolvesFromId: id, updatedAt: now }).where(inArray(digimon.id, body.evolutionPathIds))
+    }
   } catch (e) {
     console.error('Database insert error:', e)
     throw createError({
