@@ -70,14 +70,25 @@ const totalCP = computed(() => {
   return { used: total, max: campaignConfig.value.startingCP }
 })
 
-// Validation: only 1 attribute can be at starting cap
+// Validation: only 1 attribute can be at the highest value
 const cappedAttributes = computed(() => {
-  return Object.values(form.attributes).filter(v => v >= campaignConfig.value.startingCap).length
+  const values = Object.values(form.attributes)
+  const maxValue = Math.max(...values)
+  return values.filter(v => v === maxValue).length
 })
 
-// Validation: only 1 skill can be at starting cap
-const cappedSkills = computed(() => {
-  return Object.values(form.skills).filter(v => v >= campaignConfig.value.startingCap).length
+// Validation: only 1 skill can be at the highest value per skill group
+const cappedSkillGroups = computed(() => {
+  const violations: string[] = []
+  for (const [attr, skills] of Object.entries(skillsByAttribute)) {
+    const values = skills.map(s => form.skills[s as keyof typeof form.skills])
+    const maxValue = Math.max(...values)
+    const countAtMax = values.filter(v => v === maxValue).length
+    if (countAtMax > 1) {
+      violations.push(attr)
+    }
+  }
+  return violations
 })
 
 // Warning: skills at 0 have -1 modifier
@@ -281,7 +292,7 @@ async function handleSubmit() {
         </div>
         <p class="text-xs text-digimon-dark-500 mt-2">Max per attribute: {{ campaignConfig.startingCap }} (only 1 can be at max)</p>
         <p v-if="cappedAttributes > 1" class="text-xs text-red-400 mt-1">
-          Only 1 attribute can be at max. You have {{ cappedAttributes }} at {{ campaignConfig.startingCap }}.
+          Only 1 attribute can be at the highest value. You have {{ cappedAttributes }} tied for highest.
         </p>
       </div>
 
@@ -319,8 +330,8 @@ async function handleSubmit() {
           </div>
         </div>
         <p class="text-xs text-digimon-dark-500 mt-2">Max per skill: {{ campaignConfig.startingCap }} (only 1 can be at max)</p>
-        <p v-if="cappedSkills > 1" class="text-xs text-red-400 mt-1">
-          Only 1 skill can be at max. You have {{ cappedSkills }} at {{ campaignConfig.startingCap }}.
+        <p v-if="cappedSkillGroups.length > 0" class="text-xs text-red-400 mt-1">
+          Only 1 skill per group can be at the highest value. Violations in: {{ cappedSkillGroups.join(', ') }}
         </p>
         <p v-if="zeroSkills > 0" class="text-xs text-yellow-400 mt-1">
           {{ zeroSkills }} skill(s) at 0 will have -1 modifier on checks.
@@ -328,18 +339,6 @@ async function handleSubmit() {
         <p v-if="skillsExceedingAttribute.length > 0" class="text-xs text-red-400 mt-1">
           Skills cannot exceed their linked attribute: {{ skillsExceedingAttribute.join(', ') }}
         </p>
-      </div>
-
-      <!-- Notes -->
-      <div class="bg-digimon-dark-800 rounded-xl p-6 border border-digimon-dark-700">
-        <h2 class="font-display text-xl font-semibold text-white mb-4">Notes</h2>
-        <textarea
-          v-model="form.notes"
-          rows="4"
-          placeholder="Character background, personality, goals..."
-          class="w-full bg-digimon-dark-700 border border-digimon-dark-600 rounded-lg px-3 py-2
-                 text-white focus:border-digimon-orange-500 focus:outline-none resize-none"
-        />
       </div>
 
       <!-- Derived Stats -->
@@ -372,6 +371,18 @@ async function handleSubmit() {
             <div class="text-sm text-digimon-dark-400">Damage</div>
           </div>
         </div>
+      </div>
+
+      <!-- Notes -->
+      <div class="bg-digimon-dark-800 rounded-xl p-6 border border-digimon-dark-700">
+        <h2 class="font-display text-xl font-semibold text-white mb-4">Notes</h2>
+        <textarea
+          v-model="form.notes"
+          rows="4"
+          placeholder="Character background, personality, goals..."
+          class="w-full bg-digimon-dark-700 border border-digimon-dark-600 rounded-lg px-3 py-2
+                 text-white focus:border-digimon-orange-500 focus:outline-none resize-none"
+        />
       </div>
 
       <!-- Error message -->
