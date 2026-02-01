@@ -32,7 +32,18 @@ export default defineEventHandler(async (event) => {
 
   // Handle evolutionPathIds changes (evolves to)
   if (body.evolutionPathIds !== undefined) {
-    const oldPaths = existing.evolutionPathIds || []
+    // Parse evolutionPathIds from existing (stored as JSON string in DB)
+    let oldPaths: string[] = []
+    if (typeof existing.evolutionPathIds === 'string') {
+      try {
+        oldPaths = JSON.parse(existing.evolutionPathIds) || []
+      } catch {
+        oldPaths = []
+      }
+    } else {
+      oldPaths = existing.evolutionPathIds || []
+    }
+
     const newPaths = body.evolutionPathIds || []
 
     // Find removed IDs (were in old, not in new)
@@ -65,7 +76,19 @@ export default defineEventHandler(async (event) => {
     if (oldFromId) {
       const [oldParent] = await db.select().from(digimon).where(eq(digimon.id, oldFromId))
       if (oldParent) {
-        const updatedPaths = (oldParent.evolutionPathIds || []).filter((pathId) => pathId !== id)
+        // Parse evolutionPathIds from oldParent (stored as JSON string in DB)
+        let oldParentPaths: string[] = []
+        if (typeof oldParent.evolutionPathIds === 'string') {
+          try {
+            oldParentPaths = JSON.parse(oldParent.evolutionPathIds) || []
+          } catch {
+            oldParentPaths = []
+          }
+        } else {
+          oldParentPaths = oldParent.evolutionPathIds || []
+        }
+
+        const updatedPaths = oldParentPaths.filter((pathId) => pathId !== id)
         await db.update(digimon).set({ evolutionPathIds: JSON.stringify(updatedPaths), updatedAt: now }).where(eq(digimon.id, oldFromId))
       }
     }
@@ -74,7 +97,19 @@ export default defineEventHandler(async (event) => {
     if (newFromId) {
       const [newParent] = await db.select().from(digimon).where(eq(digimon.id, newFromId))
       if (newParent) {
-        const updatedPaths = [...(newParent.evolutionPathIds || []), id]
+        // Parse evolutionPathIds from newParent (stored as JSON string in DB)
+        let newParentPaths: string[] = []
+        if (typeof newParent.evolutionPathIds === 'string') {
+          try {
+            newParentPaths = JSON.parse(newParent.evolutionPathIds) || []
+          } catch {
+            newParentPaths = []
+          }
+        } else {
+          newParentPaths = newParent.evolutionPathIds || []
+        }
+
+        const updatedPaths = [...newParentPaths, id]
         // Avoid duplicates
         const uniquePaths = [...new Set(updatedPaths)]
         await db.update(digimon).set({ evolutionPathIds: JSON.stringify(uniquePaths), updatedAt: now }).where(eq(digimon.id, newFromId))
@@ -102,6 +137,8 @@ export default defineEventHandler(async (event) => {
     ...updateFields,
     updatedAt: now,
   }
+
+  console.log('[PUT /api/digimon/:id] Received qualities:', { id, qualitiesCount: body.qualities?.length, qualities: body.qualities })
 
   // Stringify JSON fields for storage
   if (updateData.baseStats !== undefined) updateData.baseStats = JSON.stringify(updateData.baseStats)
@@ -142,14 +179,40 @@ async function collectAllLinkedDigimon(currentId: string, current: Digimon): Pro
       visited.add(id)
       linkedIds.push(id)
       const [descendant] = await db.select().from(digimon).where(eq(digimon.id, id))
-      if (descendant && descendant.evolutionPathIds?.length) {
-        await collectDescendants(descendant.evolutionPathIds)
+      if (descendant) {
+        // Parse evolutionPathIds from descendant (stored as JSON string in DB)
+        let descendantPaths: string[] = []
+        if (typeof descendant.evolutionPathIds === 'string') {
+          try {
+            descendantPaths = JSON.parse(descendant.evolutionPathIds) || []
+          } catch {
+            descendantPaths = []
+          }
+        } else {
+          descendantPaths = descendant.evolutionPathIds || []
+        }
+
+        if (descendantPaths.length) {
+          await collectDescendants(descendantPaths)
+        }
       }
     }
   }
 
-  if (current.evolutionPathIds?.length) {
-    await collectDescendants(current.evolutionPathIds)
+  // Parse evolutionPathIds from current (stored as JSON string in DB)
+  let currentPaths: string[] = []
+  if (typeof current.evolutionPathIds === 'string') {
+    try {
+      currentPaths = JSON.parse(current.evolutionPathIds) || []
+    } catch {
+      currentPaths = []
+    }
+  } else {
+    currentPaths = current.evolutionPathIds || []
+  }
+
+  if (currentPaths.length) {
+    await collectDescendants(currentPaths)
   }
 
   return linkedIds

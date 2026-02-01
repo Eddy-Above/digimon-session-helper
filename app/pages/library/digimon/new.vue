@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import type { CreateDigimonData } from '../../../composables/useDigimon'
 import type { Digimon } from '../../../server/db/schema'
 import { useDigimonForm } from '../../../composables/useDigimonForm'
@@ -39,6 +40,7 @@ const {
   canAddQualities,
   minBonusDPForQualities,
   maxBonusDPForQualities,
+  bonusStatsOverspent,
   derivedStats,
   currentSpeedyMaxRanks,
   showCustomAttackForm,
@@ -59,6 +61,17 @@ const {
   spriteError,
   handleSpriteError,
 } = useDigimonForm()
+
+// Compute missing values
+const totalDP = computed(() => baseDP.value)
+const dpUsed = computed(() => dpUsedOnStats.value + dpUsedOnQualities.value)
+const bonusDPAllocated = computed(() => bonusStatsTotal.value + (form.bonusDPForQualities || 0))
+
+// Handler for attacks - delegates to handleAddQuality logic
+function handleAddAttack(attack: any) {
+  // Attacks are managed by the form, just update the form.attacks array
+  form.attacks = [...(form.attacks || []), attack]
+}
 
 // Evolution preview state (page-specific)
 const linkedEvolvesFrom = ref<Digimon | null>(null)
