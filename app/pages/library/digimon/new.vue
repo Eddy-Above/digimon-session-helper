@@ -25,6 +25,7 @@ const {
   attributes,
   families,
   familyLabels,
+  currentStageConfig,
   currentSizeConfig,
   baseDP,
   dpUsedOnStats,
