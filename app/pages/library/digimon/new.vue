@@ -9,7 +9,7 @@ definePageMeta({
 })
 
 const router = useRouter()
-const { createDigimon, fetchDigimonById } = useDigimon()
+const { createDigimon, fetchDigimonById, getPreviousStages, getNextStages } = useDigimon()
 const { tamers, fetchTamers } = useTamers()
 
 onMounted(() => {
