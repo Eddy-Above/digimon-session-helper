@@ -4,6 +4,7 @@
  * Handles attack tag validation, restrictions, and management
  */
 
+import { computed, isRef, type Ref } from 'vue'
 import { EFFECT_ALIGNMENT, TAG_RESTRICTIONS, getTagPatternForQuality } from '../data/attackConstants'
 
 export type Attack = {
@@ -47,11 +48,15 @@ interface DigimonFormData {
   qualities?: DigimonFormQuality[]
 }
 
-export function useAttackTags(form: Ref<DigimonFormData>, newAttack: Ref<NewAttack>) {
+export function useAttackTags(form: Ref<DigimonFormData> | DigimonFormData, newAttack: Ref<NewAttack> | NewAttack) {
+  // Handle both Ref and reactive objects
+  const formValue = computed(() => isRef(form) ? form.value : form)
+  const newAttackValue = computed(() => isRef(newAttack) ? newAttack.value : newAttack)
+
   // Get tags already used by existing attacks
   const usedAttackTags = computed(() => {
     const used = new Set<string>()
-    for (const attack of form.value.attacks || []) {
+    for (const attack of formValue.value.attacks || []) {
       for (const tag of attack.tags) {
         const normalized = tag.toLowerCase().replace(/\s+\d+$/, '').replace(/\s+/g, '-').replace(/:/g, '')
         used.add(normalized)
@@ -63,7 +68,7 @@ export function useAttackTags(form: Ref<DigimonFormData>, newAttack: Ref<NewAtta
   // Count how many attacks have a specific tag
   const countAttacksWithTag = (qualityId: string): number => {
     let count = 0
-    for (const attack of form.value.attacks || []) {
+    for (const attack of formValue.value.attacks || []) {
       for (const tag of attack.tags) {
         const normalized = tag.toLowerCase().replace(/\s+\d+$/, '').replace(/\s+/g, '-').replace(/:/g, '')
         if (normalized === qualityId) {
@@ -82,11 +87,11 @@ export function useAttackTags(form: Ref<DigimonFormData>, newAttack: Ref<NewAtta
   // Get available attack tags based on owned qualities AND current attack state
   const availableAttackTags = computed(() => {
     const tags: Array<AttackTagRule & { disabled: boolean; disabledReason?: string }> = []
-    const currentRange = newAttack.value.range
-    const currentTags = newAttack.value.tags
+    const currentRange = newAttackValue.value.range
+    const currentTags = newAttackValue.value.tags
     const hasSignatureMove = currentTags.some((t) => t.includes('Signature Move'))
 
-    for (const quality of form.value.qualities || []) {
+    for (const quality of formValue.value.qualities || []) {
       // Weapon - can be applied to a number of attacks equal to its rank
       if (quality.id === 'weapon') {
         const weaponRank = quality.ranks || 1
@@ -286,7 +291,7 @@ export function useAttackTags(form: Ref<DigimonFormData>, newAttack: Ref<NewAtta
   // Get effects already used by existing attacks
   const usedEffects = computed(() => {
     const used = new Set<string>()
-    for (const attack of form.value.attacks || []) {
+    for (const attack of formValue.value.attacks || []) {
       if (attack.effect) {
         used.add(attack.effect.toLowerCase())
       }
@@ -296,8 +301,8 @@ export function useAttackTags(form: Ref<DigimonFormData>, newAttack: Ref<NewAtta
 
   // Get available effect tags based on owned qualities AND attack type
   const availableEffectTags = computed(() => {
-    const currentType = newAttack.value.type
-    const currentTags = newAttack.value.tags
+    const currentType = newAttackValue.value.type
+    const currentTags = newAttackValue.value.tags
     const hasSignatureMove = currentTags.some((t) => t.includes('Signature Move'))
 
     const effectAlignment: Record<string, 'P' | 'N' | 'NA'> = {
@@ -319,7 +324,7 @@ export function useAttackTags(form: Ref<DigimonFormData>, newAttack: Ref<NewAtta
     }
     const signatureRestricted = ['effect-poison', 'effect-hazard', 'effect-revitalize']
 
-    return (form.value.qualities || [])
+    return (formValue.value.qualities || [])
       .filter((q) => q.id.startsWith('effect-'))
       .map((q) => {
         const alignment = effectAlignment[q.id] || 'NA'
@@ -345,13 +350,15 @@ export function useAttackTags(form: Ref<DigimonFormData>, newAttack: Ref<NewAtta
   })
 
   const addTagToAttack = (tagName: string) => {
-    if (!newAttack.value.tags.includes(tagName)) {
-      newAttack.value.tags = [...newAttack.value.tags, tagName]
+    const attack = isRef(newAttack) ? newAttack.value : newAttack
+    if (!attack.tags.includes(tagName)) {
+      attack.tags = [...attack.tags, tagName]
     }
   }
 
   const removeTagFromAttack = (tagName: string) => {
-    newAttack.value.tags = newAttack.value.tags.filter((t) => t !== tagName)
+    const attack = isRef(newAttack) ? newAttack.value : newAttack
+    attack.tags = attack.tags.filter((t) => t !== tagName)
   }
 
   return {
