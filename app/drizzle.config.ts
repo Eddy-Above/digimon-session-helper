@@ -3,9 +3,9 @@ import { defineConfig } from 'drizzle-kit'
 export default defineConfig({
   schema: './server/db/schema.ts',
   out: './server/db/migrations',
-  dialect: 'sqlite',
+  dialect: 'postgresql',
   dbCredentials: {
-    url: process.env.NUXT_DB_PATH || './data/digimon.db',
+    url: process.env.DATABASE_URL || '',
   },
   verbose: true,
   strict: true,
