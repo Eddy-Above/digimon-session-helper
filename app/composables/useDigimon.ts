@@ -197,6 +197,10 @@ export function useDigimon() {
     const bulky = qualities.find((q: any) => q.id === 'bulky')
     if (bulky) effectiveBase -= (bulky.ranks || 0) * 3
 
+    // Boosting quality modifiers
+    const instinct = qualities.find((q: any) => q.id === 'instinct')
+    if (instinct) effectiveBase += instinct.ranks || 0
+
     // Ensure minimum effective base of 1
     effectiveBase = Math.max(1, effectiveBase)
 
