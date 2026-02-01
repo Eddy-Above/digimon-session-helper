@@ -184,17 +184,26 @@ export function useTamerForm(initialData?: Partial<CreateTamerData>) {
   }
 
   const addTorment = () => {
+    console.log('[addTorment] Called with severity:', newTormentSeverity.value)
     const severity = newTormentSeverity.value
-    torments.value.push({
-      id: crypto.randomUUID(),
-      name: '',
-      description: '',
-      severity,
-      totalBoxes: getTormentBoxCount(severity),
-      markedBoxes: 0,
-      cpMarkedBoxes: 0,
-    })
-    showAddTorment.value = false
+    try {
+      const boxCount = getTormentBoxCount(severity)
+      console.log('[addTorment] Box count:', boxCount)
+      torments.value.push({
+        id: crypto.randomUUID(),
+        name: '',
+        description: '',
+        severity,
+        totalBoxes: boxCount,
+        markedBoxes: 0,
+        cpMarkedBoxes: 0,
+      })
+      console.log('[addTorment] Torment added, count:', torments.value.length)
+      showAddTorment.value = false
+      console.log('[addTorment] Dialog closed')
+    } catch (error) {
+      console.error('[addTorment] Error:', error)
+    }
   }
 
   const removeTorment = (id: string) => {
@@ -355,9 +364,14 @@ export function useTamerForm(initialData?: Partial<CreateTamerData>) {
   })
 
   const canAffordTormentBox = (torment: TormentEntry): boolean => {
-    // Cost = 1 XP per box in new forms, might be different in edit
-    const cost = 1
+    // Cost to mark next box = current marked boxes + 1
+    const cost = torment.markedBoxes + 1
     return form.xp >= cost && torment.markedBoxes < torment.totalBoxes
+  }
+
+  const getTormentBoxCost = (torment: TormentEntry): number => {
+    // Cost to mark next box = current marked boxes + 1
+    return torment.markedBoxes + 1
   }
 
   // ========================
@@ -443,6 +457,8 @@ export function useTamerForm(initialData?: Partial<CreateTamerData>) {
     canAffordSkillIncrease,
     canAffordInspiration,
     canAffordTormentBox,
+    getTormentBoxCost,
     unlockedSpecialOrders,
+    tormentMarkingLimits,
   }
 }
