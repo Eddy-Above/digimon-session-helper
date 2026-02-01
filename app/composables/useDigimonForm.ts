@@ -35,6 +35,50 @@ export interface CreateDigimonData {
   syncBonusDP?: boolean
 }
 
+/**
+ * Calculate the effective base movement after all base movement modifiers
+ * Used to determine true max ranks for Speedy quality
+ */
+function calculateEffectiveBaseMovement(
+  stageBase: number,
+  qualities: Array<{ id: string; ranks?: number; choiceId?: string }> = []
+): number {
+  let effective = stageBase
+
+  // Data Optimization modifiers
+  const dataOpt = qualities.find((q) => q.id === 'data-optimization')
+  if (dataOpt?.choiceId === 'speed-striker') effective += 2
+  if (dataOpt?.choiceId === 'guardian') effective -= 1
+
+  // Data Specialization modifiers
+  const dataSpec = qualities.find((q) => q.id === 'data-specialization')
+  if (dataSpec?.choiceId === 'mobile-artillery') effective -= 1
+
+  // Negative quality modifiers
+  const bulky = qualities.find((q) => q.id === 'bulky')
+  if (bulky) effective -= (bulky.ranks || 0) * 3
+
+  // Boosting quality modifiers
+  const instinct = qualities.find((q) => q.id === 'instinct')
+  if (instinct) effective += instinct.ranks || 0
+
+  return Math.max(1, effective)
+}
+
+/**
+ * Get the max ranks allowed for Speedy based on effective base movement
+ * Speedy can add up to 2x base (or 3x with Advanced Movement)
+ * So max ranks = effective base / 2 (rounded up)
+ */
+function getSpeedyMaxRanks(
+  effectiveBase: number,
+  hasAdvancedMovement: boolean = false
+): number {
+  // Speedy: +2 per rank, capped at 2x base (or 3x with Advanced Movement)
+  // Max useful ranks = base movement / 2
+  return hasAdvancedMovement ? Math.ceil(effectiveBase / 2) : Math.floor(effectiveBase / 2)
+}
+
 export function useDigimonForm(initialData?: Partial<CreateDigimonData>) {
   // ========================
   // Form State
@@ -189,6 +233,10 @@ export function useDigimonForm(initialData?: Partial<CreateDigimonData>) {
     // Negative quality modifiers
     const bulky = qualities.find((q) => q.id === 'bulky')
     if (bulky) effectiveBase -= (bulky.ranks || 0) * 3
+
+    // Boosting quality modifiers
+    const instinct = qualities.find((q) => q.id === 'instinct')
+    if (instinct) effectiveBase += instinct.ranks || 0
 
     // Ensure minimum effective base of 1
     effectiveBase = Math.max(1, effectiveBase)
@@ -478,7 +526,19 @@ export function useDigimonForm(initialData?: Partial<CreateDigimonData>) {
         const template = QUALITY_DATABASE.find((t) => t.id === quality.id)
         if (!template) return quality
 
-        const maxRanks = getMaxRanksAtStage(template, newStage)
+        let maxRanks: number
+        // Special handling for Speedy - base max on effective base movement, not stage base
+        if (quality.id === 'speedy') {
+          const stageBase = STAGE_CONFIG[newStage].movement
+          const effectiveBase = calculateEffectiveBaseMovement(stageBase, form.qualities)
+          const hasAdvMovement = form.qualities?.some(
+            (q) => q.id === 'advanced-mobility' && q.choiceId === 'adv-movement'
+          )
+          maxRanks = getSpeedyMaxRanks(effectiveBase, hasAdvMovement)
+        } else {
+          maxRanks = getMaxRanksAtStage(template, newStage)
+        }
+
         if ((quality.ranks || 1) > maxRanks) {
           return { ...quality, ranks: maxRanks }
         }
@@ -508,6 +568,29 @@ export function useDigimonForm(initialData?: Partial<CreateDigimonData>) {
         })
       }
     }
+  )
+
+  // Watch for quality changes that affect Speedy's max ranks
+  watch(
+    () => form.qualities,
+    () => {
+      if (!form.qualities) return
+
+      const speedyQuality = form.qualities.find((q) => q.id === 'speedy')
+      if (speedyQuality) {
+        const stageBase = STAGE_CONFIG[form.stage].movement
+        const effectiveBase = calculateEffectiveBaseMovement(stageBase, form.qualities)
+        const hasAdvMovement = form.qualities.some(
+          (q) => q.id === 'advanced-mobility' && q.choiceId === 'adv-movement'
+        )
+        const maxRanks = getSpeedyMaxRanks(effectiveBase, hasAdvMovement)
+
+        if ((speedyQuality.ranks || 1) > maxRanks) {
+          speedyQuality.ranks = maxRanks
+        }
+      }
+    },
+    { deep: true }
   )
 
   return {
