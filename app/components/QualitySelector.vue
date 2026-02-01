@@ -37,11 +37,13 @@ interface Props {
   currentQualities: Quality[]
   canAdd?: boolean // Whether adding new qualities is allowed (has DP remaining)
   availableDP?: number // How much DP is available for qualities (to grey out expensive ones)
+  speedyMaxRanks?: number // Effective max ranks for Speedy based on base movement modifiers
 }
 
 const props = withDefaults(defineProps<Props>(), {
   canAdd: true,
   availableDP: Infinity,
+  speedyMaxRanks: undefined, // Use stage-based default if not provided
 })
 const emit = defineEmits<{
   (e: 'add', quality: Quality): void
@@ -383,6 +385,10 @@ function getDisplayCostClass(quality: Quality): string {
 }
 
 function getQualityMaxRanks(quality: Quality): number {
+  // Special handling for Speedy - use effective base if provided
+  if (quality.id === 'speedy' && props.speedyMaxRanks !== undefined) {
+    return props.speedyMaxRanks
+  }
   const template = getCurrentQualityTemplate(quality)
   if (!template) return 1
   return getMaxRanksAtStage(template, props.stage)
