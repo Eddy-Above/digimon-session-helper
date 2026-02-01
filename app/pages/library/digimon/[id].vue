@@ -49,6 +49,7 @@ const {
   minBonusDPForQualities,
   maxBonusDPForQualities,
   derivedStats,
+  currentSpeedyMaxRanks,
   showCustomAttackForm,
   editingAttackIndex,
   newAttack,
@@ -853,6 +854,7 @@ async function handleCopy() {
           :current-qualities="form.qualities"
           :can-add="canAddQualities"
           :available-d-p="availableDPForQualities"
+          :speedy-max-ranks="currentSpeedyMaxRanks"
           @add="handleAddQuality"
           @remove="removeQuality"
           @update-ranks="handleUpdateQualityRanks"

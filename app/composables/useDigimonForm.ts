@@ -267,6 +267,23 @@ export function useDigimonForm(initialData?: Partial<CreateDigimonData>) {
     }
   })
 
+  // Compute current Speedy max ranks based on effective base movement
+  const currentSpeedyMaxRanks = computed(() => {
+    const effectiveBase = derivedStats.value.baseMovement
+    const hasAdvMovement = (form.qualities || []).some(
+      (q) => q.id === 'advanced-mobility' && q.choiceId === 'adv-movement'
+    )
+    return getSpeedyMaxRanks(effectiveBase, hasAdvMovement)
+  })
+
+  // Auto-validate Speedy ranks when max changes
+  watch(currentSpeedyMaxRanks, (newMax) => {
+    const speedyQuality = (form.qualities || []).find((q) => q.id === 'speedy')
+    if (speedyQuality && (speedyQuality.ranks || 1) > newMax) {
+      speedyQuality.ranks = newMax
+    }
+  })
+
   // ========================
   // Quality Management
   // ========================
@@ -570,29 +587,6 @@ export function useDigimonForm(initialData?: Partial<CreateDigimonData>) {
     }
   )
 
-  // Watch for quality changes that affect Speedy's max ranks
-  watch(
-    () => form.qualities,
-    () => {
-      if (!form.qualities) return
-
-      const speedyQuality = form.qualities.find((q) => q.id === 'speedy')
-      if (speedyQuality) {
-        const stageBase = STAGE_CONFIG[form.stage].movement
-        const effectiveBase = calculateEffectiveBaseMovement(stageBase, form.qualities)
-        const hasAdvMovement = form.qualities.some(
-          (q) => q.id === 'advanced-mobility' && q.choiceId === 'adv-movement'
-        )
-        const maxRanks = getSpeedyMaxRanks(effectiveBase, hasAdvMovement)
-
-        if ((speedyQuality.ranks || 1) > maxRanks) {
-          speedyQuality.ranks = maxRanks
-        }
-      }
-    },
-    { deep: true }
-  )
-
   return {
     // State
     form,
@@ -627,6 +621,7 @@ export function useDigimonForm(initialData?: Partial<CreateDigimonData>) {
     maxBonusDPForQualities,
     bonusStatsOverspent,
     derivedStats,
+    currentSpeedyMaxRanks,
 
     // Attack tags
     usedAttackTags,
