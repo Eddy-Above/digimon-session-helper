@@ -1,11 +1,11 @@
-import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core'
+import { pgTable, text, integer, boolean, timestamp } from 'drizzle-orm/pg-core'
 import { relations } from 'drizzle-orm'
 
 // =====================================
 // Tamers Table
 // =====================================
 
-export const tamers = sqliteTable('tamers', {
+export const tamers = pgTable('tamers', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   age: integer('age').notNull(),
@@ -85,15 +85,15 @@ export const tamers = sqliteTable('tamers', {
   notes: text('notes').notNull().default(''),
   spriteUrl: text('sprite_url'),
 
-  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
-  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+  createdAt: timestamp('created_at').notNull().$defaultFn(() => new Date()),
+  updatedAt: timestamp('updated_at').notNull().$defaultFn(() => new Date()),
 })
 
 // =====================================
 // Digimon Table
 // =====================================
 
-export const digimon = sqliteTable('digimon', {
+export const digimon = pgTable('digimon', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   species: text('species').notNull(),
@@ -168,20 +168,20 @@ export const digimon = sqliteTable('digimon', {
   evolvesFromId: text('evolves_from_id'),
 
   partnerId: text('partner_id').references(() => tamers.id),
-  isEnemy: integer('is_enemy', { mode: 'boolean' }).notNull().default(false),
+  isEnemy: boolean('is_enemy').notNull().default(false),
 
   notes: text('notes').notNull().default(''),
   spriteUrl: text('sprite_url'),
 
-  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
-  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+  createdAt: timestamp('created_at').notNull().$defaultFn(() => new Date()),
+  updatedAt: timestamp('updated_at').notNull().$defaultFn(() => new Date()),
 })
 
 // =====================================
 // Encounters Table
 // =====================================
 
-export const encounters = sqliteTable('encounters', {
+export const encounters = pgTable('encounters', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   description: text('description').notNull().default(''),
@@ -240,15 +240,15 @@ export const encounters = sqliteTable('encounters', {
     duration: number | null
   }>>(),
 
-  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
-  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+  createdAt: timestamp('created_at').notNull().$defaultFn(() => new Date()),
+  updatedAt: timestamp('updated_at').notNull().$defaultFn(() => new Date()),
 })
 
 // =====================================
 // Campaigns Table
 // =====================================
 
-export const campaigns = sqliteTable('campaigns', {
+export const campaigns = pgTable('campaigns', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   description: text('description').notNull().default(''),
@@ -259,15 +259,15 @@ export const campaigns = sqliteTable('campaigns', {
   encounterIds: text('encounter_ids', { mode: 'json' }).notNull().$type<string[]>(),
   currentEncounterId: text('current_encounter_id'),
 
-  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
-  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+  createdAt: timestamp('created_at').notNull().$defaultFn(() => new Date()),
+  updatedAt: timestamp('updated_at').notNull().$defaultFn(() => new Date()),
 })
 
 // =====================================
 // Evolution Lines Table
 // =====================================
 
-export const evolutionLines = sqliteTable('evolution_lines', {
+export const evolutionLines = pgTable('evolution_lines', {
   id: text('id').primaryKey(),
   name: text('name').notNull(), // e.g., "Agumon Line", "Gabumon Line"
   description: text('description').notNull().default(''),
@@ -300,8 +300,8 @@ export const evolutionLines = sqliteTable('evolution_lines', {
     itemsCollected: string[]
   }>(),
 
-  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
-  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+  createdAt: timestamp('created_at').notNull().$defaultFn(() => new Date()),
+  updatedAt: timestamp('updated_at').notNull().$defaultFn(() => new Date()),
 })
 
 // =====================================
