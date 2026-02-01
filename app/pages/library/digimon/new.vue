@@ -2,6 +2,7 @@
 import type { CreateDigimonData } from '../../../composables/useDigimon'
 import type { Digimon } from '../../../server/db/schema'
 import { useDigimonForm } from '../../../composables/useDigimonForm'
+import { SIZE_CONFIG } from '../../../types'
 
 definePageMeta({
   title: 'New Digimon',
