@@ -28,16 +28,30 @@ export default defineEventHandler(async (event) => {
   // Update tamer - ensure JSON fields are properly serialized
   const updateData: any = {
     ...body,
-    // Stringify JSON fields for storage
-    attributes: body.attributes ? JSON.stringify(body.attributes) : existing.attributes,
-    skills: body.skills ? JSON.stringify(body.skills) : existing.skills,
-    aspects: body.aspects ? JSON.stringify(body.aspects) : existing.aspects,
-    torments: body.torments ? JSON.stringify(body.torments) : existing.torments,
-    equipment: body.equipment ? JSON.stringify(body.equipment) : existing.equipment,
-    specialOrders: body.specialOrders ? JSON.stringify(body.specialOrders) : existing.specialOrders,
-    xpBonuses: body.xpBonuses ? JSON.stringify(body.xpBonuses) : existing.xpBonuses,
     updatedAt: new Date(),
   }
+
+  // Stringify JSON fields for storage (check !== undefined to handle empty arrays/objects)
+  if (body.attributes !== undefined) updateData.attributes = JSON.stringify(body.attributes)
+  else updateData.attributes = existing.attributes
+
+  if (body.skills !== undefined) updateData.skills = JSON.stringify(body.skills)
+  else updateData.skills = existing.skills
+
+  if (body.aspects !== undefined) updateData.aspects = JSON.stringify(body.aspects)
+  else updateData.aspects = existing.aspects
+
+  if (body.torments !== undefined) updateData.torments = JSON.stringify(body.torments)
+  else updateData.torments = existing.torments
+
+  if (body.equipment !== undefined) updateData.equipment = JSON.stringify(body.equipment)
+  else updateData.equipment = existing.equipment
+
+  if (body.specialOrders !== undefined) updateData.specialOrders = JSON.stringify(body.specialOrders)
+  else updateData.specialOrders = existing.specialOrders
+
+  if (body.xpBonuses !== undefined) updateData.xpBonuses = JSON.stringify(body.xpBonuses)
+  else updateData.xpBonuses = existing.xpBonuses
 
   console.log('[PUT /api/tamers/:id] Updating tamer:', { id, name: body.name })
 
