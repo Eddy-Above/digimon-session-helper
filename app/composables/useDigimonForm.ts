@@ -171,12 +171,39 @@ export function useDigimonForm(initialData?: Partial<CreateDigimonData>) {
     const cpu = Math.floor(body / 10) + stageConfig.stageBonus
     const ram = Math.floor(agility / 10) + stageConfig.stageBonus
 
-    const baseMovement = stageConfig.movement
-    const speedyQuality = (form.qualities || []).find((q) => q.id === 'speedy')
+    const stageBaseMovement = stageConfig.movement
+    const qualities = form.qualities || []
+
+    // Calculate effective base movement (after base movement modifiers)
+    let effectiveBase = stageBaseMovement
+
+    // Data Optimization modifiers
+    const dataOpt = qualities.find((q) => q.id === 'data-optimization')
+    if (dataOpt?.choiceId === 'speed-striker') effectiveBase += 2
+    if (dataOpt?.choiceId === 'guardian') effectiveBase -= 1
+
+    // Data Specialization modifiers
+    const dataSpec = qualities.find((q) => q.id === 'data-specialization')
+    if (dataSpec?.choiceId === 'mobile-artillery') effectiveBase -= 1
+
+    // Negative quality modifiers
+    const bulky = qualities.find((q) => q.id === 'bulky')
+    if (bulky) effectiveBase -= (bulky.ranks || 0) * 3
+
+    // Ensure minimum effective base of 1
+    effectiveBase = Math.max(1, effectiveBase)
+
+    // Apply Speedy bonus (capped at 2x or 3x effective base with Advanced Movement)
+    const hasAdvMovement = qualities.some(
+      (q) => q.id === 'advanced-mobility' && q.choiceId === 'adv-movement'
+    )
+    const speedyMaxMultiplier = hasAdvMovement ? 3 : 2
+    const speedyCap = effectiveBase * speedyMaxMultiplier
+    const speedyQuality = qualities.find((q) => q.id === 'speedy')
     const speedyRanks = speedyQuality?.ranks || 0
-    const speedyBonus = speedyRanks * 2
-    const maxSpeedyBonus = baseMovement
-    const movement = baseMovement + Math.min(speedyBonus, maxSpeedyBonus)
+    const speedyBonus = Math.min(speedyRanks * 2, speedyCap)
+
+    const movement = effectiveBase + speedyBonus
 
     return {
       brains,
@@ -187,7 +214,7 @@ export function useDigimonForm(initialData?: Partial<CreateDigimonData>) {
       ram,
       woundBoxes: health + stageConfig.woundBonus,
       movement,
-      baseMovement,
+      baseMovement: effectiveBase,
       stageBonus: stageConfig.stageBonus,
     }
   })
