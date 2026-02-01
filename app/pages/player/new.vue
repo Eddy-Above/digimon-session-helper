@@ -54,6 +54,7 @@ const {
   canAffordInspiration,
   canAffordTormentBox,
   unlockedSpecialOrders,
+  tormentMarkingLimits,
 } = useTamerForm()
 
 // Page-specific state
