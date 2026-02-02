@@ -39,6 +39,7 @@ const showTargetSelector = ref(false)
 const { fetchTamer, calculateDerivedStats: calcTamerStats } = useTamers()
 const { fetchDigimon, calculateDerivedStats: calcDigimonStats } = useDigimon()
 const { encounters, fetchEncounters, getCurrentParticipant, respondToRequest, getMyPendingRequests, performAttack } = useEncounters()
+const { fetchEvolutionLines, evolutionLines, getCurrentStage } = useEvolution()
 
 // Auto-refresh every 5 seconds
 let refreshInterval: ReturnType<typeof setInterval>
@@ -54,6 +55,9 @@ async function loadData() {
       // Fetch partner Digimon
       await fetchDigimon({ partnerId: fetchedTamer.id })
       partnerDigimon.value = await $fetch<Digimon[]>(`/api/digimon?partnerId=${fetchedTamer.id}`)
+
+      // Fetch evolution lines for current stage filtering
+      await fetchEvolutionLines(fetchedTamer.id)
 
       // Fetch encounters to find active one
       await fetchEncounters()
@@ -103,6 +107,27 @@ onUnmounted(() => {
 
 // Computed
 const tamerStats = computed(() => (tamer.value ? calcTamerStats(tamer.value) : null))
+
+// Get current stage digimon for this tamer (for digimon selection)
+const currentPartnerDigimon = computed(() => {
+  if (!tamer.value) return []
+
+  // Build set of current partner digimon IDs
+  const currentStageIds = new Set<string>()
+
+  for (const evolutionLine of evolutionLines.value) {
+    // Only process evolution lines with this tamer as partner
+    if (evolutionLine.partnerId !== tamer.value.id) continue
+
+    const currentStage = getCurrentStage(evolutionLine)
+    if (currentStage?.digimonId) {
+      currentStageIds.add(currentStage.digimonId)
+    }
+  }
+
+  // Filter partner digimon to only show current stages
+  return partnerDigimon.value.filter((d) => currentStageIds.has(d.id))
+})
 
 const myParticipants = computed(() => {
   if (!activeEncounter.value || !tamer.value) return []
@@ -1383,7 +1408,7 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
 
         <div class="space-y-2 mb-6 max-h-64 overflow-y-auto">
           <button
-            v-for="digimon in partnerDigimon"
+            v-for="digimon in currentPartnerDigimon"
             :key="digimon.id"
             @click="submitDigimonSelection(digimon.id)"
             class="w-full bg-digimon-dark-700 hover:bg-digimon-dark-600 text-white p-3 rounded-lg transition-colors flex items-center gap-3"
