@@ -22,6 +22,13 @@
       "when": 1769977686179,
       "tag": "0002_busy_morbius",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1769993619888,
+      "tag": "0003_sparkling_cobalt_man",
+      "breakpoints": true
     }
   ]
 }
