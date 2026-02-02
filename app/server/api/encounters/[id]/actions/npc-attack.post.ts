@@ -105,7 +105,7 @@ export default defineEventHandler(async (event) => {
   }
 
   // Check actions
-  const actionCost = 2
+  const actionCost = 1
   if ((actor.actionsRemaining?.simple || 0) < actionCost) {
     throw createError({
       statusCode: 403,

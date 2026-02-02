@@ -104,9 +104,8 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  // For now, assume complex attack (costs 2 simple actions)
-  // TODO: In a full implementation, we'd look up the attack definition to determine if it's simple (1) or complex (2)
-  const actionCostSimple = 2
+  // Attacks cost 1 simple action
+  const actionCostSimple = 1
 
   // Validate participant has enough actions
   if ((actor.actionsRemaining?.simple || 0) < actionCostSimple) {
