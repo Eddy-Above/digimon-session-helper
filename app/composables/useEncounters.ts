@@ -465,6 +465,36 @@ export function useEncounters() {
     }
   }
 
+  async function performNpcAttack(
+    encounterId: string,
+    participantId: string,
+    attackId: string,
+    targetId: string,
+    accuracyRoll: number,
+    dodgeRoll: number
+  ): Promise<Encounter | null> {
+    loading.value = true
+    error.value = null
+    try {
+      const result = await $fetch<Encounter>(`/api/encounters/${encounterId}/actions/npc-attack`, {
+        method: 'POST',
+        body: { participantId, attackId, targetId, accuracyRoll, dodgeRoll },
+      })
+      // Update local state
+      encounters.value = encounters.value.map((e) => (e.id === encounterId ? result : e))
+      if (currentEncounter.value?.id === encounterId) {
+        currentEncounter.value = result
+      }
+      return result
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : 'Failed to perform NPC attack'
+      console.error('Failed to perform NPC attack:', e)
+      return null
+    } finally {
+      loading.value = false
+    }
+  }
+
   return {
     encounters,
     currentEncounter,
@@ -497,5 +527,6 @@ export function useEncounters() {
     getUnprocessedResponses,
     // Combat actions
     performAttack,
+    performNpcAttack,
   }
 }
