@@ -367,7 +367,9 @@ const turnCycleLength = computed(() => {
 
 function getParticipantName(participant: CombatParticipant): string {
   if (participant.type === 'tamer') {
-    return tamer.value?.name || 'Unknown'
+    // Look up the tamer by entityId from all available tamers
+    const participantTamer = allTamers.value.find((t) => t.id === participant.entityId)
+    return participantTamer?.name || 'Unknown'
   }
   const digimon = partnerDigimon.value.find((d) => d.id === participant.entityId)
   return digimon?.name || 'Unknown'
