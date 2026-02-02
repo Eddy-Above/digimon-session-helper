@@ -1886,12 +1886,59 @@ async function handleUpdateHazard(hazard: Hazard) {
               <div
                 v-for="entry in battleLog"
                 :key="entry.id"
-                class="text-sm border-l-2 border-digimon-dark-600 pl-3 py-1"
+                class="mb-3 p-3 bg-digimon-dark-700 rounded-lg"
               >
-                <div class="text-digimon-dark-400 text-xs">
+                <div class="text-digimon-dark-400 text-xs mb-1">
                   Round {{ entry.round }} • {{ entry.actorName }}
                 </div>
-                <div class="text-white">{{ entry.result }}</div>
+                <div class="text-white text-sm">{{ entry.result }}</div>
+
+                <!-- Damage calculation breakdown (if available) -->
+                <div v-if="entry.hit !== undefined && entry.baseDamage !== undefined" class="mt-2 p-2 bg-digimon-dark-600 rounded border-l-4" :class="[
+                  entry.hit ? 'border-green-500' : 'border-red-500'
+                ]">
+                  <div class="text-xs font-semibold mb-1" :class="[
+                    entry.hit ? 'text-green-400' : 'text-red-400'
+                  ]">
+                    {{ entry.hit ? 'HIT!' : 'MISS!' }}
+                  </div>
+
+                  <!-- Show calculation breakdown if hit -->
+                  <div v-if="entry.hit" class="text-xs text-digimon-dark-300 space-y-1">
+                    <div class="flex justify-between">
+                      <span>Base Damage:</span>
+                      <span class="text-white font-mono">{{ entry.baseDamage }}</span>
+                    </div>
+                    <div class="flex justify-between">
+                      <span>Net Successes:</span>
+                      <span class="text-white font-mono">{{ entry.netSuccesses >= 0 ? '+' : '' }}{{ entry.netSuccesses }}</span>
+                    </div>
+                    <div v-if="entry.targetArmor !== undefined && entry.targetArmor > 0" class="flex justify-between">
+                      <span>Target Armor:</span>
+                      <span class="text-white font-mono">{{ entry.targetArmor }}</span>
+                    </div>
+                    <div v-if="entry.armorPiercing !== undefined && entry.armorPiercing > 0" class="flex justify-between">
+                      <span>Armor Piercing:</span>
+                      <span class="text-cyan-400 font-mono">-{{ entry.armorPiercing }}</span>
+                    </div>
+                    <div v-if="entry.effectiveArmor !== undefined" class="flex justify-between">
+                      <span>Effective Armor:</span>
+                      <span class="text-white font-mono">{{ entry.effectiveArmor }}</span>
+                    </div>
+                    <div class="flex justify-between pt-1 mt-1 border-t border-digimon-dark-500">
+                      <span class="font-semibold">Final Damage:</span>
+                      <span class="text-red-400 font-bold font-mono">{{ entry.finalDamage }}</span>
+                    </div>
+                    <div class="text-xs text-digimon-dark-400 italic mt-1">
+                      Formula: max(1, {{ entry.baseDamage }} + {{ entry.netSuccesses }} - {{ entry.effectiveArmor }}) = {{ entry.finalDamage }}
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Fallback: simple damage display for old entries without breakdown -->
+                <div v-else-if="entry.damage !== null && entry.damage !== undefined && entry.damage > 0" class="text-red-400 text-xs mt-2">
+                  Damage: {{ entry.damage }}
+                </div>
               </div>
               <div v-if="battleLog.length === 0" class="text-digimon-dark-400 text-sm">
                 No actions yet.

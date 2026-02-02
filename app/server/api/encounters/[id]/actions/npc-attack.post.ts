@@ -234,6 +234,15 @@ export default defineEventHandler(async (event) => {
     result: `${body.dodgeDicePool}d6 => [${body.dodgeDiceResults.join(',')}] = ${body.dodgeSuccesses} successes - Net: ${netSuccesses} - ${hit ? 'HIT!' : 'MISS!'}`,
     damage: hit ? damageDealt : 0,
     effects: ['Dodge'],
+
+    // Damage calculation breakdown
+    baseDamage: attackBaseDamage,
+    netSuccesses: netSuccesses,
+    targetArmor: targetArmor,
+    armorPiercing: armorPiercing,
+    effectiveArmor: hit ? Math.max(0, targetArmor - armorPiercing) : undefined,
+    finalDamage: hit ? damageDealt : 0,
+    hit: hit,
   }
 
   const updatedBattleLog = [...battleLog, attackLogEntry, dodgeLogEntry]

@@ -35,6 +35,15 @@ export interface BattleLogEntry {
   result: string
   damage: number | null
   effects: string[]
+
+  // Damage calculation breakdown fields (optional for backward compatibility)
+  baseDamage?: number
+  netSuccesses?: number
+  targetArmor?: number
+  armorPiercing?: number
+  effectiveArmor?: number
+  finalDamage?: number
+  hit?: boolean
 }
 
 export interface Hazard {
