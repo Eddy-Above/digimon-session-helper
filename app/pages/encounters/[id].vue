@@ -1152,6 +1152,8 @@ async function handleGmDodgeRoll(request: any) {
     )
 
     if (result) {
+      // Remove the processed request from pending list
+      await cancelRequest(currentEncounter.value.id, request.id)
       // Refresh encounter to see updated state
       await fetchEncounter(currentEncounter.value.id)
     }
