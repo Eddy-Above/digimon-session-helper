@@ -934,6 +934,62 @@ async function removeEffect(participantId: string, effectId: string) {
   }
 }
 
+// GM rolls dodge for NPC enemy
+async function handleGmDodgeRoll(request: any) {
+  if (!currentEncounter.value) return
+
+  try {
+    // Find the target participant
+    const participants = (currentEncounter.value.participants as CombatParticipant[]) || []
+    const target = participants.find(p => p.id === request.targetParticipantId)
+
+    if (!target) {
+      console.error('Target participant not found:', request.targetParticipantId)
+      return
+    }
+
+    // Get dodge pool for the target
+    const dodgePool = getDodgePool(target)
+
+    // Roll dice
+    const rolls = []
+    for (let i = 0; i < dodgePool; i++) {
+      rolls.push(Math.floor(Math.random() * 6) + 1)
+    }
+    const dodgeRoll = rolls.reduce((a, b) => a + b, 0)
+
+    // Get target's tamer ID (for request.targetTamerId field)
+    let targetTamerId = 'GM'  // Default for enemies
+    if (target.type === 'tamer') {
+      targetTamerId = target.entityId
+    } else if (target.type === 'digimon') {
+      const digimon = digimonMap.value.get(target.entityId)
+      if (digimon?.partnerId) {
+        targetTamerId = digimon.partnerId
+      }
+    }
+
+    // Submit response
+    const result = await respondToRequest(
+      currentEncounter.value.id,
+      request.id,
+      targetTamerId,
+      {
+        type: 'dodge-rolled',
+        dodgeRoll,
+        timestamp: new Date().toISOString(),
+      }
+    )
+
+    if (result) {
+      // Refresh encounter to see updated state
+      await fetchEncounter(currentEncounter.value.id)
+    }
+  } catch (error) {
+    console.error('Error rolling dodge for GM:', error)
+  }
+}
+
 // Selected participant for detailed view
 const selectedParticipantId = ref<string | null>(null)
 const selectedParticipant = computed(() => {
@@ -1562,12 +1618,21 @@ async function handleUpdateHazard(hazard: Hazard) {
                     {{ request.type === 'digimon-selection' ? 'Select Digimon' : request.type === 'initiative-roll' ? 'Roll Initiative' : 'Roll Dodge' }}
                   </span>
                 </div>
-                <button
-                  @click="cancelRequest(currentEncounter.id, request.id)"
-                  class="text-red-400 hover:text-red-300 text-sm font-semibold"
-                >
-                  Cancel
-                </button>
+                <div class="flex gap-2">
+                  <button
+                    v-if="request.type === 'dodge-roll'"
+                    @click="handleGmDodgeRoll(request)"
+                    class="bg-digimon-orange-600 hover:bg-digimon-orange-700 text-white px-3 py-1 rounded text-sm font-semibold transition-colors"
+                  >
+                    Roll Dodge
+                  </button>
+                  <button
+                    @click="cancelRequest(currentEncounter.id, request.id)"
+                    class="text-red-400 hover:text-red-300 text-sm font-semibold"
+                  >
+                    Cancel
+                  </button>
+                </div>
               </div>
             </div>
           </div>
