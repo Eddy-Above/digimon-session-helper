@@ -441,8 +441,9 @@ function getDodgePool(participant: CombatParticipant): number {
   if (participant.type === 'digimon') {
     const digimon = digimonMap.value.get(participant.entityId)
     if (digimon) {
-      const derived = calcDigimonStats(digimon)
-      return derived.dodgePool || 3  // Default 3d6
+      // Calculate total dodge: baseStats.dodge + bonusStats.dodge
+      const totalDodge = (digimon.baseStats?.dodge ?? 0) + ((digimon as any).bonusStats?.dodge ?? 0)
+      return totalDodge || 3  // Default 3d6 if somehow zero
     }
   } else if (participant.type === 'tamer') {
     const tamer = tamerMap.value.get(participant.entityId)
