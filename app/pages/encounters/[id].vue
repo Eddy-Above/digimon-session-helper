@@ -958,22 +958,11 @@ async function handleGmDodgeRoll(request: any) {
     }
     const dodgeRoll = rolls.reduce((a, b) => a + b, 0)
 
-    // Get target's tamer ID (for request.targetTamerId field)
-    let targetTamerId = 'GM'  // Default for enemies
-    if (target.type === 'tamer') {
-      targetTamerId = target.entityId
-    } else if (target.type === 'digimon') {
-      const digimon = digimonMap.value.get(target.entityId)
-      if (digimon?.partnerId) {
-        targetTamerId = digimon.partnerId
-      }
-    }
-
-    // Submit response
+    // Submit response using targetTamerId from request
     const result = await respondToRequest(
       currentEncounter.value.id,
       request.id,
-      targetTamerId,
+      request.targetTamerId,  // Use value from request (already correct)
       {
         type: 'dodge-rolled',
         dodgeRoll,
