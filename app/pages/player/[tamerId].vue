@@ -371,8 +371,12 @@ function getParticipantName(participant: CombatParticipant): string {
     const participantTamer = allTamers.value.find((t) => t.id === participant.entityId)
     return participantTamer?.name || 'Unknown'
   }
+  // For digimon, try to find in partner digimon first
   const digimon = partnerDigimon.value.find((d) => d.id === participant.entityId)
-  return digimon?.name || 'Unknown'
+  if (digimon) return digimon.name
+
+  // If not found (enemy digimon), return generic label
+  return 'Enemy'
 }
 
 function getParticipantAttacks(participant: CombatParticipant): any[] {
@@ -401,8 +405,11 @@ function canUseAttack(participant: CombatParticipant, attack: any): boolean {
 
 function getParticipantImage(participant: CombatParticipant): string | null {
   if (participant.type === 'digimon') {
+    // Try to find in partner digimon first
     const digimon = partnerDigimon.value.find((d) => d.id === participant.entityId)
-    return digimon?.spriteUrl || null
+    if (digimon?.spriteUrl) return digimon.spriteUrl
+    // If not found (enemy digimon), return null (fallback to emoji)
+    return null
   } else if (participant.type === 'tamer') {
     // Look up the tamer by entityId from all available tamers
     const participantTamer = allTamers.value.find((t) => t.id === participant.entityId)
