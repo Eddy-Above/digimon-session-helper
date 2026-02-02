@@ -201,6 +201,15 @@ export default defineEventHandler(async (event) => {
         : (targetDigimon as any).bonusStats
 
       targetArmor = (targetBaseStats?.armor ?? 0) + (targetBonusStats?.armor ?? 0)
+
+      // Add Guardian data optimization bonus (+2 armor)
+      const targetQualities = typeof targetDigimon.qualities === 'string'
+        ? JSON.parse(targetDigimon.qualities)
+        : targetDigimon.qualities
+      const targetDataOpt = targetQualities?.find((q: any) => q.id === 'data-optimization')
+      if (targetDataOpt?.choiceId === 'guardian') {
+        targetArmor += 2
+      }
     }
   } else if (target.type === 'tamer') {
     const [targetTamer] = await db.select().from(tamers).where(eq(tamers.id, target.entityId))
