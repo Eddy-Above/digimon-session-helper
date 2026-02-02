@@ -140,11 +140,17 @@ export default defineEventHandler(async (event) => {
 
   let attackBaseDamage = 0
   let armorPiercing = 0
-  console.log('[NPC-ATTACK] Attacker digimon:', attackerDigimon?.name, 'baseStats:', attackerDigimon?.baseStats, 'bonusStats:', (attackerDigimon as any)?.bonusStats)
   if (attackerDigimon) {
+    // Parse baseStats and bonusStats if they're JSON strings
+    const baseStats = typeof attackerDigimon.baseStats === 'string'
+      ? JSON.parse(attackerDigimon.baseStats)
+      : attackerDigimon.baseStats
+    const bonusStats = typeof (attackerDigimon as any).bonusStats === 'string'
+      ? JSON.parse((attackerDigimon as any).bonusStats)
+      : (attackerDigimon as any).bonusStats
+
     // Base damage comes from digimon stats
-    attackBaseDamage = (attackerDigimon.baseStats?.damage ?? 0) + ((attackerDigimon as any).bonusStats?.damage ?? 0)
-    console.log('[NPC-ATTACK] Base damage calc: ', attackerDigimon.baseStats?.damage, '+', (attackerDigimon as any)?.bonusStats?.damage, '=', attackBaseDamage)
+    attackBaseDamage = (baseStats?.damage ?? 0) + (bonusStats?.damage ?? 0)
 
     // Parse attacks array to get tag bonuses
     if (attackerDigimon.attacks) {
@@ -153,7 +159,6 @@ export default defineEventHandler(async (event) => {
         : attackerDigimon.attacks
 
       const attackDef = attacks?.find((a: any) => a.id === body.attackId)
-      console.log('[NPC-ATTACK] Attack definition:', attackDef?.name, 'tags:', attackDef?.tags)
 
       if (attackDef?.tags && Array.isArray(attackDef.tags)) {
         for (const tag of attackDef.tags) {
@@ -163,7 +168,6 @@ export default defineEventHandler(async (event) => {
             const rankStr = weaponMatch[1]
             const romanMap: Record<string, number> = { 'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5 }
             const rank = romanMap[rankStr.toUpperCase()] || parseInt(rankStr) || 1
-            console.log('[NPC-ATTACK] Weapon tag match:', tag, 'rank:', rank, 'adding to damage')
             attackBaseDamage += rank  // Add weapon rank to damage
           }
 
@@ -183,15 +187,20 @@ export default defineEventHandler(async (event) => {
     }
   }
 
-  console.log('[NPC-ATTACK] Final attackBaseDamage before armor calc:', attackBaseDamage)
-
   // Fetch target's armor
   let targetArmor = 0
   if (target.type === 'digimon') {
     const [targetDigimon] = await db.select().from(digimon).where(eq(digimon.id, target.entityId))
     if (targetDigimon) {
-      targetArmor = (targetDigimon.baseStats?.armor ?? 0) + ((targetDigimon as any).bonusStats?.armor ?? 0)
-      console.log('[NPC-ATTACK] Target armor calc:', targetDigimon.baseStats?.armor, '+', (targetDigimon as any)?.bonusStats?.armor, '=', targetArmor)
+      // Parse baseStats and bonusStats if they're JSON strings
+      const targetBaseStats = typeof targetDigimon.baseStats === 'string'
+        ? JSON.parse(targetDigimon.baseStats)
+        : targetDigimon.baseStats
+      const targetBonusStats = typeof (targetDigimon as any).bonusStats === 'string'
+        ? JSON.parse((targetDigimon as any).bonusStats)
+        : (targetDigimon as any).bonusStats
+
+      targetArmor = (targetBaseStats?.armor ?? 0) + (targetBonusStats?.armor ?? 0)
     }
   } else if (target.type === 'tamer') {
     const [targetTamer] = await db.select().from(tamers).where(eq(tamers.id, target.entityId))
