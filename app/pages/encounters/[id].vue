@@ -134,6 +134,20 @@ function getEntityDetails(participant: CombatParticipant) {
 async function handleAddParticipant() {
   if (!currentEncounter.value || !selectedEntityId.value) return
 
+  // For tamers, create a digimon selection request instead of directly adding
+  if (selectedEntityType.value === 'tamer') {
+    await createRequest(
+      currentEncounter.value.id,
+      'digimon-selection',
+      selectedEntityId.value
+    )
+    showAddParticipant.value = false
+    selectedEntityId.value = ''
+    addQuantity.value = 1
+    return
+  }
+
+  // For digimon/enemies, add directly with rolled initiative
   const quantity = addQuantity.value || 1
 
   for (let i = 0; i < quantity; i++) {
@@ -148,17 +162,6 @@ async function handleAddParticipant() {
         initiative = result.total
         initiativeRoll = result.roll
         const derived = calcDigimonStats(digimon)
-        maxWounds = derived.woundBoxes
-      }
-    } else {
-      const tamer = tamerMap.value.get(selectedEntityId.value)
-      if (tamer) {
-        // Tamer initiative: 3d6 + Agility
-        initiativeRoll = Math.floor(Math.random() * 6) + 1 +
-          Math.floor(Math.random() * 6) + 1 +
-          Math.floor(Math.random() * 6) + 1
-        initiative = initiativeRoll + tamer.attributes.agility
-        const derived = calcTamerStats(tamer)
         maxWounds = derived.woundBoxes
       }
     }
@@ -1189,7 +1192,9 @@ async function handleUpdateHazard(hazard: Hazard) {
                 </button>
               </div>
               <p class="text-xs text-digimon-dark-400 mt-2">
-                Each will roll initiative separately (3d6 + Agility)
+                {{ selectedEntityType === 'tamer'
+                  ? 'Tamers must respond with digimon selection before rolling initiative'
+                  : 'Each will roll initiative separately (3d6 + Agility)' }}
               </p>
             </div>
 
@@ -1200,7 +1205,9 @@ async function handleUpdateHazard(hazard: Hazard) {
                        text-white px-4 py-2 rounded-lg font-semibold transition-colors"
                 @click="handleAddParticipant"
               >
-                Add {{ addQuantity > 1 ? `${addQuantity}x` : '' }} & Roll Initiative
+                {{ selectedEntityType === 'tamer'
+                  ? 'Request Digimon Selection'
+                  : `Add ${addQuantity > 1 ? `${addQuantity}x ` : ''}& Roll Initiative` }}
               </button>
               <button
                 class="flex-1 bg-digimon-dark-700 hover:bg-digimon-dark-600 text-white px-4 py-2
