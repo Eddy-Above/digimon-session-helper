@@ -704,9 +704,11 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
             <span class="font-display text-white font-semibold">Player View</span>
           </div>
           <div class="flex items-center gap-4">
-            <span class="text-xs text-digimon-dark-400">
-              Last updated: {{ lastRefresh.toLocaleTimeString() }}
-            </span>
+            <ClientOnly>
+              <span class="text-xs text-digimon-dark-400">
+                Last updated: {{ lastRefresh.toLocaleTimeString() }}
+              </span>
+            </ClientOnly>
             <button
               class="text-sm text-digimon-dark-400 hover:text-white"
               @click="loadData"
