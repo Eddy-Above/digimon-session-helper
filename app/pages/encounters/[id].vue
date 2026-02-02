@@ -458,7 +458,7 @@ function getDodgePool(participant: CombatParticipant): number {
 function getParticipantName(participantId: string): string | null {
   if (!currentEncounter.value) return null
 
-  const participants = parseJsonField(currentEncounter.value.participants)
+  const participants = currentEncounter.value.participants || []
   const participant = participants.find((p: any) => p.id === participantId)
   if (!participant) return null
 
