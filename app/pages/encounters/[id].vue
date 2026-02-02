@@ -454,6 +454,24 @@ function getDodgePool(participant: CombatParticipant): number {
   return 3  // Fallback
 }
 
+// Get participant name (tamer or digimon) for display
+function getParticipantName(participantId: string): string | null {
+  if (!currentEncounter.value) return null
+
+  const participants = parseJsonField(currentEncounter.value.participants)
+  const participant = participants.find((p: any) => p.id === participantId)
+  if (!participant) return null
+
+  if (participant.type === 'tamer') {
+    const tamer = tamerMap.value.get(participant.entityId)
+    return tamer?.name || null
+  } else if (participant.type === 'digimon') {
+    const digimon = digimonMap.value.get(participant.entityId)
+    return digimon?.name || null
+  }
+  return null
+}
+
 // Get all valid targets for an attack (exclude the attacker)
 function getAttackTargets(attackerId: string): CombatParticipant[] {
   if (!currentEncounter.value) return []
@@ -1785,10 +1803,24 @@ async function handleUpdateHazard(hazard: Hazard) {
                 class="bg-digimon-dark-700 rounded-lg p-3 flex justify-between items-center"
               >
                 <div>
+                  <!-- Show target name (tamer or NPC) -->
                   <span class="text-white font-medium">
-                    {{ tamerMap.get(request.targetTamerId)?.name || 'Unknown Player' }}
+                    <template v-if="request.targetTamerId === 'GM'">
+                      <!-- NPC Enemy - show digimon name from request.data -->
+                      {{ getParticipantName(request.targetParticipantId) || request.data?.targetName || 'NPC Enemy' }}
+                    </template>
+                    <template v-else>
+                      <!-- Player tamer -->
+                      {{ tamerMap.get(request.targetTamerId)?.name || 'Unknown Player' }}
+                    </template>
                   </span>
-                  <span v-if="request.type !== 'dodge-roll'" class="text-digimon-dark-400 text-sm ml-2">
+
+                  <!-- Show request type info -->
+                  <span v-if="request.type === 'dodge-roll'" class="text-digimon-dark-400 text-sm ml-2">
+                    <!-- Show attack context for dodge rolls -->
+                    vs {{ request.data?.attackerName || 'Unknown' }}'s {{ request.data?.attackName || 'Attack' }}
+                  </span>
+                  <span v-else class="text-digimon-dark-400 text-sm ml-2">
                     {{ request.type === 'digimon-selection' ? 'Select Digimon' : 'Roll Initiative' }}
                   </span>
                 </div>

@@ -148,15 +148,26 @@ export default defineEventHandler(async (event) => {
 
   const updatedBattleLog = [...battleLog, attackLogEntry]
 
-  // Create dodge request for target
-  const targetTamerId = target.type === 'tamer' ? target.entityId : `partner-of-${target.entityId}`
-  // For simplicity, we'll extract the tamer ID from the context
-  // In a production system, you'd need to fetch the tamer ID separately
+  // Determine targetTamerId based on whether target is NPC or player
+  let targetTamerId: string | null = null
+  if (target.type === 'tamer') {
+    targetTamerId = target.entityId
+  } else if (target.type === 'digimon') {
+    // Check if this is an NPC enemy or a player's partner digimon
+    const [targetDigimon] = await db.select().from(digimon).where(eq(digimon.id, target.entityId))
+    if (targetDigimon?.isEnemy) {
+      // NPC enemy - use 'GM' as targetTamerId
+      targetTamerId = 'GM'
+    } else {
+      // Player's partner digimon - use the partner's tamer ID
+      targetTamerId = targetDigimon?.partnerId || null
+    }
+  }
 
   const dodgeRequest = {
     id: `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
     type: 'dodge-roll',
-    targetTamerId: target.entityId,
+    targetTamerId: targetTamerId,
     targetParticipantId: target.id,
     timestamp: new Date().toISOString(),
     data: {
@@ -164,6 +175,8 @@ export default defineEventHandler(async (event) => {
       attackerName: actor.type === 'tamer' ? `Tamer ${actor.entityId}` : `Digimon ${actor.entityId}`,
       attackerParticipantId: body.participantId,
       attackerEntityId: actor.entityId,
+      targetName: target.type === 'tamer' ? `Tamer ${target.entityId}` : `Digimon ${target.entityId}`,
+      targetEntityId: target.entityId,
       // Store accuracy dice data for later comparison when dodge response comes in
       accuracyDicePool: body.accuracyDicePool,
       accuracySuccesses: body.accuracySuccesses,
