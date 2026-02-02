@@ -20,7 +20,13 @@ export default defineEventHandler(async () => {
 
   return allEncounters.map((encounter) => ({
     ...encounter,
-    participants: parseJsonField(encounter.participants),
+    participants: parseJsonField(encounter.participants).map((p: any) => ({
+      ...p,
+      // Migrate old format { simple: X, complex: Y } to new format { simple: X }
+      actionsRemaining: p.actionsRemaining?.complex !== undefined
+        ? { simple: p.actionsRemaining.simple || 0 }
+        : p.actionsRemaining || { simple: 2 }
+    })),
     turnOrder: parseJsonField(encounter.turnOrder),
     battleLog: parseJsonField(encounter.battleLog),
     hazards: parseJsonField(encounter.hazards),

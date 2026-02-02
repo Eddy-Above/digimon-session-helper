@@ -82,12 +82,8 @@ export default defineEventHandler(async (event) => {
         message: 'Response type does not match request type',
       })
     }
-    if (!body.response.digimonId) {
-      throw createError({
-        statusCode: 400,
-        message: 'digimonId is required for digimon-selected response',
-      })
-    }
+    // Allow null for tamer-only selection, or a string for digimon selection
+    // No validation needed - both are valid
   } else if (body.response.type === 'initiative-rolled') {
     if (request.type !== 'initiative-roll') {
       throw createError({

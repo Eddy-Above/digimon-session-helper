@@ -84,12 +84,12 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  // For now, assume complex attack (uses 1 complex + 1 simple action)
-  // In a full implementation, we'd look up the attack to determine its cost
-  const actionCost = { complex: 1, simple: 1 }
+  // For now, assume complex attack (costs 2 simple actions)
+  // TODO: In a full implementation, we'd look up the attack definition to determine if it's simple (1) or complex (2)
+  const actionCostSimple = 2
 
   // Validate participant has enough actions
-  if ((actor.actionsRemaining?.complex || 0) < actionCost.complex || (actor.actionsRemaining?.simple || 0) < actionCost.simple) {
+  if ((actor.actionsRemaining?.simple || 0) < actionCostSimple) {
     throw createError({
       statusCode: 403,
       message: 'Not enough actions remaining',
@@ -102,8 +102,7 @@ export default defineEventHandler(async (event) => {
       return {
         ...p,
         actionsRemaining: {
-          simple: Math.max(0, (p.actionsRemaining?.simple || 0) - actionCost.simple),
-          complex: Math.max(0, (p.actionsRemaining?.complex || 0) - actionCost.complex),
+          simple: Math.max(0, (p.actionsRemaining?.simple || 0) - actionCostSimple),
         },
       }
     }

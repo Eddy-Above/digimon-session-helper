@@ -8,7 +8,7 @@ export interface CombatParticipant {
   entityId: string
   initiative: number
   initiativeRoll: number
-  actionsRemaining: { simple: number; complex: number }
+  actionsRemaining: { simple: number }
   currentStance: 'neutral' | 'defensive' | 'offensive' | 'sniper' | 'brave'
   activeEffects: Array<{
     id: string
@@ -156,7 +156,7 @@ export function useEncounters() {
       entityId,
       initiative,
       initiativeRoll,
-      actionsRemaining: { simple: 2, complex: 1 },
+      actionsRemaining: { simple: 2 },
       currentStance: 'neutral',
       activeEffects: [],
       isActive: false,
@@ -221,7 +221,7 @@ export function useEncounters() {
       newRound += 1
       // Reset actions and hasActed for all participants
       participants.forEach((p) => {
-        p.actionsRemaining = { simple: 2, complex: 1 }
+        p.actionsRemaining = { simple: 2 }
         p.hasActed = false
         // Decrement effect durations
         p.activeEffects = p.activeEffects

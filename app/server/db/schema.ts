@@ -198,7 +198,7 @@ export const encounters = pgTable('encounters', {
     entityId: string
     initiative: number
     initiativeRoll: number
-    actionsRemaining: { simple: number; complex: number }
+    actionsRemaining: { simple: number }
     currentStance: 'neutral' | 'defensive' | 'offensive' | 'sniper' | 'brave'
     activeEffects: Array<{
       id: string
