@@ -135,30 +135,35 @@ export default defineEventHandler(async (event) => {
   const netSuccesses = body.accuracySuccesses - body.dodgeSuccesses
   const hit = netSuccesses >= 0
 
-  // Look up attack definition to get base damage
-  // Note: Attack damage value may already include DP bonuses and quality modifiers
-  // from the attack definition itself (e.g., Heavy quality, bonus DP spent)
+  // Look up attacker's digimon to get base damage and attack definition
   const [attackerDigimon] = await db.select().from(digimon).where(eq(digimon.id, actor.entityId))
 
   let attackBaseDamage = 0
   let armorPiercing = 0
-  if (attackerDigimon?.attacks) {
-    // Parse attacks if it's a JSON string from database
-    const attacks = typeof attackerDigimon.attacks === 'string'
-      ? JSON.parse(attackerDigimon.attacks)
-      : attackerDigimon.attacks
+  if (attackerDigimon) {
+    // Base damage comes from digimon stats
+    attackBaseDamage = (attackerDigimon.baseStats?.damage ?? 0) + ((attackerDigimon as any).bonusStats?.damage ?? 0)
 
-    const attackDef = attacks.find((a: any) => a.id === body.attackId)
-    if (attackDef) {
-      // Parse damage value (may be string like "5" or number)
-      // This value already accounts for any DP bonuses or qualities applied to the move
-      attackBaseDamage = typeof attackDef.damage === 'number'
-        ? attackDef.damage
-        : parseInt(attackDef.damage) || 0
+    // Parse attacks array to get tag bonuses
+    if (attackerDigimon.attacks) {
+      const attacks = typeof attackerDigimon.attacks === 'string'
+        ? JSON.parse(attackerDigimon.attacks)
+        : attackerDigimon.attacks
 
-      // Extract Armor Piercing from tags
-      if (attackDef.tags && Array.isArray(attackDef.tags)) {
+      const attackDef = attacks?.find((a: any) => a.id === body.attackId)
+
+      if (attackDef?.tags && Array.isArray(attackDef.tags)) {
         for (const tag of attackDef.tags) {
+          // Weapon tags add to both accuracy AND damage
+          const weaponMatch = tag.match(/^Weapon\s+(\d+|I{1,3}|IV|V)$/i)
+          if (weaponMatch) {
+            const rankStr = weaponMatch[1]
+            const romanMap: Record<string, number> = { 'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5 }
+            const rank = romanMap[rankStr.toUpperCase()] || parseInt(rankStr) || 1
+            attackBaseDamage += rank  // Add weapon rank to damage
+          }
+
+          // Extract Armor Piercing from tags
           const apMatch = tag.match(/^Armor Piercing\s+(\d+|I{1,3}|IV|V|VI|VII|VIII|IX|X)$/i)
           if (apMatch) {
             const rankStr = apMatch[1]
@@ -168,7 +173,6 @@ export default defineEventHandler(async (event) => {
             }
             const rank = romanMap[rankStr.toUpperCase()] || parseInt(rankStr) || 0
             armorPiercing = rank * 2  // Each rank ignores 2 armor
-            break
           }
         }
       }
@@ -209,15 +213,36 @@ export default defineEventHandler(async (event) => {
     return p
   })
 
+  // Get attacker name
+  let attackerName = 'Unknown'
+  if (actor.type === 'tamer') {
+    const [tamerEntity] = await db.select().from(tamers).where(eq(tamers.id, actor.entityId))
+    attackerName = tamerEntity?.name || `Tamer ${actor.entityId}`
+  } else if (actor.type === 'digimon') {
+    // We already queried attackerDigimon above, reuse it
+    attackerName = attackerDigimon?.name || `Digimon ${actor.entityId}`
+  }
+
+  // Get target name
+  let targetName = 'Unknown'
+  if (target.type === 'tamer') {
+    const [targetTamer] = await db.select().from(tamers).where(eq(tamers.id, target.entityId))
+    targetName = targetTamer?.name || `Tamer ${target.entityId}`
+  } else if (target.type === 'digimon') {
+    // Query target digimon for name
+    const [targetDigimon] = await db.select().from(digimon).where(eq(digimon.id, target.entityId))
+    targetName = targetDigimon?.name || `Digimon ${target.entityId}`
+  }
+
   // Add battle log entries
   const attackLogEntry = {
     id: `log-${Date.now()}-attack`,
     timestamp: new Date().toISOString(),
     round: encounter.round,
     actorId: actor.id,
-    actorName: actor.type === 'tamer' ? `Tamer ${actor.entityId}` : `Digimon ${actor.entityId}`,
+    actorName: attackerName,
     action: 'Attack',
-    target: target.type === 'tamer' ? `Tamer ${target.entityId}` : `Digimon ${target.entityId}`,
+    target: targetName,
     result: `${body.accuracyDicePool}d6 => [${body.accuracyDiceResults.join(',')}] = ${body.accuracySuccesses} successes`,
     damage: null,
     effects: ['Attack'],
@@ -228,7 +253,7 @@ export default defineEventHandler(async (event) => {
     timestamp: new Date().toISOString(),
     round: encounter.round,
     actorId: target.id,
-    actorName: target.type === 'tamer' ? `Tamer ${target.entityId}` : `Digimon ${target.entityId}`,
+    actorName: targetName,
     action: 'Dodge',
     target: null,
     result: `${body.dodgeDicePool}d6 => [${body.dodgeDiceResults.join(',')}] = ${body.dodgeSuccesses} successes - Net: ${netSuccesses} - ${hit ? 'HIT!' : 'MISS!'}`,
