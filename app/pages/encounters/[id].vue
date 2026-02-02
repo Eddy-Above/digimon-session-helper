@@ -169,7 +169,7 @@ function getEntityDetails(participant: CombatParticipant) {
       stats: tamer.attributes,
       derived,
       icon: '👤',
-      spriteUrl: null,
+      spriteUrl: tamer.spriteUrl || null,
     }
   }
 }
