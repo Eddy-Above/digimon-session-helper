@@ -349,30 +349,13 @@ const turnsUntilFirstPlayerTurn = computed(() => {
   return Math.max(0, distance - 1)
 })
 
-const turnsUntilPlayerTurnAgain = computed(() => {
-  if (!activeEncounter.value || firstPlayerTurnIndex.value === -1) return 0
-
+// Full turn cycle length: number of OTHER participants (turnOrder.length - 1)
+// This is how many turns occur before the player's turn comes around again
+// Used by both Scenario A (Element 4) and Scenario B (Elements 2 & 4)
+const turnCycleLength = computed(() => {
+  if (!activeEncounter.value) return 0
   const turnOrder = (activeEncounter.value.turnOrder as string[]) || []
-  const myParticipantIds = new Set(myParticipants.value.map((p) => p.id))
-
-  // Search for next player turn AFTER the first player turn
-  for (let i = 1; i < turnOrder.length; i++) {
-    const checkIndex = (firstPlayerTurnIndex.value + i) % turnOrder.length
-    if (myParticipantIds.has(turnOrder[checkIndex])) {
-      // Found another player turn - return turns between (min 1, never 0)
-      return Math.max(1, i - 1)
-    }
-  }
-
-  // No other player turn found - return full cycle between (min 1, never 0)
-  return Math.max(1, turnOrder.length - 1)
-})
-
-// When it's the player's turn, show number of other participants (turnOrder.length - 1)
-// This represents how many turns until the player's turn comes around again
-const playerTurnCycleLength = computed(() => {
-  if (!activeEncounter.value || !isMyTurn.value) return 0
-  const turnOrder = (activeEncounter.value.turnOrder as string[]) || []
+  // turnOrder includes this player, so subtract 1 to get OTHER participants
   return Math.max(1, turnOrder.length - 1)
 })
 
@@ -1207,10 +1190,10 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
               <!-- Arrow -->
               <span class="text-digimon-dark-500 text-xl">→</span>
 
-              <!-- Turns Until Player Turn Again -->
+              <!-- Turns Until Player Turn Again (full cycle) -->
               <div class="flex flex-col items-center">
                 <div class="w-10 h-10 rounded-full bg-digimon-dark-700 flex items-center justify-center">
-                  <span class="text-white font-bold text-sm">{{ turnsUntilPlayerTurnAgain }}</span>
+                  <span class="text-white font-bold text-sm">{{ turnCycleLength }}</span>
                 </div>
                 <span class="text-xs text-digimon-dark-400 mt-1">Turns</span>
               </div>
@@ -1258,10 +1241,10 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
               <!-- Arrow -->
               <span class="text-digimon-dark-500 text-xl">→</span>
 
-              <!-- Turns Until Next Player Turn -->
+              <!-- Turns Until Next Player Turn (full cycle) -->
               <div class="flex flex-col items-center">
                 <div class="w-10 h-10 rounded-full bg-digimon-dark-700 flex items-center justify-center">
-                  <span class="text-white font-bold text-sm">{{ playerTurnCycleLength }}</span>
+                  <span class="text-white font-bold text-sm">{{ turnCycleLength }}</span>
                 </div>
                 <span class="text-xs text-digimon-dark-400 mt-1">Turns</span>
               </div>
@@ -1288,10 +1271,10 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
               <!-- Arrow -->
               <span class="text-digimon-dark-500 text-xl">→</span>
 
-              <!-- Turns Until Second Next Player Turn (cycles) -->
+              <!-- Turns Until Second Next Player Turn (full cycle) -->
               <div class="flex flex-col items-center">
                 <div class="w-10 h-10 rounded-full bg-digimon-dark-700 flex items-center justify-center">
-                  <span class="text-white font-bold text-sm">{{ playerTurnCycleLength }}</span>
+                  <span class="text-white font-bold text-sm">{{ turnCycleLength }}</span>
                 </div>
                 <span class="text-xs text-digimon-dark-400 mt-1">Turns</span>
               </div>
