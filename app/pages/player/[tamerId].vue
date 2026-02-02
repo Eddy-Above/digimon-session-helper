@@ -1202,7 +1202,7 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
               <!-- Turns Until Player Turn Again -->
               <div class="flex flex-col items-center">
                 <div class="w-10 h-10 rounded-full bg-digimon-dark-700 flex items-center justify-center">
-                  <span class="text-white font-bold text-sm">{{ turnsUntilPlayerTurnAgain }}</span>
+                  <span class="text-white font-bold text-sm">{{ Math.max(0, turnsUntilPlayerTurnAgain - 1) }}</span>
                 </div>
                 <span class="text-xs text-digimon-dark-400 mt-1">Turns</span>
               </div>
