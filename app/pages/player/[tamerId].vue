@@ -403,14 +403,130 @@ function getParticipantAttacks(participant: CombatParticipant): any[] {
   return digimon?.attacks || []
 }
 
-function getAttackAccuracyPool(participant: CombatParticipant): number {
-  if (participant.type !== 'digimon') return 0
-  const digimon = partnerDigimon.value.find((d) => d.id === participant.entityId)
-  if (!digimon) return 0
+function getAttackStats(participant: CombatParticipant, attack: any) {
+  if (participant.type !== 'digimon') {
+    return { accuracy: 0, damage: 0, accuracyBonus: 0, damageBonus: 0, notes: [] }
+  }
 
-  // Get base accuracy from calculated stats - for now, simplified to use a fixed value
-  // In production, this would calculate from Digimon stats and qualities
-  return 3 // Default 3d6 accuracy pool
+  const digimon = partnerDigimon.value.find((d) => d.id === participant.entityId)
+  if (!digimon) {
+    return { accuracy: 0, damage: 0, accuracyBonus: 0, damageBonus: 0, notes: [] }
+  }
+
+  // Get base stats (baseStats + bonusStats)
+  const baseAccuracy = (digimon.baseStats?.accuracy ?? 0) + ((digimon as any).bonusStats?.accuracy ?? 0)
+  const baseDamage = (digimon.baseStats?.damage ?? 0) + ((digimon as any).bonusStats?.damage ?? 0)
+
+  let damageBonus = 0
+  let accuracyBonus = 0
+  let notes: string[] = []
+
+  // Helper functions
+  const hasQuality = (id: string) => digimon.qualities?.some((q: any) => q.id === id)
+  const hasTag = (pattern: string) => attack.tags?.some((t: string) => t.toLowerCase().includes(pattern.toLowerCase()))
+  const hasWeaponTag = attack.tags?.some((t: string) => /^Weapon\s+/i.test(t))
+  const hasSignatureTag = attack.tags?.some((t: string) => t.toLowerCase().includes('signature'))
+
+  // === GLOBAL QUALITY BONUSES ===
+  if (hasQuality('true-guardian')) {
+    accuracyBonus -= 2
+  }
+  if (hasQuality('huge-power')) {
+    notes.push(attack.range === 'melee' ? 'Reroll 1s' : 'Reroll 1s (1/round)')
+  }
+  if (hasQuality('overkill')) {
+    notes.push('Reroll 2s (1/round)')
+  }
+  if (hasQuality('aggressive-flank')) {
+    notes.push('+RAM ACC (near ally)')
+  }
+
+  // === DATA OPTIMIZATION BONUSES ===
+  const dataOptQuality = digimon.qualities?.find((q: any) => q.id === 'data-optimization')
+  const dataOpt = dataOptQuality?.choiceId || digimon.dataOptimization
+
+  if (dataOpt === 'close-combat') {
+    if (attack.range === 'melee') {
+      accuracyBonus += 2
+    } else if (attack.range === 'ranged') {
+      accuracyBonus -= 1
+    }
+  } else if (dataOpt === 'ranged-striker') {
+    if (attack.range === 'ranged') {
+      accuracyBonus += 2
+    }
+  }
+
+  // === DATA SPECIALIZATION BONUSES ===
+  if (hasQuality('mobile-artillery') && hasTag('area')) {
+    notes.push('+CPU DMG (Area)')
+  }
+  if (hasQuality('hit-and-run') && hasTag('charge')) {
+    notes.push('+RAM DMG (Charge)')
+  }
+
+  // === WEAPON-TAGGED ATTACK BONUSES (Digizoid Weapons) ===
+  if (hasWeaponTag) {
+    if (hasQuality('digizoid-weapon-chrome')) {
+      accuracyBonus += 2
+      damageBonus += 1
+    }
+    if (hasQuality('digizoid-weapon-black')) {
+      accuracyBonus += 2
+      notes.push('+random (d6)')
+    }
+    if (hasQuality('digizoid-weapon-brown')) {
+      damageBonus += 2
+    }
+    if (hasQuality('digizoid-weapon-blue')) {
+      accuracyBonus += 2
+      damageBonus += 2
+      notes.push('+1 auto success')
+    }
+    if (hasQuality('digizoid-weapon-gold')) {
+      accuracyBonus += 4
+      damageBonus += 1
+    }
+    if (hasQuality('digizoid-weapon-obsidian')) {
+      accuracyBonus += 2
+      damageBonus += 2
+      notes.push('+1 Armor Piercing')
+    }
+    if (hasQuality('digizoid-weapon-red')) {
+      damageBonus += 6
+    }
+  }
+
+  // === SIGNATURE MOVE BONUSES ===
+  if (hasSignatureTag) {
+    notes.push('+Attacks ACC/DMG (R3+)')
+  }
+
+  // === TAG-BASED BONUSES ===
+  if (attack.tags) {
+    for (const tag of attack.tags) {
+      const weaponMatch = tag.match(/^Weapon\s+(\d+|I{1,3}|IV|V)$/i)
+      if (weaponMatch) {
+        const rankStr = weaponMatch[1]
+        const romanMap: Record<string, number> = { 'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5 }
+        const rank = romanMap[rankStr.toUpperCase()] || parseInt(rankStr) || 1
+        damageBonus += rank
+        accuracyBonus += rank
+      }
+
+      if (tag.startsWith('Certain Strike')) {
+        accuracyBonus += 2
+      }
+    }
+  }
+
+  return {
+    accuracy: baseAccuracy + accuracyBonus,
+    damage: baseDamage + damageBonus,
+    accuracyBonus,
+    damageBonus,
+    notes,
+  }
 }
 
 function canUseAttack(participant: CombatParticipant, attack: any): boolean {
@@ -1140,10 +1256,10 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
                         : 'opacity-50 cursor-not-allowed'
                     ]"
                   >
-                    <div class="flex justify-between items-start">
-                      <div class="flex-1">
+                    <div class="flex justify-between items-start gap-2">
+                      <div class="flex-1 min-w-0">
                         <div class="font-semibold text-white text-sm">{{ attack.name }}</div>
-                        <div class="flex gap-2 mt-1">
+                        <div class="flex flex-wrap gap-1 mt-1">
                           <span
                             :class="[
                               'text-xs px-1.5 py-0.5 rounded',
@@ -1160,11 +1276,29 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
                           >
                             {{ attack.effect || 'Damage' }}
                           </span>
+                          <span v-for="note in getAttackStats(participant, attack).notes" :key="note" class="text-xs px-1.5 py-0.5 rounded bg-cyan-900/30 text-cyan-400">
+                            {{ note }}
+                          </span>
                         </div>
                       </div>
-                      <div class="text-right">
+                      <div class="text-right flex-shrink-0">
                         <div class="text-cyan-400 text-sm font-semibold">
-                          {{ getAttackAccuracyPool(participant) }}d6
+                          {{ getAttackStats(participant, attack).accuracy }}d6
+                          <span v-if="getAttackStats(participant, attack).accuracyBonus > 0" class="text-green-400 text-xs">
+                            (+{{ getAttackStats(participant, attack).accuracyBonus }})
+                          </span>
+                          <span v-else-if="getAttackStats(participant, attack).accuracyBonus < 0" class="text-red-400 text-xs">
+                            ({{ getAttackStats(participant, attack).accuracyBonus }})
+                          </span>
+                        </div>
+                        <div v-if="attack.type === 'damage'" class="text-orange-400 text-sm font-semibold mt-0.5">
+                          DMG: {{ getAttackStats(participant, attack).damage }}
+                          <span v-if="getAttackStats(participant, attack).damageBonus > 0" class="text-green-400 text-xs">
+                            (+{{ getAttackStats(participant, attack).damageBonus }})
+                          </span>
+                          <span v-else-if="getAttackStats(participant, attack).damageBonus < 0" class="text-red-400 text-xs">
+                            ({{ getAttackStats(participant, attack).damageBonus }})
+                          </span>
                         </div>
                       </div>
                     </div>
