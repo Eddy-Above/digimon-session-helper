@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm'
-import { db, encounters, digimon } from '../../../../db'
+import { db, encounters, digimon, tamers } from '../../../../db'
 
 interface AttackActionBody {
   participantId: string
@@ -164,6 +164,43 @@ export default defineEventHandler(async (event) => {
     }
   }
 
+  // Get attacker name
+  let attackerName = 'Unknown'
+  let attackerDigimonEntity = null
+
+  if (actor.type === 'tamer') {
+    // Query tamer table for name
+    const [tamerEntity] = await db.select().from(tamers).where(eq(tamers.id, actor.entityId))
+    attackerName = tamerEntity?.name || `Tamer ${actor.entityId}`
+  } else if (actor.type === 'digimon') {
+    // Query digimon table for name
+    const [digimonEntity] = await db.select().from(digimon).where(eq(digimon.id, actor.entityId))
+    attackerDigimonEntity = digimonEntity
+    attackerName = digimonEntity?.name || `Digimon ${actor.entityId}`
+  }
+
+  // Get target name
+  let targetNameStr = 'Unknown'
+  if (target.type === 'tamer') {
+    const [tamerEntity] = await db.select().from(tamers).where(eq(tamers.id, target.entityId))
+    targetNameStr = tamerEntity?.name || `Tamer ${target.entityId}`
+  } else if (target.type === 'digimon') {
+    // targetDigimon was already queried on line 157
+    targetNameStr = targetDigimon?.name || `Digimon ${target.entityId}`
+  }
+
+  // Get attack name from the digimon's attacks array
+  let attackNameStr = body.attackId  // Fallback to ID
+  if (actor.type === 'digimon' && attackerDigimonEntity?.attacks) {
+    // Parse attacks if it's a JSON string
+    const attacks = typeof attackerDigimonEntity.attacks === 'string'
+      ? JSON.parse(attackerDigimonEntity.attacks)
+      : attackerDigimonEntity.attacks
+
+    const attackObj = attacks.find((a: any) => a.id === body.attackId)
+    attackNameStr = attackObj?.name || body.attackId
+  }
+
   const dodgeRequest = {
     id: `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
     type: 'dodge-roll',
@@ -171,11 +208,11 @@ export default defineEventHandler(async (event) => {
     targetParticipantId: target.id,
     timestamp: new Date().toISOString(),
     data: {
-      attackName: body.attackId,
-      attackerName: actor.type === 'tamer' ? `Tamer ${actor.entityId}` : `Digimon ${actor.entityId}`,
+      attackName: attackNameStr,
+      attackerName: attackerName,
       attackerParticipantId: body.participantId,
       attackerEntityId: actor.entityId,
-      targetName: target.type === 'tamer' ? `Tamer ${target.entityId}` : `Digimon ${target.entityId}`,
+      targetName: targetNameStr,
       targetEntityId: target.entityId,
       // Store accuracy dice data for later comparison when dodge response comes in
       accuracyDicePool: body.accuracyDicePool,
