@@ -1863,7 +1863,7 @@ async function handleUpdateHazard(hazard: Hazard) {
                     {{ tamerMap.get(response.tamerId)?.name || 'Unknown Player' }}
                   </span>
                   <span class="text-digimon-dark-400 text-sm ml-2">
-                    {{ response.response.type === 'digimon-selected' ? 'Selected Digimon' : response.response.type === 'initiative-rolled' ? 'Rolled Initiative: ' + response.response.initiative : 'Rolled Dodge: ' + response.response.dodgeRoll }}
+                    {{ response.response.type === 'digimon-selected' ? 'Selected Digimon' : response.response.type === 'initiative-rolled' ? 'Rolled Initiative: ' + response.response.initiative : `Rolled Dodge: ${response.response.dodgeDicePool}d6 => [${response.response.dodgeDiceResults?.join(', ')}] = ${response.response.dodgeSuccesses} successes` }}
                   </span>
                 </div>
                 <button
