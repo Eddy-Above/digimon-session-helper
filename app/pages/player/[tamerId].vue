@@ -32,6 +32,7 @@ const initiativeRollResult = ref<{ rolls: number[]; total: number } | null>(null
 const dodgeRollResult = ref<{ rolls: number[]; total: number } | null>(null)
 const selectedAttack = ref<any>(null)
 const showTargetSelector = ref(false)
+const selectedDigimonId = ref<string | null>(null)
 
 // Note: Evolution chain navigation now uses currentDigimonId (see digimonChains computed)
 
@@ -364,6 +365,9 @@ function switchCharacter() {
 async function submitDigimonSelection(digimonId: string) {
   if (!activeEncounter.value || !currentDigimonRequest.value || !tamer.value) return
 
+  // Set immediately for visual feedback
+  selectedDigimonId.value = digimonId
+
   try {
     const result = await respondToRequest(
       activeEncounter.value.id,
@@ -377,13 +381,16 @@ async function submitDigimonSelection(digimonId: string) {
     )
 
     if (result) {
-      // Refresh to clear the request
+      // Refresh to clear the request (modal will close automatically)
       await loadData()
     } else {
       console.error('Failed to submit digimon selection')
+      selectedDigimonId.value = null
     }
   } catch (error) {
     console.error('Error submitting digimon selection:', error)
+    // Clear selection on error to allow retry
+    selectedDigimonId.value = null
   }
 }
 
@@ -1449,7 +1456,15 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
             v-for="digimon in currentPartnerDigimon"
             :key="digimon.id"
             @click="submitDigimonSelection(digimon.id)"
-            class="w-full bg-digimon-dark-700 hover:bg-digimon-dark-600 text-white p-3 rounded-lg transition-colors flex items-center gap-3"
+            :disabled="selectedDigimonId !== null"
+            :class="[
+              'w-full p-3 rounded-lg transition-all flex items-center gap-3 text-white',
+              selectedDigimonId === digimon.id
+                ? 'bg-green-600 cursor-default'
+                : selectedDigimonId !== null
+                  ? 'bg-digimon-dark-700 opacity-50 cursor-not-allowed'
+                  : 'bg-digimon-dark-700 hover:bg-digimon-dark-600 cursor-pointer'
+            ]"
           >
             <div class="w-12 h-12 bg-digimon-dark-600 rounded-lg flex items-center justify-center flex-shrink-0">
               <img
@@ -1463,6 +1478,13 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
             <div class="text-left flex-1">
               <div class="font-semibold">{{ digimon.name }}</div>
               <div class="text-sm text-digimon-dark-400">{{ digimon.stage }}</div>
+            </div>
+
+            <!-- Success indicator checkmark -->
+            <div v-if="selectedDigimonId === digimon.id" class="flex-shrink-0">
+              <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+              </svg>
             </div>
           </button>
         </div>
