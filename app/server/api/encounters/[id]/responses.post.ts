@@ -135,9 +135,13 @@ export default defineEventHandler(async (event) => {
 
   currentResponses.push(newResponse)
 
+  // Remove the processed request from pendingRequests
+  const updatedRequests = pendingRequests.filter((r: any) => r.id !== body.requestId)
+
   // Update encounter
   const updateData: any = {
     requestResponses: JSON.stringify(currentResponses),
+    pendingRequests: JSON.stringify(updatedRequests),
     updatedAt: new Date(),
   }
 
