@@ -241,7 +241,7 @@ export const encounters = pgTable('encounters', {
   }>>(),
 
   // Pending player requests (digimon selection, initiative roll, dodge roll)
-  pendingRequests: text('pending_requests', { mode: 'json' }).notNull().$type<Array<{
+  pendingRequests: text('pending_requests', { mode: 'json' }).notNull().default('[]').$type<Array<{
     id: string
     type: 'digimon-selection' | 'initiative-roll' | 'dodge-roll'
     targetTamerId: string
@@ -251,7 +251,7 @@ export const encounters = pgTable('encounters', {
   }>>(),
 
   // Player responses to requests
-  requestResponses: text('request_responses', { mode: 'json' }).notNull().$type<Array<{
+  requestResponses: text('request_responses', { mode: 'json' }).notNull().default('[]').$type<Array<{
     id: string
     requestId: string
     tamerId: string
