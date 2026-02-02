@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm'
-import { db, encounters } from '../../../db'
+import { db, encounters, digimon, tamers } from '../../../db'
 
 interface SubmitResponseBody {
   requestId: string
@@ -135,15 +135,154 @@ export default defineEventHandler(async (event) => {
 
   currentResponses.push(newResponse)
 
-  // Remove the processed request from pendingRequests
-  const updatedRequests = pendingRequests.filter((r: any) => r.id !== body.requestId)
-
-  // Update encounter
-  const updateData: any = {
+  // If this is a dodge-roll response to a player attack, calculate damage and update battle log
+  let updateData: any = {
     requestResponses: JSON.stringify(currentResponses),
-    pendingRequests: JSON.stringify(updatedRequests),
+    pendingRequests: JSON.stringify(pendingRequests),
     updatedAt: new Date(),
   }
+
+  if (body.response.type === 'dodge-rolled' && request.data?.attackId) {
+    // Parse encounter data
+    let participants = parseJsonField(encounter.participants)
+    let battleLog = parseJsonField(encounter.battleLog)
+
+    // Calculate damage (same logic as npc-attack.post.ts)
+    const accuracySuccesses = request.data.accuracySuccesses
+    const dodgeSuccesses = body.response.dodgeSuccesses
+    const netSuccesses = accuracySuccesses - dodgeSuccesses
+    const hit = netSuccesses >= 0
+
+    // Get attacker's digimon to calculate base damage
+    const attackerParticipant = participants.find((p: any) => p.id === request.data.attackerParticipantId)
+    let attackBaseDamage = 0
+    let armorPiercing = 0
+
+    if (attackerParticipant?.type === 'digimon') {
+      const [attackerDigimon] = await db.select().from(digimon).where(eq(digimon.id, request.data.attackerEntityId))
+
+      if (attackerDigimon) {
+        // Parse baseStats and bonusStats
+        const baseStats = typeof attackerDigimon.baseStats === 'string'
+          ? JSON.parse(attackerDigimon.baseStats)
+          : attackerDigimon.baseStats
+        const bonusStats = typeof (attackerDigimon as any).bonusStats === 'string'
+          ? JSON.parse((attackerDigimon as any).bonusStats)
+          : (attackerDigimon as any).bonusStats
+
+        attackBaseDamage = (baseStats?.damage ?? 0) + (bonusStats?.damage ?? 0)
+
+        // Parse attacks to get tag bonuses
+        if (attackerDigimon.attacks) {
+          const attacks = typeof attackerDigimon.attacks === 'string'
+            ? JSON.parse(attackerDigimon.attacks)
+            : attackerDigimon.attacks
+
+          const attackDef = attacks?.find((a: any) => a.id === request.data.attackId)
+
+          if (attackDef?.tags && Array.isArray(attackDef.tags)) {
+            for (const tag of attackDef.tags) {
+              // Weapon tags add to damage
+              const weaponMatch = tag.match(/^Weapon\s+(\d+|I{1,3}|IV|V)$/i)
+              if (weaponMatch) {
+                const rankStr = weaponMatch[1]
+                const romanMap: Record<string, number> = { 'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5 }
+                const rank = romanMap[rankStr.toUpperCase()] || parseInt(rankStr) || 1
+                attackBaseDamage += rank
+              }
+
+              // Armor Piercing tags
+              const apMatch = tag.match(/^Armor Piercing\s+(\d+|I{1,3}|IV|V|VI|VII|VIII|IX|X)$/i)
+              if (apMatch) {
+                const rankStr = apMatch[1]
+                const romanMap: Record<string, number> = {
+                  'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5,
+                  'VI': 6, 'VII': 7, 'VIII': 8, 'IX': 9, 'X': 10
+                }
+                const rank = romanMap[rankStr.toUpperCase()] || parseInt(rankStr) || 0
+                armorPiercing = rank * 2
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Get target armor
+    let targetArmor = 0
+    const targetParticipant = participants.find((p: any) => p.id === request.targetParticipantId)
+
+    if (targetParticipant?.type === 'digimon') {
+      const [targetDigimon] = await db.select().from(digimon).where(eq(digimon.id, request.data.targetEntityId))
+      if (targetDigimon) {
+        const targetBaseStats = typeof targetDigimon.baseStats === 'string'
+          ? JSON.parse(targetDigimon.baseStats)
+          : targetDigimon.baseStats
+        const targetBonusStats = typeof (targetDigimon as any).bonusStats === 'string'
+          ? JSON.parse((targetDigimon as any).bonusStats)
+          : (targetDigimon as any).bonusStats
+
+        targetArmor = (targetBaseStats?.armor ?? 0) + (targetBonusStats?.armor ?? 0)
+      }
+    } else if (targetParticipant?.type === 'tamer') {
+      const [targetTamer] = await db.select().from(tamers).where(eq(tamers.id, request.data.targetEntityId))
+      if (targetTamer) {
+        const body = targetTamer.attributes?.body ?? 0
+        const endurance = targetTamer.skills?.endurance ?? 0
+        targetArmor = body + endurance
+      }
+    }
+
+    // Calculate final damage
+    let damageDealt = 0
+    if (hit) {
+      const effectiveArmor = Math.max(0, targetArmor - armorPiercing)
+      damageDealt = Math.max(1, attackBaseDamage + netSuccesses - effectiveArmor)
+    }
+
+    // Apply damage to target
+    participants = participants.map((p: any) => {
+      if (p.id === request.targetParticipantId && hit) {
+        return {
+          ...p,
+          currentWounds: Math.min(p.maxWounds, (p.currentWounds || 0) + damageDealt),
+        }
+      }
+      return p
+    })
+
+    // Add dodge battle log entry with damage breakdown
+    const dodgeLogEntry = {
+      id: `log-${Date.now()}-dodge`,
+      timestamp: new Date().toISOString(),
+      round: encounter.round,
+      actorId: request.targetParticipantId,
+      actorName: request.data.targetName,
+      action: 'Dodge',
+      target: null,
+      result: `${body.response.dodgeDicePool}d6 => [${body.response.dodgeDiceResults.join(',')}] = ${body.response.dodgeSuccesses} successes - Net: ${netSuccesses} - ${hit ? 'HIT!' : 'MISS!'}`,
+      damage: hit ? damageDealt : 0,
+      effects: ['Dodge'],
+
+      // Damage calculation breakdown (same as NPC attacks)
+      baseDamage: attackBaseDamage,
+      netSuccesses: netSuccesses,
+      targetArmor: targetArmor,
+      armorPiercing: armorPiercing,
+      effectiveArmor: hit ? Math.max(0, targetArmor - armorPiercing) : undefined,
+      finalDamage: hit ? damageDealt : 0,
+      hit: hit,
+    }
+
+    battleLog = [...battleLog, dodgeLogEntry]
+
+    // Update participants and battleLog in the updateData
+    updateData.participants = JSON.stringify(participants)
+    updateData.battleLog = JSON.stringify(battleLog)
+  }
+
+  // Update encounter
+  // NOTE: Don't remove the request from pendingRequests yet - it will be removed when the GM processes the response via cancelRequest
 
   await db.update(encounters).set(updateData).where(eq(encounters.id, encounterId))
 
