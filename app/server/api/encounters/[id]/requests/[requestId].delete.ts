@@ -48,9 +48,9 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  // Remove request and any associated responses
+  // Remove request only - keep responses for player attack result modals
   pendingRequests = pendingRequests.filter((r: any) => r.id !== requestId)
-  currentResponses = currentResponses.filter((r: any) => r.requestId !== requestId)
+  // Don't remove responses - they need to persist so players can see attack outcomes
 
   // Update encounter
   const updateData: any = {
