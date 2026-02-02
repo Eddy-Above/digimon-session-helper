@@ -64,7 +64,27 @@ const sortedParticipants = computed(() => {
   if (!currentEncounter.value) return []
   const participants = (currentEncounter.value.participants as CombatParticipant[]) || []
   const turnOrder = (currentEncounter.value.turnOrder as string[]) || []
-  return turnOrder.map((id) => participants.find((p) => p.id === id)).filter(Boolean) as CombatParticipant[]
+
+  // Filter turnOrder to exclude partner digimon (for backward compatibility)
+  const filteredTurnOrder = turnOrder.filter(id => {
+    const participant = participants.find(p => p.id === id)
+    if (!participant || participant.type !== 'digimon') return true
+    return !hasPartnerTamerInEncounter(participant)
+  })
+
+  return filteredTurnOrder
+    .map((id) => participants.find((p) => p.id === id))
+    .filter(Boolean) as CombatParticipant[]
+})
+
+// Participants with their partner digimon grouped together
+const hierarchicalParticipants = computed(() => {
+  return sortedParticipants.value.map(participant => ({
+    participant,
+    partnerDigimon: participant.type === 'tamer'
+      ? getPartnerDigimonForTamer(participant)
+      : null
+  }))
 })
 
 // Current active participant
@@ -128,6 +148,64 @@ function getEntityDetails(participant: CombatParticipant) {
       spriteUrl: null,
     }
   }
+}
+
+// Find partner digimon for a tamer participant
+function getPartnerDigimonForTamer(tamerParticipant: CombatParticipant): CombatParticipant | null {
+  if (tamerParticipant.type !== 'tamer' || !currentEncounter.value) return null
+
+  const participants = (currentEncounter.value.participants as CombatParticipant[]) || []
+
+  // Find digimon participant whose partnerId matches this tamer's entityId
+  return participants.find(p => {
+    if (p.type !== 'digimon') return false
+
+    // Look up the digimon entity to check its partnerId
+    const digimon = digimonMap.value.get(p.entityId)
+    return digimon?.partnerId === tamerParticipant.entityId
+  }) || null
+}
+
+// Check if a digimon participant has a partner tamer in this encounter
+function hasPartnerTamerInEncounter(digimonParticipant: CombatParticipant): boolean {
+  if (digimonParticipant.type !== 'digimon' || !currentEncounter.value) return false
+
+  const participants = (currentEncounter.value.participants as CombatParticipant[]) || []
+
+  // Look up the digimon entity to get its partnerId
+  const digimon = digimonMap.value.get(digimonParticipant.entityId)
+  if (!digimon?.partnerId) return false
+
+  // Check if there's a tamer participant with matching entityId
+  return participants.some(p => p.type === 'tamer' && p.entityId === digimon.partnerId)
+}
+
+// Check if a participant can act this turn (either their turn, or their partner's turn)
+function canParticipantAct(participant: CombatParticipant): boolean {
+  if (!currentEncounter.value) return false
+
+  const turnOrder = (currentEncounter.value.turnOrder as string[]) || []
+  const currentIndex = currentEncounter.value.currentTurnIndex || 0
+  const currentTurnParticipantId = turnOrder[currentIndex]
+
+  // Can act if it's directly their turn
+  if (participant.id === currentTurnParticipantId) return true
+
+  // Digimon can act if it's their partner tamer's turn
+  if (participant.type === 'digimon') {
+    const digimon = digimonMap.value.get(participant.entityId)
+    if (digimon?.partnerId) {
+      const participants = (currentEncounter.value.participants as CombatParticipant[]) || []
+      const partnerTamer = participants.find(p =>
+        p.type === 'tamer' && p.entityId === digimon.partnerId
+      )
+      if (partnerTamer && partnerTamer.id === currentTurnParticipantId) {
+        return true
+      }
+    }
+  }
+
+  return false
 }
 
 // Add participant handler - supports adding multiple of the same entity
@@ -254,68 +332,136 @@ async function processResponse(response: any) {
     }
 
     if (response.response.type === 'digimon-selected') {
-      // Fetch the selected digimon
+      // Check if player selected "None" (tamer-only, no digimon)
+      if (!response.response.digimonId) {
+        // Create initiative roll request for TAMER only (no digimonId in data)
+        await createRequest(
+          currentEncounter.value.id,
+          'initiative-roll',
+          response.tamerId,
+          undefined, // No participant ID yet
+          {} // Empty data object - no digimonId means tamer-only
+        )
+
+        // Clear the original digimon selection request
+        await cancelRequest(currentEncounter.value.id, request.id)
+        return
+      }
+
+      // Verify the digimon exists
       const digimon = digimonMap.value.get(response.response.digimonId)
       if (!digimon) {
         console.error('Digimon not found:', response.response.digimonId)
         return
       }
 
-      // Roll initiative for the digimon
-      const initiativeResult = rollDigimonInitiative(digimon)
-      const derived = calcDigimonStats(digimon)
-
-      // Create participant
-      const participant = createParticipant(
-        'digimon',
-        digimon.id,
-        initiativeResult.total,
-        initiativeResult.roll,
-        derived.woundBoxes
+      // Create initiative roll request for the player with digimon
+      // Note: We'll pass the digimonId in the request data so we can retrieve it later
+      await createRequest(
+        currentEncounter.value.id,
+        'initiative-roll',
+        response.tamerId,
+        undefined, // No participant ID yet
+        { digimonId: response.response.digimonId } // Store for later
       )
 
-      // Add to encounter
-      const result = await addParticipant(currentEncounter.value.id, participant)
-      if (result) {
-        // Clear the request
-        await cancelRequest(currentEncounter.value.id, request.id)
-      }
+      // Clear the original digimon selection request
+      await cancelRequest(currentEncounter.value.id, request.id)
     } else if (response.response.type === 'initiative-rolled') {
-      // Find the participant that needs initiative updated
-      const participants = (currentEncounter.value.participants as any[]) || []
-      const tamer = tamers.value.find((t) => t.id === response.tamerId)
+      // Check if this initiative request has a digimonId (from digimon selection flow)
+      if (request.data?.digimonId) {
+        // This is for a digimon participant
+        const digimon = digimonMap.value.get(request.data.digimonId)
+        if (!digimon) {
+          console.error('Digimon not found:', request.data.digimonId)
+          return
+        }
 
-      if (tamer) {
-        // Check if tamer already has a participant in the encounter
-        let participant = participants.find((p: any) => p.entityId === tamer.id && p.type === 'tamer')
+        const tamer = tamers.value.find((t) => t.id === response.tamerId)
+        if (!tamer) {
+          console.error('Tamer not found:', response.tamerId)
+          return
+        }
 
-        if (!participant) {
-          // Create new tamer participant with the rolled initiative
-          const derived = calcTamerStats(tamer)
-          participant = createParticipant('tamer', tamer.id, response.response.initiative, response.response.initiativeRoll, derived.woundBoxes)
-          const result = await addParticipant(currentEncounter.value.id, participant)
-          if (result) {
-            await cancelRequest(currentEncounter.value.id, request.id)
-          }
-        } else {
-          // Update existing participant's initiative
-          const updated = participants.map((p: any) => {
-            if (p.id === participant.id) {
-              return {
-                ...p,
-                initiative: response.response.initiative,
-                initiativeRoll: response.response.initiativeRoll,
-              }
-            }
-            return p
+        const digimonDerived = calcDigimonStats(digimon)
+        const tamerDerived = calcTamerStats(tamer)
+
+        // Create BOTH participants with the same initiative
+        const digimonParticipant = createParticipant(
+          'digimon',
+          digimon.id,
+          response.response.initiative,
+          response.response.initiativeRoll,
+          digimonDerived.woundBoxes
+        )
+
+        const tamerParticipant = createParticipant(
+          'tamer',
+          tamer.id,
+          response.response.initiative,
+          response.response.initiativeRoll,
+          tamerDerived.woundBoxes
+        )
+
+        // Add both to participants array
+        const participants = (currentEncounter.value.participants as CombatParticipant[]) || []
+        const updatedParticipants = [...participants, digimonParticipant, tamerParticipant]
+
+        // Create turnOrder with ONLY tamer (not partner digimon)
+        // Partner digimon act on their tamer's turn
+        const turnOrder = updatedParticipants
+          .sort((a, b) => b.initiative - a.initiative)
+          .filter(p => {
+            // Include tamer and non-partnered digimon
+            if (p.type === 'tamer') return true
+            // For digimon, only include if not a partner (no partnerId match)
+            const d = digimonMap.value.get(p.entityId)
+            return !d?.partnerId
           })
-          const result = await updateEncounter(currentEncounter.value.id, { participants: updated })
-          if (result) {
-            await cancelRequest(currentEncounter.value.id, request.id)
-          }
+          .map(p => p.id)
+
+        const result = await updateEncounter(currentEncounter.value.id, {
+          participants: updatedParticipants,
+          turnOrder
+        })
+
+        if (result) {
+          await cancelRequest(currentEncounter.value.id, request.id)
         }
       } else {
-        console.error('Tamer not found:', response.tamerId)
+        // This is for a standalone tamer participant (if needed)
+        const participants = (currentEncounter.value.participants as any[]) || []
+        const tamer = tamers.value.find((t) => t.id === response.tamerId)
+
+        if (tamer) {
+          let participant = participants.find((p: any) => p.entityId === tamer.id && p.type === 'tamer')
+
+          if (!participant) {
+            const derived = calcTamerStats(tamer)
+            participant = createParticipant('tamer', tamer.id, response.response.initiative, response.response.initiativeRoll, derived.woundBoxes)
+            const result = await addParticipant(currentEncounter.value.id, participant)
+            if (result) {
+              await cancelRequest(currentEncounter.value.id, request.id)
+            }
+          } else {
+            const updated = participants.map((p: any) => {
+              if (p.id === participant.id) {
+                return {
+                  ...p,
+                  initiative: response.response.initiative,
+                  initiativeRoll: response.response.initiativeRoll,
+                }
+              }
+              return p
+            })
+            const result = await updateEncounter(currentEncounter.value.id, { participants: updated })
+            if (result) {
+              await cancelRequest(currentEncounter.value.id, request.id)
+            }
+          }
+        } else {
+          console.error('Tamer not found:', response.tamerId)
+        }
       }
     }
     // For dodge rolls, we don't auto-process - GM uses the damage calculator
@@ -414,13 +560,12 @@ async function useAction(type: 'simple' | 'complex', description: string) {
   const active = participants.find((p) => p.id === activeParticipant.value!.id)
   if (!active) return
 
-  if (type === 'simple' && active.actionsRemaining.simple > 0) {
+  if (type === 'simple' && active.actionsRemaining.simple >= 1) {
     active.actionsRemaining.simple -= 1
-  } else if (type === 'complex' && active.actionsRemaining.complex > 0) {
-    active.actionsRemaining.complex -= 1
-    active.actionsRemaining.simple = Math.max(0, active.actionsRemaining.simple - 1)
+  } else if (type === 'complex' && active.actionsRemaining.simple >= 2) {
+    active.actionsRemaining.simple -= 2
   } else {
-    return // No actions remaining
+    return // Not enough actions remaining
   }
 
   await updateEncounter(currentEncounter.value.id, { participants })
@@ -791,160 +936,256 @@ async function handleUpdateHazard(hazard: Hazard) {
 
           <!-- Turn Order List -->
           <div class="space-y-3">
-            <div
-              v-for="(participant, index) in sortedParticipants"
-              :key="participant.id"
-              :class="[
-                'bg-digimon-dark-800 rounded-xl p-4 border-2 transition-all',
-                participant.isActive ? 'border-digimon-orange-500 shadow-lg shadow-digimon-orange-500/20' : 'border-digimon-dark-700',
-              ]"
+            <template
+              v-for="(item, index) in hierarchicalParticipants"
+              :key="`turn-${item.participant.id}`"
             >
-              <div class="flex gap-4">
-                <!-- Turn indicator -->
-                <div class="flex flex-col items-center justify-center w-12">
-                  <div
-                    :class="[
-                      'w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold',
-                      participant.isActive ? 'bg-digimon-orange-500 text-white' : 'bg-digimon-dark-700 text-digimon-dark-400',
-                    ]"
-                  >
-                    {{ index + 1 }}
-                  </div>
-                  <div class="text-xs text-digimon-dark-400 mt-1">
-                    {{ participant.initiative }}
-                  </div>
-                </div>
-
-                <!-- Entity info -->
-                <div class="flex-1">
-                  <div class="flex items-center gap-3 mb-2">
-                    <div class="w-10 h-10 rounded bg-digimon-dark-700 flex items-center justify-center overflow-hidden">
-                      <img
-                        v-if="getEntityDetails(participant)?.spriteUrl"
-                        :src="getEntityDetails(participant)!.spriteUrl!"
-                        :alt="getEntityDetails(participant)?.name || 'participant'"
-                        class="max-w-full max-h-full object-contain"
-                      />
-                      <span v-else class="text-2xl">{{ getEntityDetails(participant)?.icon }}</span>
-                    </div>
-                    <div>
-                      <h3 class="font-semibold text-white">
-                        {{ getEntityDetails(participant)?.name || 'Unknown' }}
-                      </h3>
-                      <div class="text-xs text-digimon-dark-400">
-                        {{ getEntityDetails(participant)?.species }}
-                        <span v-if="getEntityDetails(participant)?.isEnemy" class="text-red-400 ml-1">(Enemy)</span>
-                      </div>
-                    </div>
-                    <div :class="['ml-auto px-2 py-0.5 rounded text-xs uppercase', getStanceColor(participant.currentStance)]">
-                      {{ participant.currentStance }}
-                    </div>
-                  </div>
-
-                  <!-- Wounds bar -->
-                  <div class="mb-2">
-                    <div class="flex items-center gap-2 text-xs">
-                      <span class="text-digimon-dark-400">Wounds:</span>
-                      <div class="flex-1 h-2 bg-digimon-dark-600 rounded-full overflow-hidden">
-                        <div
-                          class="h-full transition-all duration-300"
-                          :class="[
-                            participant.currentWounds === 0 ? 'bg-green-500' :
-                            participant.currentWounds < participant.maxWounds / 2 ? 'bg-yellow-500' :
-                            participant.currentWounds < participant.maxWounds ? 'bg-orange-500' : 'bg-red-500'
-                          ]"
-                          :style="{ width: `${((participant.maxWounds - participant.currentWounds) / participant.maxWounds) * 100}%` }"
-                        />
-                      </div>
-                      <span class="text-digimon-dark-300">{{ participant.currentWounds }}/{{ participant.maxWounds }}</span>
-                    </div>
-                  </div>
-
-                  <!-- Actions remaining -->
-                  <div class="flex gap-4 text-sm">
-                    <div class="flex items-center gap-2">
-                      <span class="text-digimon-dark-400">Simple:</span>
-                      <div class="flex gap-1">
-                        <div
-                          v-for="i in 2"
-                          :key="`simple-${i}`"
-                          :class="[
-                            'w-4 h-4 rounded',
-                            i <= participant.actionsRemaining.simple ? 'bg-blue-500' : 'bg-digimon-dark-600',
-                          ]"
-                        />
-                      </div>
-                    </div>
-                    <div class="flex items-center gap-2">
-                      <span class="text-digimon-dark-400">Complex:</span>
-                      <div class="flex gap-1">
-                        <div
-                          :class="[
-                            'w-4 h-4 rounded',
-                            participant.actionsRemaining.complex > 0 ? 'bg-purple-500' : 'bg-digimon-dark-600',
-                          ]"
-                        />
-                      </div>
-                    </div>
-                    <button
-                      class="ml-auto text-xs text-digimon-dark-400 hover:text-white"
-                      @click.stop="selectedParticipantId = participant.id"
+              <!-- Main Participant Card (Tamer or Enemy) -->
+              <div
+                :class="[
+                  'bg-digimon-dark-800 rounded-xl p-4 border-2 transition-all',
+                  item.participant.isActive ? 'border-digimon-orange-500 shadow-lg shadow-digimon-orange-500/20' : 'border-digimon-dark-700',
+                ]"
+              >
+                <div class="flex gap-4">
+                  <!-- Turn indicator -->
+                  <div class="flex flex-col items-center justify-center w-12">
+                    <div
+                      :class="[
+                        'w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold',
+                        item.participant.isActive ? 'bg-digimon-orange-500 text-white' : 'bg-digimon-dark-700 text-digimon-dark-400',
+                      ]"
                     >
-                      Manage →
+                      {{ index + 1 }}
+                    </div>
+                    <div class="text-xs text-digimon-dark-400 mt-1">
+                      {{ item.participant.initiative }}
+                    </div>
+                  </div>
+
+                  <!-- Entity info -->
+                  <div class="flex-1">
+                    <div class="flex items-center gap-3 mb-2">
+                      <div class="w-10 h-10 rounded bg-digimon-dark-700 flex items-center justify-center overflow-hidden">
+                        <img
+                          v-if="getEntityDetails(item.participant)?.spriteUrl"
+                          :src="getEntityDetails(item.participant)!.spriteUrl!"
+                          :alt="getEntityDetails(item.participant)?.name || 'participant'"
+                          class="max-w-full max-h-full object-contain"
+                        />
+                        <span v-else class="text-2xl">{{ getEntityDetails(item.participant)?.icon }}</span>
+                      </div>
+                      <div>
+                        <h3 class="font-semibold text-white">
+                          {{ getEntityDetails(item.participant)?.name || 'Unknown' }}
+                        </h3>
+                        <div class="text-xs text-digimon-dark-400">
+                          {{ getEntityDetails(item.participant)?.species }}
+                          <span v-if="getEntityDetails(item.participant)?.isEnemy" class="text-red-400 ml-1">(Enemy)</span>
+                        </div>
+                      </div>
+                      <div :class="['ml-auto px-2 py-0.5 rounded text-xs uppercase', getStanceColor(item.participant.currentStance)]">
+                        {{ item.participant.currentStance }}
+                      </div>
+                    </div>
+
+                    <!-- Wounds bar -->
+                    <div class="mb-2">
+                      <div class="flex items-center gap-2 text-xs">
+                        <span class="text-digimon-dark-400">Wounds:</span>
+                        <div class="flex-1 h-2 bg-digimon-dark-600 rounded-full overflow-hidden">
+                          <div
+                            class="h-full transition-all duration-300"
+                            :class="[
+                              item.participant.currentWounds === 0 ? 'bg-green-500' :
+                              item.participant.currentWounds < item.participant.maxWounds / 2 ? 'bg-yellow-500' :
+                              item.participant.currentWounds < item.participant.maxWounds ? 'bg-orange-500' : 'bg-red-500'
+                            ]"
+                            :style="{ width: `${((item.participant.maxWounds - item.participant.currentWounds) / item.participant.maxWounds) * 100}%` }"
+                          />
+                        </div>
+                        <span class="text-digimon-dark-300">{{ item.participant.currentWounds }}/{{ item.participant.maxWounds }}</span>
+                      </div>
+                    </div>
+
+                    <!-- Actions remaining -->
+                    <div class="flex gap-4 text-sm">
+                      <div class="flex items-center gap-2">
+                        <span class="text-digimon-dark-400">Actions:</span>
+                        <div class="flex gap-1">
+                          <div
+                            v-for="i in 2"
+                            :key="`action-${i}`"
+                            :class="[
+                              'w-4 h-4 rounded',
+                              i <= item.participant.actionsRemaining.simple ? 'bg-blue-500' : 'bg-digimon-dark-600',
+                            ]"
+                          />
+                        </div>
+                        <span class="text-xs text-digimon-dark-400">
+                          ({{ item.participant.actionsRemaining.simple }}/2)
+                        </span>
+                      </div>
+                      <button
+                        class="ml-auto text-xs text-digimon-dark-400 hover:text-white"
+                        @click.stop="selectedParticipantId = item.participant.id"
+                      >
+                        Manage →
+                      </button>
+                    </div>
+
+                    <!-- Effects -->
+                    <div v-if="item.participant.activeEffects.length > 0" class="flex flex-wrap gap-1 mt-2">
+                      <span
+                        v-for="effect in item.participant.activeEffects"
+                        :key="effect.id"
+                        :class="[
+                          'text-xs px-2 py-0.5 rounded',
+                          effect.type === 'buff' && 'bg-green-900/30 text-green-400',
+                          effect.type === 'debuff' && 'bg-red-900/30 text-red-400',
+                          effect.type === 'status' && 'bg-yellow-900/30 text-yellow-400',
+                        ]"
+                        :title="effect.description"
+                      >
+                        {{ effect.name }} ({{ effect.duration }})
+                      </span>
+                    </div>
+                  </div>
+
+                  <!-- Actions (when active) -->
+                  <div v-if="item.participant.isActive && currentEncounter.phase === 'combat'" class="flex flex-col gap-2">
+                    <button
+                      class="text-xs bg-digimon-dark-700 hover:bg-digimon-dark-600 text-white px-2 py-1 rounded"
+                      @click="rerollInitiative(item.participant.id)"
+                    >
+                      🎲 Reroll
+                    </button>
+                    <button
+                      class="text-xs bg-red-900/30 hover:bg-red-900/50 text-red-400 px-2 py-1 rounded"
+                      @click="handleRemoveParticipant(item.participant.id)"
+                    >
+                      Remove
                     </button>
                   </div>
-
-                  <!-- Effects -->
-                  <div v-if="participant.activeEffects.length > 0" class="flex flex-wrap gap-1 mt-2">
-                    <span
-                      v-for="effect in participant.activeEffects"
-                      :key="effect.id"
-                      :class="[
-                        'text-xs px-2 py-0.5 rounded',
-                        effect.type === 'buff' && 'bg-green-900/30 text-green-400',
-                        effect.type === 'debuff' && 'bg-red-900/30 text-red-400',
-                        effect.type === 'status' && 'bg-yellow-900/30 text-yellow-400',
-                      ]"
-                      :title="effect.description"
+                  <div v-else-if="currentEncounter.phase === 'setup'" class="flex flex-col gap-2">
+                    <button
+                      class="text-xs bg-digimon-dark-700 hover:bg-digimon-dark-600 text-white px-2 py-1 rounded"
+                      @click="rerollInitiative(item.participant.id)"
                     >
-                      {{ effect.name }} ({{ effect.duration }})
+                      🎲 Reroll
+                    </button>
+                    <button
+                      class="text-xs bg-red-900/30 hover:bg-red-900/50 text-red-400 px-2 py-1 rounded"
+                      @click="handleRemoveParticipant(item.participant.id)"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Partner Digimon Card (Indented Child) -->
+              <div
+                v-if="item.partnerDigimon"
+                :class="[
+                  'bg-digimon-dark-800 rounded-xl p-3 border transition-all ml-8',
+                  canParticipantAct(item.partnerDigimon)
+                    ? 'border-digimon-orange-400/50'
+                    : 'border-digimon-dark-600',
+                ]"
+              >
+                <div class="flex items-center gap-4">
+                  <!-- Entity Info -->
+                  <div class="flex items-center gap-3 flex-1">
+                    <!-- Digimon Sprite -->
+                    <div class="w-10 h-10 rounded-lg bg-digimon-dark-700 flex items-center justify-center overflow-hidden flex-shrink-0">
+                      <img
+                        v-if="getEntityDetails(item.partnerDigimon)?.spriteUrl"
+                        :src="getEntityDetails(item.partnerDigimon)?.spriteUrl"
+                        :alt="getEntityDetails(item.partnerDigimon)?.name"
+                        class="max-w-full max-h-full object-contain"
+                      />
+                      <span v-else class="text-xl">🦖</span>
+                    </div>
+
+                    <div class="flex-1 min-w-0">
+                      <div class="flex items-center gap-2">
+                        <span class="font-semibold text-white truncate text-sm">
+                          Partner: {{ getEntityDetails(item.partnerDigimon)?.name }}
+                        </span>
+                        <span class="text-xs text-digimon-dark-400">
+                          {{ getEntityDetails(item.partnerDigimon)?.species || 'Digimon' }}
+                        </span>
+                      </div>
+                    </div>
+
+                    <!-- Stance Badge -->
+                    <span
+                      :class="[
+                        'px-2 py-0.5 rounded text-xs font-medium uppercase flex-shrink-0',
+                        getStanceColor(item.partnerDigimon.currentStance),
+                      ]"
+                    >
+                      {{ item.partnerDigimon.currentStance }}
                     </span>
                   </div>
                 </div>
 
-                <!-- Actions (when active) -->
-                <div v-if="participant.isActive && currentEncounter.phase === 'combat'" class="flex flex-col gap-2">
+                <!-- Wounds and Actions (Condensed) -->
+                <div class="mt-2 flex items-center gap-4 text-xs">
+                  <!-- Wounds -->
+                  <div class="flex items-center gap-2 flex-1">
+                    <span class="text-digimon-dark-400">HP:</span>
+                    <div class="flex-1 bg-digimon-dark-700 rounded-full h-2 overflow-hidden">
+                      <div
+                        class="h-full transition-all duration-300"
+                        :class="[
+                          item.partnerDigimon.currentWounds === 0 ? 'bg-green-500' :
+                          item.partnerDigimon.currentWounds < item.partnerDigimon.maxWounds / 2 ? 'bg-yellow-500' :
+                          item.partnerDigimon.currentWounds < item.partnerDigimon.maxWounds ? 'bg-orange-500' : 'bg-red-500'
+                        ]"
+                        :style="{ width: `${((item.partnerDigimon.maxWounds - item.partnerDigimon.currentWounds) / item.partnerDigimon.maxWounds) * 100}%` }"
+                      />
+                    </div>
+                    <span class="text-digimon-dark-300">{{ item.partnerDigimon.currentWounds }}/{{ item.partnerDigimon.maxWounds }}</span>
+                  </div>
+
+                  <!-- Actions -->
+                  <div class="flex items-center gap-2">
+                    <span class="text-digimon-dark-400">Actions:</span>
+                    <div class="flex gap-0.5">
+                      <div v-for="i in 2" :key="i" :class="['w-3 h-3 rounded', i <= item.partnerDigimon.actionsRemaining.simple ? 'bg-blue-500' : 'bg-digimon-dark-600']" />
+                    </div>
+                    <span class="text-digimon-dark-400">({{ item.partnerDigimon.actionsRemaining.simple }}/2)</span>
+                  </div>
+
                   <button
-                    class="text-xs bg-digimon-dark-700 hover:bg-digimon-dark-600 text-white px-2 py-1 rounded"
-                    @click="rerollInitiative(participant.id)"
+                    class="text-xs text-digimon-dark-400 hover:text-white flex-shrink-0"
+                    @click.stop="selectedParticipantId = item.partnerDigimon.id"
                   >
-                    🎲 Reroll
-                  </button>
-                  <button
-                    class="text-xs bg-red-900/30 hover:bg-red-900/50 text-red-400 px-2 py-1 rounded"
-                    @click="handleRemoveParticipant(participant.id)"
-                  >
-                    Remove
+                    Manage →
                   </button>
                 </div>
-                <div v-else-if="currentEncounter.phase === 'setup'" class="flex flex-col gap-2">
-                  <button
-                    class="text-xs bg-digimon-dark-700 hover:bg-digimon-dark-600 text-white px-2 py-1 rounded"
-                    @click="rerollInitiative(participant.id)"
+
+                <!-- Active Effects (if any) -->
+                <div v-if="item.partnerDigimon.activeEffects.length > 0" class="flex flex-wrap gap-1 mt-2">
+                  <span
+                    v-for="effect in item.partnerDigimon.activeEffects"
+                    :key="effect.id"
+                    :class="[
+                      'text-xs px-1.5 py-0.5 rounded',
+                      effect.type === 'buff' && 'bg-green-900/30 text-green-400',
+                      effect.type === 'debuff' && 'bg-red-900/30 text-red-400',
+                      effect.type === 'status' && 'bg-blue-900/30 text-blue-400',
+                    ]"
                   >
-                    🎲 Reroll
-                  </button>
-                  <button
-                    class="text-xs bg-red-900/30 hover:bg-red-900/50 text-red-400 px-2 py-1 rounded"
-                    @click="handleRemoveParticipant(participant.id)"
-                  >
-                    Remove
-                  </button>
+                    {{ effect.name }} ({{ effect.duration }})
+                  </span>
                 </div>
               </div>
-            </div>
+            </template>
 
-            <div v-if="sortedParticipants.length === 0" class="text-center py-8 text-digimon-dark-400">
+            <div v-if="hierarchicalParticipants.length === 0" class="text-center py-8 text-digimon-dark-400">
               No participants yet. Add Tamers and Digimon to begin.
             </div>
           </div>
@@ -961,20 +1202,20 @@ async function handleUpdateHazard(hazard: Hazard) {
             <!-- Quick Actions -->
             <div class="space-y-2 mb-4">
               <button
-                :disabled="activeParticipant.actionsRemaining.simple === 0"
+                :disabled="activeParticipant.actionsRemaining.simple < 1"
                 class="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed
                        text-white px-3 py-2 rounded text-sm font-medium"
-                @click="useAction('simple', 'Used simple action')"
+                @click="useAction('simple', 'Used simple action (1 action)')"
               >
-                Use Simple Action
+                Use Simple Action (1)
               </button>
               <button
-                :disabled="activeParticipant.actionsRemaining.complex === 0"
+                :disabled="activeParticipant.actionsRemaining.simple < 2"
                 class="w-full bg-purple-600 hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed
                        text-white px-3 py-2 rounded text-sm font-medium"
-                @click="useAction('complex', 'Used complex action')"
+                @click="useAction('complex', 'Used complex action (2 actions)')"
               >
-                Use Complex Action
+                Use Complex Action (2)
               </button>
             </div>
 
@@ -1294,12 +1535,11 @@ async function handleUpdateHazard(hazard: Hazard) {
                   <span class="text-white ml-2 capitalize">{{ selectedParticipant.currentStance }}</span>
                 </div>
                 <div>
-                  <span class="text-digimon-dark-400">Simple Actions:</span>
+                  <span class="text-digimon-dark-400">Actions Remaining:</span>
                   <span class="text-white ml-2">{{ selectedParticipant.actionsRemaining.simple }}/2</span>
-                </div>
-                <div>
-                  <span class="text-digimon-dark-400">Complex Actions:</span>
-                  <span class="text-white ml-2">{{ selectedParticipant.actionsRemaining.complex }}/1</span>
+                  <span class="text-xs text-digimon-dark-400 ml-2">
+                    (Simple: 1 action, Complex: 2 actions)
+                  </span>
                 </div>
               </div>
             </div>

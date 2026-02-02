@@ -197,6 +197,48 @@ const hasUnrespondedDodgeRequest = computed(() => {
   return !hasResponse
 })
 
+// Initiative modifiers
+const initiativeModifierA = computed(() => {
+  // Digimon AGI
+  if (!activeEncounter.value || !currentInitiativeRequest.value) return 0
+
+  // Check if request has digimonId in data (from digimon selection flow)
+  const digimonId = currentInitiativeRequest.value.data?.digimonId
+  if (digimonId) {
+    // Use digimonId from request data
+    const digimon = partnerDigimon.value.find((d) => d.id === digimonId)
+    if (!digimon) return 0
+
+    const stats = calcDigimonStats(digimon)
+    return stats.agility
+  }
+
+  // Fallback: try to find participant (for backwards compatibility)
+  const participants = (activeEncounter.value.participants as CombatParticipant[]) || []
+  const participant = participants.find((p) => p.id === currentInitiativeRequest.value!.targetParticipantId)
+
+  if (!participant || participant.type !== 'digimon') return 0
+
+  const digimon = partnerDigimon.value.find((d) => d.id === participant.entityId)
+  if (!digimon) return 0
+
+  const stats = calcDigimonStats(digimon)
+  return stats.agility
+})
+
+const initiativeModifierB = computed(() => {
+  // Tamer AGI + Fight
+  if (!tamer.value) return 0
+
+  const agility = tamer.value.attributes?.agility || 0
+  const fight = tamer.value.fight || -1  // If 0 or undefined, default to -1
+  return agility + fight
+})
+
+const initiativeModifier = computed(() => {
+  return Math.max(initiativeModifierA.value, initiativeModifierB.value)
+})
+
 // Turn tracking
 const turnsUntilMyTurn = computed(() => {
   if (!activeEncounter.value || myParticipants.value.length === 0) return 0
@@ -272,6 +314,56 @@ const nextTurnParticipant = computed(() => {
   return null
 })
 
+// New turn tracker computed properties for redesigned layout
+const firstPlayerTurnIndex = computed(() => {
+  if (!activeEncounter.value || myParticipants.value.length === 0) return -1
+
+  const turnOrder = (activeEncounter.value.turnOrder as string[]) || []
+  const currentIndex = activeEncounter.value.currentTurnIndex || 0
+  const myParticipantIds = new Set(myParticipants.value.map((p) => p.id))
+
+  // Find first occurrence of player's turn starting from current index
+  for (let i = 0; i < turnOrder.length; i++) {
+    const checkIndex = (currentIndex + i) % turnOrder.length
+    if (myParticipantIds.has(turnOrder[checkIndex])) {
+      return checkIndex
+    }
+  }
+  return -1
+})
+
+const turnsUntilFirstPlayerTurn = computed(() => {
+  if (!activeEncounter.value || firstPlayerTurnIndex.value === -1) return 0
+
+  const currentIndex = activeEncounter.value.currentTurnIndex || 0
+  const turnOrder = (activeEncounter.value.turnOrder as string[]) || []
+
+  if (firstPlayerTurnIndex.value >= currentIndex) {
+    return firstPlayerTurnIndex.value - currentIndex
+  } else {
+    return (turnOrder.length - currentIndex) + firstPlayerTurnIndex.value
+  }
+})
+
+const turnsUntilPlayerTurnAgain = computed(() => {
+  if (!activeEncounter.value || firstPlayerTurnIndex.value === -1) return 0
+
+  const turnOrder = (activeEncounter.value.turnOrder as string[]) || []
+  const myParticipantIds = new Set(myParticipants.value.map((p) => p.id))
+
+  // Search for next player turn AFTER the first player turn
+  for (let i = 1; i < turnOrder.length; i++) {
+    const checkIndex = (firstPlayerTurnIndex.value + i) % turnOrder.length
+    if (myParticipantIds.has(turnOrder[checkIndex])) {
+      // Found another player turn - return distance
+      return i
+    }
+  }
+
+  // No other player turn found - return full rotation (length of turn order)
+  return turnOrder.length
+})
+
 function getParticipantName(participant: CombatParticipant): string {
   if (participant.type === 'tamer') {
     return tamer.value?.name || 'Unknown'
@@ -297,9 +389,57 @@ function getAttackAccuracyPool(participant: CombatParticipant): number {
 }
 
 function canUseAttack(participant: CombatParticipant, attack: any): boolean {
-  // Attacks typically cost 1 complex + 1 simple action, or just simple for simple attacks
-  // For simplicity, assume all attacks cost 1 complex + 1 simple
-  return (participant.actionsRemaining?.complex || 0) > 0 && (participant.actionsRemaining?.simple || 0) > 0
+  // Complex attacks cost 2 simple actions, simple attacks cost 1 simple action
+  // For now, assume all attacks are complex (cost 2)
+  // TODO: Check attack definition to determine actual cost
+  const requiredActions = 2
+  return (participant.actionsRemaining?.simple || 0) >= requiredActions
+}
+
+function getParticipantImage(participant: CombatParticipant): string | null {
+  if (participant.type === 'digimon') {
+    const digimon = partnerDigimon.value.find((d) => d.id === participant.entityId)
+    return digimon?.spriteUrl || null
+  } else if (participant.type === 'tamer') {
+    return tamer.value?.spriteUrl || null
+  }
+  return null
+}
+
+// Check if a participant can act (either their turn or their partner's turn)
+function canParticipantAct(participant: CombatParticipant): boolean {
+  if (!activeEncounter.value) return false
+
+  const turnOrder = (activeEncounter.value.turnOrder as string[]) || []
+  const currentIndex = activeEncounter.value.currentTurnIndex || 0
+  const currentTurnParticipantId = turnOrder[currentIndex]
+
+  // Can act if it's directly their turn
+  if (participant.id === currentTurnParticipantId) return true
+
+  // Digimon can act if it's their partner tamer's turn
+  if (participant.type === 'digimon') {
+    const digimon = partnerDigimon.value.find((d) => d.id === participant.entityId)
+    if (digimon?.partnerId) {
+      // Check if any participant is the partner tamer and has active turn
+      const participants = (activeEncounter.value.participants as CombatParticipant[]) || []
+      const partnerTamer = participants.find(p =>
+        p.type === 'tamer' && p.entityId === digimon.partnerId
+      )
+      if (partnerTamer && partnerTamer.id === currentTurnParticipantId) {
+        return true
+      }
+    }
+  }
+
+  return false
+}
+
+// Calculate health percentage for target display (percentage-based for enemies)
+function getHealthPercentage(participant: CombatParticipant): number {
+  const currentHealth = participant.maxWounds - participant.currentWounds
+  const maxHealth = participant.maxWounds
+  return maxHealth > 0 ? (currentHealth / maxHealth) * 100 : 0
 }
 
 function getEnemyTargets(): CombatParticipant[] {
@@ -362,11 +502,13 @@ function switchCharacter() {
 }
 
 // Request response handlers
-async function submitDigimonSelection(digimonId: string) {
+async function submitDigimonSelection(digimonId: string | null) {
   if (!activeEncounter.value || !currentDigimonRequest.value || !tamer.value) return
 
-  // Set immediately for visual feedback
-  selectedDigimonId.value = digimonId
+  // Set immediately for visual feedback (use 'none' sentinel for null selection)
+  selectedDigimonId.value = digimonId === null ? 'none' : digimonId
+
+  console.log('Submitting digimon selection:', digimonId)
 
   try {
     const result = await respondToRequest(
@@ -375,22 +517,24 @@ async function submitDigimonSelection(digimonId: string) {
       tamer.value.id,
       {
         type: 'digimon-selected',
-        digimonId,
+        digimonId: digimonId, // Send null explicitly for tamer-only, or string for digimon
         timestamp: new Date().toISOString(),
       }
     )
+
+    console.log('Digimon selection response result:', result)
 
     if (result) {
       // Refresh to clear the request (modal will close automatically)
       await loadData()
     } else {
-      console.error('Failed to submit digimon selection')
-      selectedDigimonId.value = null
+      console.error('Failed to submit digimon selection - response was falsy')
+      // Keep the selection visible even on failure so user knows their click registered
     }
   } catch (error) {
     console.error('Error submitting digimon selection:', error)
-    // Clear selection on error to allow retry
-    selectedDigimonId.value = null
+    // Keep the selection visible even on error - don't reset to null
+    // This provides feedback that the click was registered even if API failed
   }
 }
 
@@ -398,7 +542,35 @@ async function submitInitiativeRoll() {
   if (!activeEncounter.value || !currentInitiativeRequest.value || !tamer.value || !initiativeRollResult.value) return
 
   try {
-    const totalInitiative = initiativeRollResult.value.total + tamer.value.attributes.agility
+    let digimon = null
+
+    // Check if request has digimonId in data (from digimon selection flow)
+    if (currentInitiativeRequest.value.data?.digimonId) {
+      digimon = partnerDigimon.value.find((d) => d.id === currentInitiativeRequest.value!.data.digimonId)
+    } else {
+      // Fallback: try to find participant
+      const participants = (activeEncounter.value.participants as CombatParticipant[]) || []
+      const participant = participants.find((p) => p.id === currentInitiativeRequest.value!.targetParticipantId)
+
+      if (participant && participant.type === 'digimon') {
+        digimon = partnerDigimon.value.find((d) => d.id === participant.entityId)
+      }
+    }
+
+    // Calculate both modifiers
+    // For digimon + tamer: use higher of (digimon AGI) or (tamer AGI + Fight)
+    // For tamer-only: use only (tamer AGI + Fight)
+    const modifierA = digimon ? calcDigimonStats(digimon).agility : 0
+
+    const tamerAgility = tamer.value.attributes?.agility || 0
+    const fight = tamer.value.fight || -1  // If 0 or undefined, default to -1
+    const modifierB = tamerAgility + fight // Tamer AGI + Fight
+
+    // Use the higher modifier (or just tamer modifier if no digimon)
+    const modifier = Math.max(modifierA, modifierB)
+    const totalInitiative = initiativeRollResult.value.total + modifier
+
+    console.log('Initiative calculation:', { digimon: digimon?.name || 'None (Tamer Only)', modifierA, modifierB, modifier, totalInitiative })
 
     const result = await respondToRequest(
       activeEncounter.value.id,
@@ -884,17 +1056,14 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
               </div>
 
               <!-- Actions -->
-              <div class="flex gap-4 text-xs">
-                <div class="flex items-center gap-1">
-                  <span class="text-digimon-dark-400">Simple:</span>
-                  <div class="flex gap-0.5">
-                    <div v-for="i in 2" :key="i" :class="['w-3 h-3 rounded', i <= participant.actionsRemaining.simple ? 'bg-blue-500' : 'bg-digimon-dark-600']" />
-                  </div>
+              <div class="flex items-center gap-2 text-xs">
+                <span class="text-digimon-dark-400">Actions:</span>
+                <div class="flex gap-0.5">
+                  <div v-for="i in 2" :key="i" :class="['w-3 h-3 rounded', i <= participant.actionsRemaining.simple ? 'bg-blue-500' : 'bg-digimon-dark-600']" />
                 </div>
-                <div class="flex items-center gap-1">
-                  <span class="text-digimon-dark-400">Complex:</span>
-                  <div :class="['w-3 h-3 rounded', participant.actionsRemaining.complex > 0 ? 'bg-purple-500' : 'bg-digimon-dark-600']" />
-                </div>
+                <span class="text-digimon-dark-400 ml-1">
+                  ({{ participant.actionsRemaining.simple }}/2)
+                </span>
               </div>
 
               <!-- Effects -->
@@ -914,7 +1083,7 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
               </div>
 
               <!-- Attacks (when it's this participant's turn) -->
-              <div v-if="participant.isActive && isMyTurn && participant.type === 'digimon'" class="mt-4 pt-4 border-t border-digimon-dark-600">
+              <div v-if="canParticipantAct(participant) && isMyTurn && participant.type === 'digimon'" class="mt-4 pt-4 border-t border-digimon-dark-600">
                 <h4 class="font-semibold text-digimon-orange-400 text-sm mb-3">⚔️ Select Attack</h4>
 
                 <div v-if="getParticipantAttacks(participant).length === 0" class="text-sm text-digimon-dark-400">
@@ -969,69 +1138,94 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
           </div>
         </div>
 
-        <!-- Turn Tracker -->
-        <div v-if="activeEncounter && myParticipants.length > 0" class="mb-6 bg-digimon-dark-800 rounded-xl p-4 border border-digimon-dark-700">
-          <h3 class="font-display text-lg font-semibold text-white mb-4">Turn Order</h3>
+        <!-- Turn Tracker (Redesigned) -->
+        <div v-if="activeEncounter && myParticipants.length > 0" class="mb-8">
+          <h3 class="text-lg font-display font-semibold text-white mb-3">Turn Order</h3>
 
-          <div class="overflow-x-auto">
-            <div class="flex items-center justify-between gap-2 min-w-max">
-              <!-- Current Turn -->
+          <div class="bg-digimon-dark-800 rounded-xl border border-digimon-dark-700">
+            <div class="flex items-center justify-between px-2 sm:px-4 md:px-6 lg:px-8 py-4">
+
+              <!-- Current Turn Participant -->
               <div class="flex flex-col items-center">
-                <div class="w-12 h-12 rounded-full bg-digimon-dark-700 flex items-center justify-center mb-1">
-                  <span class="text-xl">{{ currentTurnParticipant?.type === 'digimon' ? '🦖' : '👤' }}</span>
+                <div class="w-12 h-12 rounded-lg bg-digimon-dark-700 flex items-center justify-center overflow-hidden">
+                  <img
+                    v-if="currentTurnParticipant && getParticipantImage(currentTurnParticipant)"
+                    :src="getParticipantImage(currentTurnParticipant)"
+                    alt="Current"
+                    class="w-full h-full object-cover"
+                  />
+                  <span v-else class="text-2xl">{{ currentTurnParticipant?.type === 'digimon' ? '🦖' : '👤' }}</span>
                 </div>
-                <span class="text-xs text-digimon-dark-400 text-center">Current</span>
+                <span class="text-xs text-digimon-dark-400 mt-1">Current</span>
               </div>
 
-              <span class="text-digimon-dark-500 text-lg">→</span>
+              <!-- Arrow -->
+              <span class="text-digimon-dark-500 text-xl">→</span>
 
-              <!-- Turns Until My Turn (count) -->
+              <!-- Turns Until First Player Turn -->
               <div class="flex flex-col items-center">
-                <div class="w-10 h-10 rounded-full bg-digimon-dark-700 flex items-center justify-center mb-1">
-                  <span class="text-white font-bold text-sm">{{ turnsUntilMyTurn }}</span>
+                <div class="w-10 h-10 rounded-full bg-digimon-dark-700 flex items-center justify-center">
+                  <span class="text-white font-bold text-sm">{{ turnsUntilFirstPlayerTurn }}</span>
                 </div>
-                <span class="text-xs text-digimon-dark-400">Turns</span>
+                <span class="text-xs text-digimon-dark-400 mt-1">Turns</span>
               </div>
 
-              <span class="text-digimon-dark-500 text-lg">→</span>
+              <!-- Arrow -->
+              <span class="text-digimon-dark-500 text-xl">→</span>
 
-              <!-- MY TURN (highlighted) -->
-              <div :class="[
-                'flex flex-col items-center px-4 py-2 rounded-lg transition-all',
-                isMyTurn
-                  ? 'bg-digimon-orange-500/30 border-2 border-digimon-orange-500 animate-pulse'
-                  : 'bg-digimon-dark-700'
-              ]">
-                <div :class="[
-                  'w-14 h-14 rounded-full flex items-center justify-center mb-1 flex-shrink-0',
-                  isMyTurn
-                    ? 'bg-gradient-to-br from-digimon-orange-500 to-digimon-orange-700'
-                    : 'bg-digimon-dark-600'
-                ]">
-                  <span class="text-2xl">⚔️</span>
-                </div>
-                <span class="text-xs font-bold text-digimon-orange-400 text-center">YOUR TURN</span>
-              </div>
-
-              <span class="text-digimon-dark-500 text-lg">→</span>
-
-              <!-- Turns After My Turn (count) -->
+              <!-- First Player Turn (YOUR TURN or YOUR NEXT TURN) -->
               <div class="flex flex-col items-center">
-                <div class="w-10 h-10 rounded-full bg-digimon-dark-700 flex items-center justify-center mb-1">
-                  <span class="text-white font-bold text-sm">{{ turnsAfterMyTurn }}</span>
+                <div
+                  :class="[
+                    'w-14 h-14 rounded-lg flex items-center justify-center overflow-hidden',
+                    isMyTurn
+                      ? 'bg-digimon-orange-500 border-2 border-digimon-orange-400 animate-pulse'
+                      : 'bg-digimon-orange-600 border-2 border-digimon-orange-500'
+                  ]"
+                >
+                  <img
+                    v-if="tamer?.spriteUrl"
+                    :src="tamer.spriteUrl"
+                    alt="Your turn"
+                    class="w-full h-full object-cover"
+                  />
+                  <span v-else class="text-3xl">⚔️</span>
                 </div>
-                <span class="text-xs text-digimon-dark-400">Turns</span>
+                <span class="text-xs text-digimon-orange-400 mt-1 font-semibold text-center">
+                  {{ isMyTurn ? 'YOUR TURN' : 'YOUR NEXT TURN' }}
+                </span>
               </div>
 
-              <span class="text-digimon-dark-500 text-lg">→</span>
+              <!-- Arrow -->
+              <span class="text-digimon-dark-500 text-xl">→</span>
 
-              <!-- Next Participant -->
+              <!-- Turns Until Player Turn Again (always shown) -->
               <div class="flex flex-col items-center">
-                <div class="w-12 h-12 rounded-full bg-digimon-dark-700 flex items-center justify-center mb-1">
-                  <span class="text-xl">{{ nextTurnParticipant?.type === 'digimon' ? '🦖' : '👤' }}</span>
+                <div class="w-10 h-10 rounded-full bg-digimon-dark-700 flex items-center justify-center">
+                  <span class="text-white font-bold text-sm">{{ turnsUntilPlayerTurnAgain }}</span>
                 </div>
-                <span class="text-xs text-digimon-dark-400 text-center">Next</span>
+                <span class="text-xs text-digimon-dark-400 mt-1">Turns</span>
               </div>
+
+              <!-- Arrow -->
+              <span class="text-digimon-dark-500 text-xl">→</span>
+
+              <!-- Player's Next Turn (always shown) -->
+              <div class="flex flex-col items-center">
+                <div class="w-12 h-12 rounded-lg bg-digimon-orange-600 border-2 border-digimon-orange-500 flex items-center justify-center overflow-hidden">
+                  <img
+                    v-if="tamer?.spriteUrl"
+                    :src="tamer.spriteUrl"
+                    alt="Your next turn"
+                    class="w-full h-full object-cover"
+                  />
+                  <span v-else class="text-2xl">⚔️</span>
+                </div>
+                <span class="text-xs text-digimon-orange-400 mt-1 font-semibold text-center">
+                  YOUR NEXT TURN
+                </span>
+              </div>
+
             </div>
           </div>
         </div>
@@ -1487,6 +1681,30 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
               </svg>
             </div>
           </button>
+
+          <!-- None - Fight Solo (Tamer Only) Option -->
+          <button
+            @click="submitDigimonSelection(null)"
+            :disabled="selectedDigimonId !== null && selectedDigimonId !== undefined"
+            :class="[
+              'w-full p-3 rounded-lg transition-all flex items-center justify-center gap-2 text-white border-2',
+              selectedDigimonId === 'none'
+                ? 'bg-green-600 border-green-500 cursor-default'
+                : selectedDigimonId !== null && selectedDigimonId !== undefined
+                  ? 'bg-digimon-dark-700 opacity-50 cursor-not-allowed border-digimon-dark-600'
+                  : 'bg-digimon-dark-700 border-digimon-dark-600 hover:bg-digimon-dark-600 cursor-pointer'
+            ]"
+          >
+            <span class="text-lg">👤</span>
+            <span class="font-semibold">None - Fight Solo (Tamer Only)</span>
+
+            <!-- Success indicator checkmark -->
+            <div v-if="selectedDigimonId === 'none'" class="flex-shrink-0">
+              <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+          </button>
         </div>
       </div>
     </div>
@@ -1503,8 +1721,27 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
           Roll for Initiative!
         </h2>
 
+        <!-- Initiative Modifier Display -->
+        <div class="bg-digimon-dark-700 rounded-lg p-3 mb-4 text-sm">
+          <div class="text-digimon-dark-400 mb-2">Initiative Modifier:</div>
+          <div class="space-y-1 text-xs">
+            <div class="flex justify-between">
+              <span class="text-digimon-dark-400">Digimon AGI:</span>
+              <span class="text-white">+{{ initiativeModifierA }}</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-digimon-dark-400">Tamer AGI + Fight:</span>
+              <span class="text-white">+{{ initiativeModifierB }}</span>
+            </div>
+            <div class="border-t border-digimon-dark-600 pt-1 mt-1 flex justify-between font-semibold">
+              <span class="text-digimon-orange-400">Using:</span>
+              <span class="text-digimon-orange-300">+{{ initiativeModifier }}</span>
+            </div>
+          </div>
+        </div>
+
         <p class="text-white text-sm mb-4">
-          Roll 3d6 and add your Agility ({{ tamer?.attributes.agility || 0 }})
+          Roll 3d6 + {{ initiativeModifier }}
         </p>
 
         <!-- Embedded Dice Roller -->
@@ -1527,7 +1764,7 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
               <span class="text-white">+</span>
               <input
                 type="number"
-                :value="tamer?.attributes.agility || 0"
+                :value="initiativeModifier"
                 disabled
                 class="w-12 bg-digimon-dark-600 border border-digimon-dark-500 rounded px-2 py-1 text-center text-white"
               />
@@ -1553,10 +1790,10 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
             <div class="border-t border-digimon-dark-600 pt-3">
               <div class="text-sm text-digimon-dark-400">Your Total Initiative</div>
               <div class="text-3xl font-bold text-white">
-                {{ initiativeRollResult.total + (tamer?.attributes.agility || 0) }}
+                {{ initiativeRollResult.total + initiativeModifier }}
               </div>
               <div class="text-xs text-digimon-dark-400 mt-1">
-                {{ initiativeRollResult.total }} (roll) + {{ tamer?.attributes.agility || 0 }} (AGI)
+                {{ initiativeRollResult.total }} (roll) + {{ initiativeModifier }} (modifier)
               </div>
             </div>
           </div>
@@ -1667,13 +1904,8 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
             @click="confirmAttack(target)"
             class="w-full bg-digimon-dark-700 hover:bg-digimon-dark-600 text-white p-3 rounded-lg transition-colors text-left"
           >
-            <div class="flex justify-between items-center">
-              <div>
-                <span class="font-semibold">{{ getParticipantName(target) }}</span>
-                <div class="text-sm text-digimon-dark-400 mt-1">
-                  HP: {{ target.maxWounds - target.currentWounds }}/{{ target.maxWounds }}
-                </div>
-              </div>
+            <div class="flex justify-between items-center mb-2">
+              <span class="font-semibold">{{ getParticipantName(target) }}</span>
               <span v-if="target.currentStance" :class="[
                 'text-xs px-2 py-1 rounded capitalize',
                 target.currentStance === 'offensive' && 'bg-red-900/50 text-red-400',
@@ -1683,6 +1915,24 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
                 target.currentStance === 'brave' && 'bg-yellow-900/50 text-yellow-400',
               ]">
                 {{ target.currentStance }}
+              </span>
+            </div>
+            <div class="flex items-center gap-2">
+              <!-- Health bar -->
+              <div class="flex-1 h-2 bg-digimon-dark-600 rounded-full overflow-hidden">
+                <div
+                  class="h-full transition-all duration-300"
+                  :class="[
+                    target.currentWounds === 0 ? 'bg-green-500' :
+                    target.currentWounds < target.maxWounds / 2 ? 'bg-yellow-500' :
+                    target.currentWounds < target.maxWounds ? 'bg-orange-500' : 'bg-red-500'
+                  ]"
+                  :style="{ width: `${((target.maxWounds - target.currentWounds) / target.maxWounds) * 100}%` }"
+                />
+              </div>
+              <!-- Health percentage -->
+              <span class="text-xs text-digimon-dark-400 whitespace-nowrap">
+                {{ Math.round(getHealthPercentage(target)) }}%
               </span>
             </div>
           </button>
