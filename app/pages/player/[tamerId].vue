@@ -38,16 +38,16 @@ const allTamers = ref<Tamer[]>([])
 
 // Track attacks awaiting dodge responses (use array for proper Vue reactivity)
 const pendingAttacks = ref<Array<{
-  trackingId: string
-  timestamp: number
-  attackName: string
-  targetName: string
-  accuracyDicePool: number
-  accuracyDiceResults: number[]
-  accuracySuccesses: number
-  participantId: string
-  attackData: any
-}>>>([])
+  trackingId: string;
+  timestamp: number;
+  attackName: string;
+  targetName: string;
+  accuracyDicePool: number;
+  accuracyDiceResults: number[];
+  accuracySuccesses: number;
+  participantId: string;
+  attackData: any;
+}>>([])
 
 // Attack result modal state
 const showAttackResultModal = ref(false)
