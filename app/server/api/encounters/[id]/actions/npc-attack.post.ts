@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm'
-import { db, encounters, digimon } from '../../../../db'
+import { db, encounters, digimon, tamers } from '../../../../db'
 
 interface NpcAttackBody {
   participantId: string
@@ -141,6 +141,7 @@ export default defineEventHandler(async (event) => {
   const [attackerDigimon] = await db.select().from(digimon).where(eq(digimon.id, actor.entityId))
 
   let attackBaseDamage = 0
+  let armorPiercing = 0
   if (attackerDigimon?.attacks) {
     // Parse attacks if it's a JSON string from database
     const attacks = typeof attackerDigimon.attacks === 'string'
@@ -154,10 +155,48 @@ export default defineEventHandler(async (event) => {
       attackBaseDamage = typeof attackDef.damage === 'number'
         ? attackDef.damage
         : parseInt(attackDef.damage) || 0
+
+      // Extract Armor Piercing from tags
+      if (attackDef.tags && Array.isArray(attackDef.tags)) {
+        for (const tag of attackDef.tags) {
+          const apMatch = tag.match(/^Armor Piercing\s+(\d+|I{1,3}|IV|V|VI|VII|VIII|IX|X)$/i)
+          if (apMatch) {
+            const rankStr = apMatch[1]
+            const romanMap: Record<string, number> = {
+              'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5,
+              'VI': 6, 'VII': 7, 'VIII': 8, 'IX': 9, 'X': 10
+            }
+            const rank = romanMap[rankStr.toUpperCase()] || parseInt(rankStr) || 0
+            armorPiercing = rank * 2  // Each rank ignores 2 armor
+            break
+          }
+        }
+      }
     }
   }
 
-  const damageDealt = hit ? (attackBaseDamage + netSuccesses) : 0
+  // Fetch target's armor
+  let targetArmor = 0
+  if (target.type === 'digimon') {
+    const [targetDigimon] = await db.select().from(digimon).where(eq(digimon.id, target.entityId))
+    if (targetDigimon) {
+      targetArmor = (targetDigimon.baseStats?.armor ?? 0) + ((targetDigimon as any).bonusStats?.armor ?? 0)
+    }
+  } else if (target.type === 'tamer') {
+    const [targetTamer] = await db.select().from(tamers).where(eq(tamers.id, target.entityId))
+    if (targetTamer) {
+      const body = targetTamer.attributes?.body ?? 0
+      const endurance = targetTamer.skills?.endurance ?? 0
+      targetArmor = body + endurance
+    }
+  }
+
+  // Calculate damage with armor and minimum damage of 1 on successful hits
+  let damageDealt = 0
+  if (hit) {
+    const effectiveArmor = Math.max(0, targetArmor - armorPiercing)
+    damageDealt = Math.max(1, attackBaseDamage + netSuccesses - effectiveArmor)
+  }
 
   // Apply damage to target
   const finalParticipants = updatedParticipants.map((p: any) => {
