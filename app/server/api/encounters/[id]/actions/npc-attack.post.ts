@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm'
-import { db, encounters } from '../../../../db'
+import { db, encounters, digimon } from '../../../../db'
 
 interface NpcAttackBody {
   participantId: string
@@ -65,10 +65,30 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  // Validate it's attacker's turn
+  // Validate attacker can act (direct turn or partner digimon on tamer's turn)
   const currentIndex = encounter.currentTurnIndex || 0
   const currentTurnParticipantId = turnOrder[currentIndex]
-  if (actor.id !== currentTurnParticipantId) {
+
+  let canAct = actor.id === currentTurnParticipantId
+
+  // If actor is a digimon and it's not directly their turn,
+  // check if it's their partner tamer's turn
+  if (!canAct && actor.type === 'digimon') {
+    // Find current turn participant
+    const currentTurnParticipant = participants.find((p: any) => p.id === currentTurnParticipantId)
+
+    // Check if current participant is a tamer
+    if (currentTurnParticipant?.type === 'tamer') {
+      // Look up digimon to get partnerId
+      const [digimonEntity] = await db.select().from(digimon).where(eq(digimon.id, actor.entityId))
+
+      if (digimonEntity?.partnerId === currentTurnParticipant.entityId) {
+        canAct = true
+      }
+    }
+  }
+
+  if (!canAct) {
     throw createError({
       statusCode: 403,
       message: 'It is not this participant\'s turn',
