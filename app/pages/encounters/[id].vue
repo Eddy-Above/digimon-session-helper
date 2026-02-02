@@ -33,6 +33,8 @@ const {
   cancelRequest,
   getMyPendingRequests,
   getUnprocessedResponses,
+  performAttack,
+  performNpcAttack,
 } = useEncounters()
 
 const { digimonList, fetchDigimon, rollInitiative: rollDigimonInitiative, calculateDerivedStats: calcDigimonStats } = useDigimon()
@@ -45,6 +47,10 @@ const selectedEntityId = ref('')
 const addQuantity = ref(1)
 const showRequestPanel = ref(false)
 const selectedTamerForRequest = ref('')
+
+// Attack execution state
+const selectedAttack = ref<{ participant: any; attack: any } | null>(null)
+const showTargetSelector = ref(false)
 
 // Entity lookup maps
 const digimonMap = computed(() => {
@@ -254,6 +260,146 @@ function getParticipantAttacks(participant: CombatParticipant) {
   // Look up digimon in digimonMap
   const digimon = digimonMap.value.get(participant.entityId)
   return digimon?.attacks || []
+}
+
+// Check if participant can use an attack (requires 2 simple actions)
+function canUseAttack(participant: CombatParticipant, attack: any): boolean {
+  const requiredActions = 2
+  return (participant.actionsRemaining?.simple || 0) >= requiredActions
+}
+
+// Get accuracy dice pool for a participant
+function getAttackAccuracyPool(participant: CombatParticipant): number {
+  if (participant.type !== 'digimon') return 0
+  // Default 3d6 accuracy pool (TODO: look up from digimon stats)
+  return 3
+}
+
+// Check if target is player-controlled
+function isPlayerControlled(participant: CombatParticipant): boolean {
+  if (participant.type === 'tamer') {
+    // All tamers are player-controlled
+    return true
+  }
+  if (participant.type === 'digimon') {
+    const digimon = digimonMap.value.get(participant.entityId)
+    // Has partnerId = player-controlled partner digimon
+    return !!digimon?.partnerId
+  }
+  return false  // Enemies are NPC-controlled
+}
+
+// Get dodge pool for a participant
+function getDodgePool(participant: CombatParticipant): number {
+  if (participant.type === 'digimon') {
+    const digimon = digimonMap.value.get(participant.entityId)
+    if (digimon) {
+      const derived = calcDigimonStats(digimon)
+      return derived.dodgePool || 3  // Default 3d6
+    }
+  } else if (participant.type === 'tamer') {
+    const tamer = tamerMap.value.get(participant.entityId)
+    if (tamer) {
+      const derived = calcTamerStats(tamer)
+      return derived.dodgePool || 3  // Default 3d6
+    }
+  }
+  return 3  // Fallback
+}
+
+// Get all valid targets for an attack (exclude the attacker)
+function getAttackTargets(attackerId: string): CombatParticipant[] {
+  if (!currentEncounter.value) return []
+  const participants = (currentEncounter.value.participants as CombatParticipant[]) || []
+  return participants.filter(p => p.id !== attackerId)
+}
+
+// Open target selection modal
+function selectAttackAndShowTargets(participant: CombatParticipant, attack: any) {
+  selectedAttack.value = { participant, attack }
+  showTargetSelector.value = true
+}
+
+// Confirm attack and execute
+async function confirmAttack(target: CombatParticipant) {
+  if (!selectedAttack.value || !currentEncounter.value) return
+
+  try {
+    const { participant, attack } = selectedAttack.value
+
+    // Roll accuracy
+    const accuracyPool = getAttackAccuracyPool(participant)
+    const rolls = []
+    for (let i = 0; i < accuracyPool; i++) {
+      rolls.push(Math.floor(Math.random() * 6) + 1)
+    }
+    const accuracyRoll = rolls.reduce((a, b) => a + b, 0)
+
+    // Check if target is player-controlled
+    const targetIsPlayer = isPlayerControlled(target)
+
+    if (targetIsPlayer) {
+      // Target is player - use existing attack flow (creates dodge request)
+      // Determine tamerId for attacker
+      let tamerId = 'GM'
+      if (participant.type === 'tamer') {
+        tamerId = participant.entityId
+      } else if (participant.type === 'digimon') {
+        const digimon = digimonMap.value.get(participant.entityId)
+        if (digimon?.partnerId) {
+          tamerId = digimon.partnerId
+        }
+      }
+
+      // Submit attack via existing endpoint
+      const result = await performAttack(
+        currentEncounter.value.id,
+        participant.id,
+        attack.id,
+        target.id,
+        accuracyRoll,
+        tamerId
+      )
+
+      if (result) {
+        showTargetSelector.value = false
+        selectedAttack.value = null
+        await fetchEncounter(currentEncounter.value.id)
+      }
+    } else {
+      // Target is NPC - auto-roll dodge and resolve immediately
+      const dodgePool = getDodgePool(target)
+      const dodgeRolls = []
+      for (let i = 0; i < dodgePool; i++) {
+        dodgeRolls.push(Math.floor(Math.random() * 6) + 1)
+      }
+      const dodgeRoll = dodgeRolls.reduce((a, b) => a + b, 0)
+
+      // Use new NPC attack endpoint for instant resolution
+      const result = await performNpcAttack(
+        currentEncounter.value.id,
+        participant.id,
+        attack.id,
+        target.id,
+        accuracyRoll,
+        dodgeRoll
+      )
+
+      if (result) {
+        showTargetSelector.value = false
+        selectedAttack.value = null
+        await fetchEncounter(currentEncounter.value.id)
+      }
+    }
+  } catch (error) {
+    console.error('Error performing attack:', error)
+  }
+}
+
+// Cancel attack selection
+function cancelAttackSelection() {
+  showTargetSelector.value = false
+  selectedAttack.value = null
 }
 
 // Add participant handler - supports adding multiple of the same entity
@@ -1022,15 +1168,25 @@ async function handleUpdateHazard(hazard: Hazard) {
               </h3>
 
               <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div
+                <button
                   v-for="attack in getParticipantAttacks(currentTurnParticipant)"
                   :key="attack.id"
-                  class="bg-digimon-dark-700 rounded-lg p-4 border border-digimon-dark-600"
+                  @click="selectAttackAndShowTargets(currentTurnParticipant, attack)"
+                  :disabled="!canUseAttack(currentTurnParticipant, attack)"
+                  :class="[
+                    'bg-digimon-dark-700 rounded-lg p-4 border text-left transition-all w-full',
+                    canUseAttack(currentTurnParticipant, attack)
+                      ? 'border-digimon-dark-600 hover:border-digimon-orange-500 hover:bg-digimon-dark-600 cursor-pointer'
+                      : 'border-digimon-dark-700 opacity-50 cursor-not-allowed'
+                  ]"
                 >
                   <div class="flex items-center gap-2 mb-2">
                     <h4 class="font-semibold text-white">{{ attack.name }}</h4>
                     <span class="px-2 py-0.5 bg-digimon-dark-600 text-digimon-dark-300 text-xs rounded uppercase font-medium">
                       {{ attack.type }}
+                    </span>
+                    <span v-if="attack.range" class="px-2 py-0.5 bg-digimon-dark-600 text-digimon-dark-300 text-xs rounded">
+                      {{ attack.range }}
                     </span>
                   </div>
 
@@ -1041,22 +1197,22 @@ async function handleUpdateHazard(hazard: Hazard) {
                   <div class="flex flex-wrap gap-3 text-sm">
                     <div class="flex items-center gap-1">
                       <span class="text-digimon-dark-400">ACC:</span>
-                      <span class="text-white font-medium">{{ attack.accuracy }}</span>
+                      <span class="text-white font-medium">{{ getAttackAccuracyPool(currentTurnParticipant) }}d6</span>
                     </div>
                     <div class="flex items-center gap-1">
                       <span class="text-digimon-dark-400">DMG:</span>
                       <span class="text-white font-medium">{{ attack.damage }}</span>
-                    </div>
-                    <div v-if="attack.range" class="flex items-center gap-1">
-                      <span class="text-digimon-dark-400">Range:</span>
-                      <span class="text-white font-medium">{{ attack.range }}</span>
                     </div>
                     <div v-if="attack.tags?.length" class="flex items-center gap-1">
                       <span class="text-digimon-dark-400">Tags:</span>
                       <span class="text-digimon-dark-300 text-xs">{{ attack.tags.join(', ') }}</span>
                     </div>
                   </div>
-                </div>
+
+                  <div v-if="!canUseAttack(currentTurnParticipant, attack)" class="text-xs text-red-400 mt-2">
+                    Not enough actions (requires 2)
+                  </div>
+                </button>
 
                 <div v-if="getParticipantAttacks(currentTurnParticipant).length === 0" class="col-span-full text-center text-digimon-dark-400 py-4">
                   No attacks defined for this participant.
@@ -1681,6 +1837,83 @@ async function handleUpdateHazard(hazard: Hazard) {
               @click="selectedParticipantId = null"
             >
               Close
+            </button>
+          </div>
+        </div>
+      </Teleport>
+
+      <!-- Target Selection Modal -->
+      <Teleport to="body">
+        <div
+          v-if="showTargetSelector && selectedAttack"
+          class="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4"
+          @click.self="cancelAttackSelection"
+        >
+          <div class="bg-digimon-dark-800 rounded-xl p-6 max-w-2xl w-full max-h-[80vh] overflow-y-auto border-2 border-digimon-orange-500">
+            <h2 class="text-xl font-display font-semibold text-white mb-4">
+              Select Target for {{ selectedAttack.attack.name }}
+            </h2>
+
+            <div class="space-y-3 mb-6">
+              <button
+                v-for="target in getAttackTargets(selectedAttack.participant.id)"
+                :key="target.id"
+                @click="confirmAttack(target)"
+                class="w-full bg-digimon-dark-700 hover:bg-digimon-dark-600 rounded-lg p-4 border border-digimon-dark-600 hover:border-digimon-orange-500 transition-all text-left"
+              >
+                <div class="flex items-center gap-3 mb-2">
+                  <div class="w-10 h-10 rounded bg-digimon-dark-600 flex items-center justify-center overflow-hidden">
+                    <img
+                      v-if="getEntityDetails(target)?.spriteUrl"
+                      :src="getEntityDetails(target)!.spriteUrl!"
+                      :alt="getEntityDetails(target)?.name || 'target'"
+                      class="max-w-full max-h-full object-contain"
+                    />
+                    <span v-else class="text-2xl">{{ getEntityDetails(target)?.icon }}</span>
+                  </div>
+                  <div class="flex-1">
+                    <div class="font-semibold text-white">
+                      {{ getEntityDetails(target)?.name || 'Unknown' }}
+                    </div>
+                    <div class="text-xs text-digimon-dark-400">
+                      {{ getEntityDetails(target)?.species }}
+                      <span v-if="getEntityDetails(target)?.isEnemy" class="text-red-400 ml-1">(Enemy)</span>
+                    </div>
+                  </div>
+                  <div :class="['px-2 py-0.5 rounded text-xs uppercase', getStanceColor(target.currentStance)]">
+                    {{ target.currentStance }}
+                  </div>
+                </div>
+
+                <!-- Health bar -->
+                <div class="flex items-center gap-2">
+                  <div class="flex-1 h-2 bg-digimon-dark-600 rounded-full overflow-hidden">
+                    <div
+                      class="h-full transition-all duration-300"
+                      :class="[
+                        target.currentWounds === 0 ? 'bg-green-500' :
+                        target.currentWounds < target.maxWounds / 2 ? 'bg-yellow-500' :
+                        target.currentWounds < target.maxWounds ? 'bg-orange-500' : 'bg-red-500'
+                      ]"
+                      :style="{ width: `${((target.maxWounds - target.currentWounds) / target.maxWounds) * 100}%` }"
+                    />
+                  </div>
+                  <span class="text-xs text-digimon-dark-400 whitespace-nowrap">
+                    {{ Math.round(((target.maxWounds - target.currentWounds) / target.maxWounds) * 100) }}%
+                  </span>
+                </div>
+              </button>
+
+              <div v-if="getAttackTargets(selectedAttack.participant.id).length === 0" class="text-center text-digimon-dark-400 py-8">
+                No valid targets available.
+              </div>
+            </div>
+
+            <button
+              @click="cancelAttackSelection"
+              class="w-full bg-digimon-dark-700 hover:bg-digimon-dark-600 text-white px-4 py-2 rounded-lg transition-colors"
+            >
+              Cancel
             </button>
           </div>
         </div>
