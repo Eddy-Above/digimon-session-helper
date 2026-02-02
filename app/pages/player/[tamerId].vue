@@ -33,11 +33,12 @@ const dodgeRollResult = ref<{ rolls: number[]; total: number } | null>(null)
 const selectedAttack = ref<any>(null)
 const showTargetSelector = ref(false)
 const selectedDigimonId = ref<string | null>(null)
+const allTamers = ref<Tamer[]>([])
 
 // Note: Evolution chain navigation now uses currentDigimonId (see digimonChains computed)
 
 // Composables
-const { fetchTamer, calculateDerivedStats: calcTamerStats } = useTamers()
+const { fetchTamer, fetchTamers, tamers: allTamersFromComposable, calculateDerivedStats: calcTamerStats } = useTamers()
 const { fetchDigimon, calculateDerivedStats: calcDigimonStats } = useDigimon()
 const { encounters, fetchEncounters, getCurrentParticipant, respondToRequest, getMyPendingRequests, performAttack } = useEncounters()
 const { fetchEvolutionLines, evolutionLines, getCurrentStage } = useEvolution()
@@ -62,6 +63,11 @@ async function loadData() {
 
       // Fetch encounters to find active one
       await fetchEncounters()
+
+      // Fetch all tamers for turn tracker participant images
+      await fetchTamers()
+      allTamers.value = allTamersFromComposable.value
+
       const active = encounters.value.find((e) => e.phase === 'combat' || e.phase === 'setup' || e.phase === 'initiative')
       if (active) {
         // Check if this tamer or their Digimon are participating OR if there are pending requests for them
@@ -396,7 +402,9 @@ function getParticipantImage(participant: CombatParticipant): string | null {
     const digimon = partnerDigimon.value.find((d) => d.id === participant.entityId)
     return digimon?.spriteUrl || null
   } else if (participant.type === 'tamer') {
-    return tamer.value?.spriteUrl || null
+    // Look up the tamer by entityId from all available tamers
+    const participantTamer = allTamers.value.find((t) => t.id === participant.entityId)
+    return participantTamer?.spriteUrl || null
   }
   return null
 }
