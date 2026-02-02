@@ -117,6 +117,30 @@ const unprocessedResponses = computed(() => {
   return (currentEncounter.value.requestResponses as any[]) || []
 })
 
+// Check if combat can be started (all setup complete)
+const canStartCombat = computed(() => {
+  if (!currentEncounter.value) return false
+  if (currentEncounter.value.phase !== 'setup') return false
+
+  // Need at least 2 participants
+  if (sortedParticipants.value.length < 2) return false
+
+  // Check if there are any pending requests (waiting for players)
+  if (pendingRequests.value.length > 0) return false
+
+  // Check if there are any unprocessed responses (waiting for GM)
+  if (unprocessedResponses.value.length > 0) return false
+
+  // Check if all participants have initiative set
+  const participants = (currentEncounter.value.participants as CombatParticipant[]) || []
+  const allHaveInitiative = participants.every(p =>
+    typeof p.initiative === 'number' && p.initiative >= 0
+  )
+  if (!allHaveInitiative) return false
+
+  return true
+})
+
 // Get entity details for a participant
 function getEntityDetails(participant: CombatParticipant) {
   if (participant.type === 'digimon') {
@@ -905,7 +929,14 @@ async function handleUpdateHazard(hazard: Hazard) {
             <div class="flex gap-3 flex-wrap">
               <button
                 v-if="currentEncounter.phase === 'setup'"
-                class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-semibold transition-colors"
+                :disabled="!canStartCombat"
+                :class="[
+                  'px-4 py-2 rounded-lg font-semibold transition-colors',
+                  canStartCombat
+                    ? 'bg-green-600 hover:bg-green-700 text-white cursor-pointer'
+                    : 'bg-digimon-dark-700 text-digimon-dark-400 cursor-not-allowed opacity-50'
+                ]"
+                :title="canStartCombat ? 'Start combat with current participants' : 'Complete all player setup first (process pending requests/responses)'"
                 @click="handleStartCombat"
               >
                 ▶ Start Combat
@@ -931,6 +962,22 @@ async function handleUpdateHazard(hazard: Hazard) {
               >
                 + Add Participant
               </button>
+            </div>
+
+            <!-- Setup Status Indicator -->
+            <div v-if="currentEncounter.phase === 'setup' && !canStartCombat" class="text-xs text-digimon-dark-400 mt-3 p-2 bg-digimon-dark-700 rounded">
+              <span v-if="sortedParticipants.length < 2">
+                ⚠️ Need at least 2 participants
+              </span>
+              <span v-else-if="pendingRequests.length > 0">
+                ⏳ Waiting for {{ pendingRequests.length }} player response(s)
+              </span>
+              <span v-else-if="unprocessedResponses.length > 0">
+                ⚙️ Process {{ unprocessedResponses.length }} response(s) to continue
+              </span>
+              <span v-else>
+                ⚠️ Some participants missing initiative
+              </span>
             </div>
           </div>
 
