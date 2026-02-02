@@ -192,15 +192,16 @@ watch(
         age: Date.now() - pendingAttack.timestamp
       })
 
-      // Find matching dodge-roll request with extended timeout (30 seconds)
-      const matchingRequest = requests.find((req: any) =>
-        req.type === 'dodge-roll' &&
-        req.data?.attackerParticipantId === pendingAttack.participantId &&
-        Math.abs(new Date(req.timestamp).getTime() - pendingAttack.timestamp) < 30000 // 30 second window
+      // SIMPLIFIED: Match directly to response using attackerParticipantId
+      // This works even if the original request was deleted after response creation
+      const matchingResponse = responses.find((resp: any) =>
+        resp.response?.type === 'dodge-rolled' &&
+        resp.attackerParticipantId === pendingAttack.participantId &&
+        Math.abs(new Date(resp.response?.timestamp || 0).getTime() - pendingAttack.timestamp) < 30000
       )
 
-      if (!matchingRequest) {
-        console.log('[ATTACK RESULT] No matching request for:', pendingAttack.attackName)
+      if (!matchingResponse) {
+        console.log('[ATTACK RESULT] No matching response yet for:', pendingAttack.attackName)
         // Clean up expired attacks (>60 seconds)
         const now = Date.now()
         if (now - pendingAttack.timestamp > 60000) {
@@ -210,23 +211,29 @@ watch(
         continue
       }
 
-      console.log('[ATTACK RESULT] Found matching request:', matchingRequest.id)
+      console.log('[ATTACK RESULT] ✓ Found matching response! Showing modal for:', pendingAttack.attackName)
 
-      // Find matching dodge response
-      const matchingResponse = responses.find((resp: any) =>
-        resp.requestId === matchingRequest.id &&
-        resp.response?.type === 'dodge-rolled'
-      )
-
-      if (matchingResponse) {
-        console.log('[ATTACK RESULT] ✓ Found matching response! Showing modal for:', pendingAttack.attackName)
-        // Found dodge response - show result modal!
-        showAttackResult(pendingAttack, matchingRequest, matchingResponse)
-        // Remove from array (splice in reverse order iteration)
-        pendingAttacks.value.splice(i, 1)
-      } else {
-        console.log('[ATTACK RESULT] No matching response yet for request:', matchingRequest.id)
+      // Reconstruct request-like object for showAttackResult (maintains backward compatibility)
+      const syntheticRequest = {
+        id: matchingResponse.requestId,
+        type: 'dodge-roll',
+        targetParticipantId: matchingResponse.participantId,
+        data: {
+          attackerParticipantId: matchingResponse.attackerParticipantId,
+          attackerName: matchingResponse.attackerName,
+          targetName: pendingAttack.targetName,
+          attackId: pendingAttack.attackData.id,
+          attackName: pendingAttack.attackName,
+          accuracyDicePool: pendingAttack.accuracyDicePool,
+          accuracySuccesses: pendingAttack.accuracySuccesses,
+          accuracyDiceResults: pendingAttack.accuracyDiceResults,
+        }
       }
+
+      // Show result modal
+      showAttackResult(pendingAttack, syntheticRequest, matchingResponse)
+      // Remove from array (splice in reverse order iteration)
+      pendingAttacks.value.splice(i, 1)
     }
   },
   { deep: true, immediate: true }

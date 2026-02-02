@@ -127,6 +127,9 @@ export default defineEventHandler(async (event) => {
     requestId: body.requestId,
     tamerId: body.tamerId,
     participantId: body.response.type === 'dodge-rolled' ? request.targetParticipantId : undefined,
+    // Store attacker info for client-side direct response matching (request may be deleted)
+    attackerParticipantId: body.response.type === 'dodge-rolled' ? request.data?.attackerParticipantId : undefined,
+    attackerName: body.response.type === 'dodge-rolled' ? request.data?.attackerName : undefined,
     response: {
       ...body.response,
       timestamp: new Date().toISOString(),
