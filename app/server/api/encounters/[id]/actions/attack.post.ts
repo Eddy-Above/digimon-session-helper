@@ -211,6 +211,7 @@ export default defineEventHandler(async (event) => {
     targetParticipantId: target.id,
     timestamp: new Date().toISOString(),
     data: {
+      attackId: body.attackId,
       attackName: attackNameStr,
       attackerName: attackerName,
       attackerParticipantId: body.participantId,
