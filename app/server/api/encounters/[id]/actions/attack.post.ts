@@ -120,6 +120,7 @@ export default defineEventHandler(async (event) => {
   }
 
   // Create new participant with decremented actions and tracked used attack
+  // Also increment dodge penalty on target (successive attacks reduce dodge pool)
   const updatedParticipants = participants.map((p: any) => {
     if (p.id === body.participantId) {
       return {
@@ -128,6 +129,12 @@ export default defineEventHandler(async (event) => {
           simple: Math.max(0, (p.actionsRemaining?.simple || 0) - actionCostSimple),
         },
         usedAttackIds: [...(p.usedAttackIds || []), body.attackId],
+      }
+    }
+    if (p.id === body.targetId) {
+      return {
+        ...p,
+        dodgePenalty: (p.dodgePenalty ?? 0) + 1,
       }
     }
     return p
@@ -262,6 +269,8 @@ export default defineEventHandler(async (event) => {
       accuracyDicePool: body.accuracyDicePool,
       accuracySuccesses: body.accuracySuccesses,
       accuracyDiceResults: body.accuracyDiceResults,
+      // Pre-increment dodge penalty for this specific roll
+      dodgePenalty: target.dodgePenalty ?? 0,
     },
   }
 

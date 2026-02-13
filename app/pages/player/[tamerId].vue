@@ -295,17 +295,6 @@ watch(
   { deep: true, immediate: true }
 )
 
-// Reset roll flags when requests change (new request arrives)
-watch(currentInitiativeRequest, () => {
-  hasRolledInitiative.value = false
-  initiativeRollResult.value = null
-})
-
-watch(currentDodgeRequest, () => {
-  hasRolledDodge.value = false
-  dodgeRollResult.value = null
-})
-
 // Helper functions to calculate total values (base + xpBonuses)
 const getTotalAttribute = (attr: keyof Tamer['attributes']): number => {
   if (!tamer.value) return 0
@@ -419,6 +408,18 @@ const currentDigimonRequest = computed(() => myRequests.value.find((r) => r.type
 const currentInitiativeRequest = computed(() => myRequests.value.find((r) => r.type === 'initiative-roll'))
 const currentDodgeRequest = computed(() => myRequests.value.find((r) => r.type === 'dodge-roll'))
 
+// Reset roll flags when requests change (new request arrives)
+// Watch by ID to avoid resetting on every 5-second data refresh (new object references)
+watch(() => currentInitiativeRequest.value?.id, () => {
+  hasRolledInitiative.value = false
+  initiativeRollResult.value = null
+})
+
+watch(() => currentDodgeRequest.value?.id, () => {
+  hasRolledDodge.value = false
+  dodgeRollResult.value = null
+})
+
 // Check if request has already been responded to (hide modal if response exists)
 const hasUnrespondedDigimonRequest = computed(() => {
   if (!activeEncounter.value || !tamer.value) return false
@@ -457,7 +458,7 @@ const hasUnrespondedDodgeRequest = computed(() => {
   return !hasResponse
 })
 
-// Dodge dice pool for the target participant in a dodge request
+// Dodge dice pool for the target participant in a dodge request (reduced by successive dodge penalty)
 const dodgeDicePool = computed(() => {
   if (!activeEncounter.value || !currentDodgeRequest.value) return 3
 
@@ -465,23 +466,25 @@ const dodgeDicePool = computed(() => {
   const targetParticipant = participants.find((p) => p.id === currentDodgeRequest.value!.targetParticipantId)
   if (!targetParticipant) return 3
 
+  let pool = 3
   if (targetParticipant.type === 'digimon') {
     const digi = allDigimon.value.find((d) => d.id === targetParticipant.entityId)
     if (digi) {
       const baseStats = typeof digi.baseStats === 'string' ? JSON.parse(digi.baseStats) : digi.baseStats
       const bonusStats = typeof (digi as any).bonusStats === 'string' ? JSON.parse((digi as any).bonusStats) : (digi as any).bonusStats
       const totalDodge = (baseStats?.dodge ?? 0) + (bonusStats?.dodge ?? 0)
-      return totalDodge || 3
+      pool = totalDodge || 3
     }
   } else if (targetParticipant.type === 'tamer') {
     const targetTamer = allTamers.value.find((t) => t.id === targetParticipant.entityId)
     if (targetTamer) {
       const derived = calcTamerStats(targetTamer)
-      return derived.dodgePool || 3
+      pool = derived.dodgePool || 3
     }
   }
 
-  return 3
+  const penalty = currentDodgeRequest.value?.data?.dodgePenalty ?? 0
+  return Math.max(1, pool - penalty)
 })
 
 // Initiative modifiers
@@ -2687,6 +2690,9 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
 
         <p class="text-white text-sm mb-4">
           Roll {{ dodgeDicePool }}d6 — count 5+ as successes
+          <span v-if="(currentDodgeRequest?.data?.dodgePenalty ?? 0) > 0" class="text-red-400 text-xs ml-1">
+            (-{{ currentDodgeRequest.data.dodgePenalty }} successive attack penalty)
+          </span>
         </p>
 
         <!-- Embedded Dice Roller -->
@@ -2869,34 +2875,6 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
           <div class="flex items-center gap-2">
             <span class="text-digimon-dark-400">Successes:</span>
             <span class="text-green-400 font-bold text-xl">{{ attackResultData.accuracySuccesses }}</span>
-          </div>
-        </div>
-
-        <!-- Dodge Roll -->
-        <div class="mb-4 p-4 bg-digimon-dark-700 rounded-lg">
-          <h3 class="text-lg font-semibold text-purple-400 mb-2">{{ attackResultData.targetName }}'s Dodge Roll</h3>
-          <div class="flex items-center gap-2 mb-2">
-            <span class="text-digimon-dark-400">Dice Pool:</span>
-            <span class="text-white font-mono">{{ attackResultData.dodgeDicePool }}d6</span>
-          </div>
-          <div class="flex items-center gap-2 mb-2">
-            <span class="text-digimon-dark-400">Results:</span>
-            <div class="flex gap-1">
-              <span
-                v-for="(die, i) in attackResultData.dodgeDiceResults"
-                :key="i"
-                :class="[
-                  'px-2 py-1 rounded font-mono text-sm',
-                  die >= 5 ? 'bg-green-600 text-white' : 'bg-digimon-dark-600 text-digimon-dark-300'
-                ]"
-              >
-                {{ die }}
-              </span>
-            </div>
-          </div>
-          <div class="flex items-center gap-2">
-            <span class="text-digimon-dark-400">Successes:</span>
-            <span class="text-green-400 font-bold text-xl">{{ attackResultData.dodgeSuccesses }}</span>
           </div>
         </div>
 

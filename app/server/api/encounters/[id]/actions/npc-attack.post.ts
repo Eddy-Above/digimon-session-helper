@@ -119,7 +119,7 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  // Decrement attacker actions and track used attack
+  // Decrement attacker actions, track used attack, and increment target dodge penalty
   const updatedParticipants = participants.map((p: any) => {
     if (p.id === body.participantId) {
       return {
@@ -128,6 +128,12 @@ export default defineEventHandler(async (event) => {
           simple: Math.max(0, (p.actionsRemaining?.simple || 0) - actionCost),
         },
         usedAttackIds: [...(p.usedAttackIds || []), body.attackId],
+      }
+    }
+    if (p.id === body.targetId) {
+      return {
+        ...p,
+        dodgePenalty: (p.dodgePenalty ?? 0) + 1,
       }
     }
     return p
