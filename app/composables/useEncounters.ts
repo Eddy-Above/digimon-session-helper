@@ -23,6 +23,7 @@ export interface CombatParticipant {
   currentWounds: number
   maxWounds: number
   usedAttackIds?: string[]
+  dodgePenalty?: number
 }
 
 export interface BattleLogEntry {
@@ -232,7 +233,7 @@ export function useEncounters() {
     })
   }
 
-  async function nextTurn(encounterId: string): Promise<Encounter | null> {
+  async function nextTurn(encounterId: string, digimonMap?: Map<string, any>): Promise<Encounter | null> {
     const encounter = encounters.value.find((e) => e.id === encounterId) || currentEncounter.value
     if (!encounter) return null
 
@@ -269,6 +270,19 @@ export function useEncounters() {
     const nextParticipant = participants.find((p) => p.id === nextParticipantId)
     if (nextParticipant) {
       nextParticipant.isActive = true
+      nextParticipant.dodgePenalty = 0
+
+      // Also reset partner digimon's dodge penalty (partner excluded from turnOrder)
+      if (digimonMap && nextParticipant.type === 'tamer') {
+        const partner = participants.find((p) => {
+          if (p.type !== 'digimon') return false
+          const digimon = digimonMap.get(p.entityId)
+          return digimon?.partnerId === nextParticipant.entityId
+        })
+        if (partner) {
+          partner.dodgePenalty = 0
+        }
+      }
     }
 
     return updateEncounter(encounterId, {

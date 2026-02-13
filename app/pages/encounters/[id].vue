@@ -35,6 +35,7 @@ const {
   getUnprocessedResponses,
   performAttack,
   performNpcAttack,
+  deleteResponse,
 } = useEncounters()
 
 const { digimonList, fetchDigimon, rollInitiative: rollDigimonInitiative, calculateDerivedStats: calcDigimonStats } = useDigimon()
@@ -440,23 +441,23 @@ function isPlayerControlled(participant: CombatParticipant): boolean {
   return false  // Enemies are NPC-controlled
 }
 
-// Get dodge pool for a participant
+// Get dodge pool for a participant (reduced by successive dodge penalty)
 function getDodgePool(participant: CombatParticipant): number {
+  let pool = 3  // Fallback
   if (participant.type === 'digimon') {
     const digimon = digimonMap.value.get(participant.entityId)
     if (digimon) {
-      // Calculate total dodge: baseStats.dodge + bonusStats.dodge
       const totalDodge = (digimon.baseStats?.dodge ?? 0) + ((digimon as any).bonusStats?.dodge ?? 0)
-      return totalDodge || 3  // Default 3d6 if somehow zero
+      pool = totalDodge || 3
     }
   } else if (participant.type === 'tamer') {
     const tamer = tamerMap.value.get(participant.entityId)
     if (tamer) {
       const derived = calcTamerStats(tamer)
-      return derived.dodgePool || 3  // Default 3d6
+      pool = derived.dodgePool || 3
     }
   }
-  return 3  // Fallback
+  return Math.max(1, pool - (participant.dodgePenalty ?? 0))
 }
 
 // Get participant name (tamer or digimon) for display
@@ -704,7 +705,7 @@ async function processResponse(response: any) {
 
   try {
     const request = pendingRequests.value.find((r: any) => r.id === response.requestId)
-    if (!request) {
+    if (!request && response.response.type !== 'dodge-rolled') {
       console.error('Request not found:', response.requestId)
       return
     }
@@ -877,7 +878,14 @@ async function processResponse(response: any) {
         }
       }
     }
-    // For dodge rolls, we don't auto-process - GM uses the damage calculator
+    // Dodge responses: damage already auto-calculated server-side. Just clean up.
+    if (response.response.type === 'dodge-rolled') {
+      if (request) {
+        await cancelRequest(currentEncounter.value.id, request.id)
+      }
+      await deleteResponse(currentEncounter.value.id, response.id)
+      await fetchEncounter(currentEncounter.value.id)
+    }
   } catch (error) {
     console.error('Error processing response:', error)
   }
@@ -925,7 +933,7 @@ async function handleNextTurn() {
   const current = activeParticipant.value
   const entity = current ? getEntityDetails(current) : null
 
-  await nextTurn(currentEncounter.value.id)
+  await nextTurn(currentEncounter.value.id, digimonMap.value)
 
   // Refetch to get updated state
   await fetchEncounter(currentEncounter.value.id)
@@ -1689,6 +1697,11 @@ async function handleUpdateHazard(hazard: Hazard) {
                       </div>
                     </div>
 
+                    <!-- Dodge penalty indicator -->
+                    <div v-if="item.participant.dodgePenalty" class="mb-2">
+                      <span class="text-xs text-red-400">Dodge -{{ item.participant.dodgePenalty }}</span>
+                    </div>
+
                     <!-- Actions remaining -->
                     <div class="flex gap-4 text-sm">
                       <div class="flex items-center gap-2">
@@ -1839,6 +1852,9 @@ async function handleUpdateHazard(hazard: Hazard) {
                     </div>
                     <span class="text-digimon-dark-400">({{ item.partnerDigimon.actionsRemaining.simple }}/2)</span>
                   </div>
+
+                  <!-- Dodge penalty -->
+                  <span v-if="item.partnerDigimon.dodgePenalty" class="text-red-400">Dodge -{{ item.partnerDigimon.dodgePenalty }}</span>
 
                   <button
                     class="text-xs text-digimon-dark-400 hover:text-white flex-shrink-0"
@@ -2049,13 +2065,16 @@ async function handleUpdateHazard(hazard: Hazard) {
                   </span>
                 </div>
                 <button
-                  v-if="response.response.type !== 'dodge-rolled'"
                   @click="processResponse(response)"
-                  class="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-sm font-semibold transition-colors"
+                  :class="[
+                    'px-3 py-1 rounded text-sm font-semibold transition-colors text-white',
+                    response.response.type === 'dodge-rolled'
+                      ? 'bg-digimon-dark-600 hover:bg-digimon-dark-500'
+                      : 'bg-green-600 hover:bg-green-700'
+                  ]"
                 >
-                  Process
+                  {{ response.response.type === 'dodge-rolled' ? 'Dismiss' : 'Process' }}
                 </button>
-                <span v-else class="text-green-400 text-sm font-semibold">Processed</span>
               </div>
             </div>
           </div>
