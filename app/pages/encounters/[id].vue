@@ -3,6 +3,7 @@ import type { Encounter } from '../../server/db/schema'
 import type { CombatParticipant, BattleLogEntry, Hazard } from '../../composables/useEncounters'
 import type { Digimon } from '../../server/db/schema'
 import type { Tamer } from '../../server/db/schema'
+import { getUnlockedSpecialOrders, getOrderActionCost, getOrderUsageLimit } from '../../utils/specialOrders'
 
 definePageMeta({
   title: 'Encounter',
@@ -40,7 +41,11 @@ const {
 
 const { digimonList, fetchDigimon, rollInitiative: rollDigimonInitiative, calculateDerivedStats: calcDigimonStats } = useDigimon()
 const { tamers, fetchTamers, calculateDerivedStats: calcTamerStats } = useTamers()
-const { fetchEvolutionLines, evolutionLines, getCurrentStage } = useEvolution()
+const { fetchEvolutionLines, evolutionLines, getCurrentStage, getEvolutionOptions, updateEvolutionLine } = useEvolution()
+
+// Special Orders state
+const showSpecialOrdersModal = ref(false)
+const specialOrderTargetId = ref<string | null>(null)
 
 const showAddParticipant = ref(false)
 const selectedEntityType = ref<'digimon' | 'enemy' | 'tamer'>('digimon')
@@ -478,6 +483,15 @@ function getParticipantName(participantId: string): string | null {
   return null
 }
 
+function getGmIntercedeOptions(request: any): any[] {
+  const participants = (currentEncounter.value?.participants as any[]) || []
+  return participants.filter((p: any) =>
+    (p.type === 'tamer' || p.type === 'digimon') &&
+    p.id !== request.data?.attackerId &&
+    p.id !== request.data?.targetId
+  )
+}
+
 // Get all valid targets for an attack (exclude the attacker)
 function getAttackTargets(attackerId: string): CombatParticipant[] {
   if (!currentEncounter.value) return []
@@ -507,73 +521,42 @@ async function confirmAttack(target: CombatParticipant) {
     }
     const accuracySuccesses = accuracyDiceResults.filter(d => d >= 5).length
 
-    // Check if target is player-controlled
-    const targetIsPlayer = isPlayerControlled(target)
-
-    if (targetIsPlayer) {
-      // Target is player - use existing attack flow (creates dodge request)
-      // Determine tamerId for attacker
-      let tamerId = 'GM'
-      if (participant.type === 'tamer') {
-        tamerId = participant.entityId
-      } else if (participant.type === 'digimon') {
-        const digimon = digimonMap.value.get(participant.entityId)
-        if (digimon?.partnerId) {
-          tamerId = digimon.partnerId
-        }
-      }
-
-      // Submit attack via existing endpoint
-      const result = await performAttack(
-        currentEncounter.value.id,
-        participant.id,
-        attack.id,
-        target.id,
-        {
-          dicePool: accuracyPool,
-          successes: accuracySuccesses,
-          diceResults: accuracyDiceResults,
+    // ALL attacks route through intercede-offer
+    // Server handles: intercede offers, dodge requests, or NPC auto-resolve
+    try {
+      await $fetch(`/api/encounters/${currentEncounter.value.id}/actions/intercede-offer`, {
+        method: 'POST',
+        body: {
+          attackerId: participant.id,
+          targetId: target.id,
+          accuracySuccesses,
+          accuracyDice: accuracyDiceResults,
+          attackId: attack.id,
+          attackData: {
+            dicePool: accuracyPool,
+            attackStats: getAttackStats(participant, attack),
+          },
         },
-        tamerId
-      )
-
-      if (result) {
-        showTargetSelector.value = false
-        selectedAttack.value = null
-        await fetchEncounter(currentEncounter.value.id)
-      }
-    } else {
-      // Target is NPC - auto-roll dodge and resolve immediately
-      const dodgePool = getDodgePool(target)
-      const dodgeDiceResults = []
-      for (let i = 0; i < dodgePool; i++) {
-        dodgeDiceResults.push(Math.floor(Math.random() * 6) + 1)
-      }
-      const dodgeSuccesses = dodgeDiceResults.filter(d => d >= 5).length
-
-      // Use new NPC attack endpoint for instant resolution
-      const result = await performNpcAttack(
-        currentEncounter.value.id,
-        participant.id,
-        attack.id,
-        target.id,
-        {
-          dicePool: accuracyPool,
-          successes: accuracySuccesses,
-          diceResults: accuracyDiceResults,
-        },
-        {
-          dicePool: dodgePool,
-          successes: dodgeSuccesses,
-          diceResults: dodgeDiceResults,
-        }
-      )
-
-      if (result) {
-        showTargetSelector.value = false
-        selectedAttack.value = null
-        await fetchEncounter(currentEncounter.value.id)
-      }
+      })
+      // Add attack log entry
+      const entity = getEntityDetails(participant)
+      const targetEntity = getEntityDetails(target)
+      await addBattleLogEntry(currentEncounter.value.id, {
+        round: currentEncounter.value.round,
+        actorId: participant.id,
+        actorName: entity?.name || 'Unknown',
+        action: 'Attack',
+        target: targetEntity?.name || 'Unknown',
+        result: `${accuracyPool}d6 => [${accuracyDiceResults.join(',')}] = ${accuracySuccesses} successes`,
+        damage: null,
+        effects: ['Attack'],
+      })
+      showTargetSelector.value = false
+      selectedAttack.value = null
+      await fetchEncounter(currentEncounter.value.id)
+    } catch (e: any) {
+      console.error('Attack failed:', e)
+      alert(e?.data?.message || 'Failed to execute attack')
     }
   } catch (error) {
     console.error('Error performing attack:', error)
@@ -585,6 +568,38 @@ function cancelAttackSelection() {
   showTargetSelector.value = false
   selectedAttack.value = null
   selectedTargetId.value = null
+}
+
+// Cancel all intercede offers for a group (GM can manually cancel)
+async function cancelIntercedeGroup(intercedeGroupId: string) {
+  if (!currentEncounter.value || !intercedeGroupId) return
+  const requests = (currentEncounter.value.pendingRequests as any[]) || []
+  const groupRequests = requests.filter((r: any) => r.data?.intercedeGroupId === intercedeGroupId)
+  for (const req of groupRequests) {
+    await cancelRequest(currentEncounter.value.id, req.id)
+  }
+  await fetchEncounter(currentEncounter.value.id)
+}
+
+// GM intercede response functions
+async function handleGmIntercedeClaim(requestId: string, interceptorId: string) {
+  if (!currentEncounter.value) return
+  try {
+    await $fetch(`/api/encounters/${currentEncounter.value.id}/actions/intercede-claim`, {
+      method: 'POST', body: { requestId, interceptorParticipantId: interceptorId }
+    })
+  } catch (e: any) {
+    alert(e?.data?.message || 'Intercede failed')
+  }
+  await fetchEncounter(currentEncounter.value.id)
+}
+
+async function handleGmIntercedeSkip(requestId: string, optOut = false) {
+  if (!currentEncounter.value) return
+  await $fetch(`/api/encounters/${currentEncounter.value.id}/actions/intercede-skip`, {
+    method: 'POST', body: { requestId, optOut }
+  })
+  await fetchEncounter(currentEncounter.value.id)
 }
 
 // Add participant handler - supports adding multiple of the same entity
@@ -623,12 +638,23 @@ async function handleAddParticipant() {
       }
     }
 
+    // Look up evolution line for partner digimon
+    let evoLineId: string | undefined
+    if (selectedEntityType.value === 'digimon') {
+      const matchingLine = evolutionLines.value.find((line) => {
+        const stage = getCurrentStage(line)
+        return stage?.digimonId === selectedEntityId.value
+      })
+      if (matchingLine) evoLineId = matchingLine.id
+    }
+
     const participant = createParticipant(
       selectedEntityType.value === 'enemy' ? 'digimon' : selectedEntityType.value,
       selectedEntityId.value,
       initiative,
       initiativeRoll,
-      maxWounds
+      maxWounds,
+      evoLineId
     )
 
     const result = await addParticipant(currentEncounter.value.id, participant, digimonMap.value)
@@ -779,13 +805,20 @@ async function processResponse(response: any) {
         const digimonDerived = calcDigimonStats(digimon)
         const tamerDerived = calcTamerStats(tamer)
 
+        // Look up evolution line for this partner digimon
+        const matchingEvoLine = evolutionLines.value.find((line) => {
+          const stage = getCurrentStage(line)
+          return stage?.digimonId === digimon.id
+        })
+
         // Create BOTH participants with the same initiative
         const digimonParticipant = createParticipant(
           'digimon',
           digimon.id,
           response.response.initiative,
           response.response.initiativeRoll,
-          digimonDerived.woundBoxes
+          digimonDerived.woundBoxes,
+          matchingEvoLine?.id
         )
 
         const tamerParticipant = createParticipant(
@@ -959,6 +992,26 @@ async function handleNextTurn() {
 async function handleEndCombat() {
   if (!currentEncounter.value) return
   if (confirm('End this combat encounter?')) {
+    // Refresh evolution lines to get latest currentStageIndex values
+    await fetchEvolutionLines()
+
+    // Auto-devolve all partner digimon to rookie stage
+    const participants = (currentEncounter.value.participants as CombatParticipant[]) || []
+    for (const p of participants) {
+      if (p.type === 'digimon' && p.evolutionLineId) {
+        const evoLine = evolutionLines.value.find(l => l.id === p.evolutionLineId)
+        if (evoLine) {
+          const chain = typeof evoLine.chain === 'string' ? JSON.parse(evoLine.chain) : evoLine.chain
+          // Find rookie entry (or fall back to first entry)
+          const rookieIndex = chain.findIndex((e: any) => e.stage === 'rookie')
+          const targetIndex = rookieIndex >= 0 ? rookieIndex : 0
+          if (evoLine.currentStageIndex !== targetIndex) {
+            await updateEvolutionLine(p.evolutionLineId, { currentStageIndex: targetIndex })
+          }
+        }
+      }
+    }
+
     await endCombat(currentEncounter.value.id)
     await addBattleLogEntry(currentEncounter.value.id, {
       round: currentEncounter.value.round,
@@ -970,6 +1023,77 @@ async function handleEndCombat() {
       damage: null,
       effects: [],
     })
+  }
+}
+
+// Digivolve / Devolve handler
+async function handleDigivolve(participant: CombatParticipant, targetChainIndex: number) {
+  if (!currentEncounter.value) return
+  try {
+    const result = await $fetch(`/api/encounters/${currentEncounter.value.id}/actions/digivolve`, {
+      method: 'POST',
+      body: { participantId: participant.id, targetChainIndex },
+    })
+    // Refresh encounter and digimon data
+    await fetchEncounter(currentEncounter.value.id)
+    await fetchDigimon()
+    await fetchEvolutionLines()
+  } catch (e: any) {
+    console.error('Digivolve failed:', e)
+    alert(e?.data?.message || 'Failed to digivolve')
+  }
+}
+
+// Get evolution options for a participant
+function getParticipantEvolutionOptions(participant: CombatParticipant) {
+  if (!participant.evolutionLineId) return { canEvolve: false, canDevolve: false, evolveTargets: [] as any[], devolveTarget: null as any }
+  const evoLine = evolutionLines.value.find(l => l.id === participant.evolutionLineId)
+  if (!evoLine) return { canEvolve: false, canDevolve: false, evolveTargets: [], devolveTarget: null }
+
+  const chain = typeof evoLine.chain === 'string' ? JSON.parse(evoLine.chain) : evoLine.chain
+  const currentIndex = evoLine.currentStageIndex
+
+  // Find unlocked children (evolution targets)
+  const evolveTargets = chain
+    .map((entry: any, index: number) => ({ ...entry, chainIndex: index }))
+    .filter((entry: any) => entry.evolvesFromIndex === currentIndex && entry.isUnlocked)
+
+  // Find parent (devolve target) - only if we have wounds history
+  const currentEntry = chain[currentIndex]
+  const canDevolve = (participant.woundsHistory?.length || 0) > 0 && currentEntry?.evolvesFromIndex !== null
+  const devolveTarget = canDevolve ? { ...chain[currentEntry.evolvesFromIndex], chainIndex: currentEntry.evolvesFromIndex } : null
+
+  return {
+    canEvolve: evolveTargets.length > 0,
+    canDevolve,
+    evolveTargets,
+    devolveTarget,
+  }
+}
+
+// Special Orders
+function getTamerSpecialOrders(participant: CombatParticipant) {
+  if (participant.type !== 'tamer') return []
+  const tamer = tamers.value.find(t => t.id === participant.entityId)
+  if (!tamer) return []
+
+  const attrs = typeof tamer.attributes === 'string' ? JSON.parse(tamer.attributes as any) : tamer.attributes
+  const xpB = typeof tamer.xpBonuses === 'string' ? JSON.parse(tamer.xpBonuses as any) : tamer.xpBonuses
+  return getUnlockedSpecialOrders(attrs, xpB, tamer.campaignLevel)
+}
+
+async function handleUseSpecialOrder(participant: CombatParticipant, orderName: string, targetId?: string) {
+  if (!currentEncounter.value) return
+  try {
+    await $fetch(`/api/encounters/${currentEncounter.value.id}/actions/special-order`, {
+      method: 'POST',
+      body: { participantId: participant.id, orderName, targetId },
+    })
+    await fetchEncounter(currentEncounter.value.id)
+    showSpecialOrdersModal.value = false
+  } catch (e: any) {
+    console.error('Special order failed:', e)
+    alert(e?.data?.message || 'Failed to use special order')
   }
 }
 
@@ -1702,6 +1826,40 @@ async function handleUpdateHazard(hazard: Hazard) {
                       <span class="text-xs text-red-400">Dodge -{{ item.participant.dodgePenalty }}</span>
                     </div>
 
+                    <!-- Digivolve/Devolve buttons for non-partner digimon -->
+                    <div
+                      v-if="item.participant.type === 'digimon' && item.participant.evolutionLineId && canParticipantAct(item.participant) && currentEncounter.phase === 'combat'"
+                      class="mb-2 flex flex-wrap gap-1"
+                    >
+                      <button
+                        v-for="target in getParticipantEvolutionOptions(item.participant).evolveTargets"
+                        :key="`evo-main-${target.chainIndex}`"
+                        :disabled="(item.participant.actionsRemaining?.simple || 0) < 2"
+                        :class="[
+                          'text-xs px-2 py-1 rounded font-medium',
+                          (item.participant.actionsRemaining?.simple || 0) >= 2
+                            ? 'bg-purple-600 hover:bg-purple-500 text-white cursor-pointer'
+                            : 'bg-digimon-dark-600 text-digimon-dark-400 cursor-not-allowed'
+                        ]"
+                        @click="handleDigivolve(item.participant, target.chainIndex)"
+                      >
+                        Digivolve → {{ target.species }}
+                      </button>
+                      <button
+                        v-if="getParticipantEvolutionOptions(item.participant).canDevolve"
+                        :disabled="(item.participant.actionsRemaining?.simple || 0) < 2"
+                        :class="[
+                          'text-xs px-2 py-1 rounded font-medium',
+                          (item.participant.actionsRemaining?.simple || 0) >= 2
+                            ? 'bg-amber-700 hover:bg-amber-600 text-white cursor-pointer'
+                            : 'bg-digimon-dark-600 text-digimon-dark-400 cursor-not-allowed'
+                        ]"
+                        @click="handleDigivolve(item.participant, getParticipantEvolutionOptions(item.participant).devolveTarget.chainIndex)"
+                      >
+                        Devolve → {{ getParticipantEvolutionOptions(item.participant).devolveTarget?.species }}
+                      </button>
+                    </div>
+
                     <!-- Actions remaining -->
                     <div class="flex gap-4 text-sm">
                       <div class="flex items-center gap-2">
@@ -1864,6 +2022,40 @@ async function handleUpdateHazard(hazard: Hazard) {
                   </button>
                 </div>
 
+                <!-- Digivolve/Devolve buttons -->
+                <div
+                  v-if="canParticipantAct(item.partnerDigimon) && currentEncounter.phase === 'combat' && item.partnerDigimon.evolutionLineId"
+                  class="mt-2 flex flex-wrap gap-1"
+                >
+                  <button
+                    v-for="target in getParticipantEvolutionOptions(item.partnerDigimon).evolveTargets"
+                    :key="`evo-${target.chainIndex}`"
+                    :disabled="(item.partnerDigimon.actionsRemaining?.simple || 0) < 2"
+                    :class="[
+                      'text-xs px-2 py-1 rounded font-medium',
+                      (item.partnerDigimon.actionsRemaining?.simple || 0) >= 2
+                        ? 'bg-purple-600 hover:bg-purple-500 text-white cursor-pointer'
+                        : 'bg-digimon-dark-600 text-digimon-dark-400 cursor-not-allowed'
+                    ]"
+                    @click="handleDigivolve(item.partnerDigimon, target.chainIndex)"
+                  >
+                    Digivolve → {{ target.species }}
+                  </button>
+                  <button
+                    v-if="getParticipantEvolutionOptions(item.partnerDigimon).canDevolve"
+                    :disabled="(item.partnerDigimon.actionsRemaining?.simple || 0) < 2"
+                    :class="[
+                      'text-xs px-2 py-1 rounded font-medium',
+                      (item.partnerDigimon.actionsRemaining?.simple || 0) >= 2
+                        ? 'bg-amber-700 hover:bg-amber-600 text-white cursor-pointer'
+                        : 'bg-digimon-dark-600 text-digimon-dark-400 cursor-not-allowed'
+                    ]"
+                    @click="handleDigivolve(item.partnerDigimon, getParticipantEvolutionOptions(item.partnerDigimon).devolveTarget.chainIndex)"
+                  >
+                    Devolve → {{ getParticipantEvolutionOptions(item.partnerDigimon).devolveTarget?.species }}
+                  </button>
+                </div>
+
                 <!-- Active Effects (if any) -->
                 <div v-if="item.partnerDigimon.activeEffects.length > 0" class="flex flex-wrap gap-1 mt-2">
                   <span
@@ -1949,6 +2141,65 @@ async function handleUpdateHazard(hazard: Hazard) {
               </button>
             </div>
 
+            <!-- Special Orders (Tamer only) -->
+            <div v-if="activeParticipant.type === 'tamer' && getTamerSpecialOrders(activeParticipant).length > 0" class="space-y-2 mb-4">
+              <label class="block text-sm text-digimon-dark-400">Special Orders</label>
+              <div class="space-y-1">
+                <button
+                  v-for="order in getTamerSpecialOrders(activeParticipant)"
+                  :key="order.name"
+                  :disabled="
+                    (activeParticipant.usedSpecialOrders || []).includes(order.name) ||
+                    (activeParticipant.actionsRemaining?.simple || 0) < getOrderActionCost(order.type) ||
+                    getOrderUsageLimit(order.type) === 'passive'
+                  "
+                  :class="[
+                    'w-full px-3 py-2 rounded text-xs text-left transition-colors',
+                    (activeParticipant.usedSpecialOrders || []).includes(order.name)
+                      ? 'bg-digimon-dark-700 text-digimon-dark-500 line-through cursor-not-allowed'
+                      : getOrderUsageLimit(order.type) === 'passive'
+                        ? 'bg-digimon-dark-700 text-digimon-dark-400 cursor-default'
+                        : (activeParticipant.actionsRemaining?.simple || 0) < getOrderActionCost(order.type)
+                          ? 'bg-digimon-dark-700 text-digimon-dark-500 cursor-not-allowed'
+                          : 'bg-cyan-900/30 hover:bg-cyan-900/50 text-cyan-300 cursor-pointer'
+                  ]"
+                  @click="
+                    order.name === 'Enemy Scan'
+                      ? (showSpecialOrdersModal = true, specialOrderTargetId = null)
+                      : handleUseSpecialOrder(activeParticipant, order.name)
+                  "
+                >
+                  <div class="flex items-center justify-between">
+                    <span class="font-medium">{{ order.name }}</span>
+                    <span class="text-digimon-dark-400 ml-2">
+                      {{ getOrderUsageLimit(order.type) === 'passive' ? 'Passive' : getOrderActionCost(order.type) === 0 ? 'Free' : getOrderActionCost(order.type) === 1 ? '1 Action' : '2 Actions' }}
+                    </span>
+                  </div>
+                  <div class="text-digimon-dark-400 mt-0.5">{{ order.effect }}</div>
+                  <div v-if="(activeParticipant.usedSpecialOrders || []).includes(order.name)" class="text-red-400 mt-0.5">Used</div>
+                </button>
+              </div>
+            </div>
+
+            <!-- Enemy Scan Target Modal -->
+            <div v-if="showSpecialOrdersModal && activeParticipant.type === 'tamer'" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" @click.self="showSpecialOrdersModal = false">
+              <div class="bg-digimon-dark-800 rounded-xl p-6 border border-digimon-dark-600 max-w-md w-full mx-4">
+                <h3 class="text-lg font-semibold text-white mb-4">Enemy Scan - Select Target</h3>
+                <div class="space-y-2 max-h-60 overflow-y-auto">
+                  <button
+                    v-for="p in (currentEncounter?.participants as CombatParticipant[] || []).filter(p => p.id !== activeParticipant.id)"
+                    :key="p.id"
+                    class="w-full bg-digimon-dark-700 hover:bg-digimon-dark-600 text-white px-3 py-2 rounded text-sm text-left"
+                    @click="handleUseSpecialOrder(activeParticipant, 'Enemy Scan', p.id)"
+                  >
+                    {{ getEntityDetails(p)?.name || 'Unknown' }}
+                    <span class="text-digimon-dark-400 text-xs ml-2">({{ p.currentWounds }}/{{ p.maxWounds }} wounds)</span>
+                  </button>
+                </div>
+                <button class="mt-4 text-sm text-digimon-dark-400 hover:text-white" @click="showSpecialOrdersModal = false">Cancel</button>
+              </div>
+            </div>
+
             <!-- Stance Selector -->
             <div>
               <label class="block text-sm text-digimon-dark-400 mb-2">Change Stance (1 Simple)</label>
@@ -2018,24 +2269,83 @@ async function handleUpdateHazard(hazard: Hazard) {
                     <!-- Show attack context for dodge rolls -->
                     vs {{ request.data?.attackerName || 'Unknown' }}'s {{ request.data?.attackName || 'Attack' }}
                   </span>
+                  <span v-else-if="request.type === 'intercede-offer' && request.targetTamerId !== 'GM'" class="text-yellow-400 text-sm ml-2">
+                    Intercede? {{ request.data?.attackerName || 'Unknown' }} → {{ request.data?.targetName || 'Unknown' }}
+                  </span>
+                  <span v-else-if="request.type === 'intercede-offer' && request.targetTamerId === 'GM'" class="text-yellow-400 text-sm ml-2">
+                    Intercede? {{ request.data?.attackerName || 'Unknown' }} → {{ request.data?.targetName || 'Unknown' }}
+                  </span>
                   <span v-else class="text-digimon-dark-400 text-sm ml-2">
                     {{ request.type === 'digimon-selection' ? 'Select Digimon' : 'Roll Initiative' }}
                   </span>
                 </div>
                 <div class="flex gap-2">
-                  <button
-                    v-if="request.type === 'dodge-roll'"
-                    @click="handleGmDodgeRoll(request)"
-                    class="bg-digimon-orange-600 hover:bg-digimon-orange-700 text-white px-3 py-1 rounded text-sm font-semibold transition-colors"
-                  >
-                    Roll Dodge
-                  </button>
-                  <button
-                    @click="cancelRequest(currentEncounter.id, request.id)"
-                    class="text-red-400 hover:text-red-300 text-sm font-semibold"
-                  >
-                    Cancel
-                  </button>
+                  <template v-if="request.type === 'dodge-roll'">
+                    <button
+                      @click="handleGmDodgeRoll(request)"
+                      class="bg-digimon-orange-600 hover:bg-digimon-orange-700 text-white px-3 py-1 rounded text-sm font-semibold transition-colors"
+                    >
+                      Roll Dodge
+                    </button>
+                    <button
+                      @click="cancelRequest(currentEncounter.id, request.id)"
+                      class="text-red-400 hover:text-red-300 text-sm font-semibold"
+                    >
+                      Cancel
+                    </button>
+                  </template>
+                  <template v-else-if="request.type === 'intercede-offer' && request.targetTamerId === 'GM'">
+                    <!-- GM intercede: show buttons for each eligible interceptor -->
+                    <div class="flex flex-col gap-1 w-full">
+                      <div class="flex flex-wrap gap-1">
+                        <button
+                          v-for="opt in getGmIntercedeOptions(request)"
+                          :key="opt.id"
+                          @click="handleGmIntercedeClaim(request.id, opt.id)"
+                          class="bg-yellow-700 hover:bg-yellow-600 text-white text-xs px-2 py-1 rounded"
+                        >
+                          {{ getParticipantName(opt.id) || opt.id }}
+                        </button>
+                      </div>
+                      <div class="flex gap-1">
+                        <button
+                          @click="handleGmIntercedeSkip(request.id)"
+                          class="bg-digimon-dark-600 hover:bg-digimon-dark-500 text-white text-xs px-2 py-1 rounded"
+                        >
+                          Skip
+                        </button>
+                        <button
+                          @click="handleGmIntercedeSkip(request.id, true)"
+                          class="bg-red-900 hover:bg-red-800 text-white text-xs px-2 py-1 rounded"
+                        >
+                          Never
+                        </button>
+                      </div>
+                    </div>
+                  </template>
+                  <template v-else-if="request.type === 'intercede-offer'">
+                    <!-- Player intercede: just cancel button -->
+                    <button
+                      @click="cancelIntercedeGroup(request.data?.intercedeGroupId)"
+                      class="bg-yellow-600 hover:bg-yellow-700 text-white px-3 py-1 rounded text-sm font-semibold transition-colors"
+                    >
+                      Cancel Intercede
+                    </button>
+                    <button
+                      @click="cancelRequest(currentEncounter.id, request.id)"
+                      class="text-red-400 hover:text-red-300 text-sm font-semibold"
+                    >
+                      Cancel
+                    </button>
+                  </template>
+                  <template v-else>
+                    <button
+                      @click="cancelRequest(currentEncounter.id, request.id)"
+                      class="text-red-400 hover:text-red-300 text-sm font-semibold"
+                    >
+                      Cancel
+                    </button>
+                  </template>
                 </div>
               </div>
             </div>

@@ -302,29 +302,34 @@ export default defineEventHandler(async (event) => {
     }
 
     participants = participants.map((p: any) => {
-      if (p.id === request.targetParticipantId && hit) {
+      if (p.id === request.targetParticipantId) {
         const updated = {
           ...p,
-          currentWounds: Math.min(p.maxWounds, (p.currentWounds || 0) + damageDealt),
+          dodgePenalty: (p.dodgePenalty ?? 0) + 1,
         }
 
-        // Auto-apply effect if attack has one and conditions are met
-        if (attackDef?.effect) {
-          const shouldApply = attackDef.type === 'damage' ? damageDealt >= 2 : true
-          if (shouldApply) {
-            const effectDuration = Math.max(1, netSuccesses)
-            const alignment = EFFECT_ALIGNMENT[attackDef.effect]
-            const effectType = alignment === 'P' ? 'buff' : alignment === 'N' ? 'debuff' : 'status'
-            const newEffect = {
-              id: `effect-${Date.now()}`,
-              name: attackDef.effect,
-              type: effectType,
-              duration: effectDuration,
-              source: request.data.attackerName || 'Attack',
-              description: '',
+        // Apply damage and effects only if hit
+        if (hit) {
+          updated.currentWounds = Math.min(p.maxWounds, (p.currentWounds || 0) + damageDealt)
+
+          // Auto-apply effect if attack has one and conditions are met
+          if (attackDef?.effect) {
+            const shouldApply = attackDef.type === 'damage' ? damageDealt >= 2 : true
+            if (shouldApply) {
+              const effectDuration = Math.max(1, netSuccesses)
+              const alignment = EFFECT_ALIGNMENT[attackDef.effect]
+              const effectType = alignment === 'P' ? 'buff' : alignment === 'N' ? 'debuff' : 'status'
+              const newEffect = {
+                id: `effect-${Date.now()}`,
+                name: attackDef.effect,
+                type: effectType,
+                duration: effectDuration,
+                source: request.data.attackerName || 'Attack',
+                description: '',
+              }
+              updated.activeEffects = [...(p.activeEffects || []), newEffect]
+              appliedEffectName = attackDef.effect
             }
-            updated.activeEffects = [...(p.activeEffects || []), newEffect]
-            appliedEffectName = attackDef.effect
           }
         }
 

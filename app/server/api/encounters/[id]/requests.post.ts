@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm'
 import { db, encounters, type Encounter } from '../../../db'
 
 interface CreateRequestBody {
-  type: 'digimon-selection' | 'initiative-roll' | 'dodge-roll'
+  type: 'digimon-selection' | 'initiative-roll' | 'dodge-roll' | 'intercede-offer'
   targetTamerId: string
   targetParticipantId?: string
   data?: any

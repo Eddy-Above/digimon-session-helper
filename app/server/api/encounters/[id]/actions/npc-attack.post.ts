@@ -1,6 +1,8 @@
 import { eq } from 'drizzle-orm'
-import { db, encounters, digimon, tamers } from '../../../../db'
+import { db, encounters, digimon, tamers, evolutionLines } from '../../../../db'
 import { EFFECT_ALIGNMENT } from '../../../../../data/attackConstants'
+import { STAGE_CONFIG } from '../../../../../types'
+import type { DigimonStage } from '../../../../../types'
 
 interface NpcAttackBody {
   participantId: string
@@ -224,9 +226,9 @@ export default defineEventHandler(async (event) => {
   } else if (target.type === 'tamer') {
     const [targetTamer] = await db.select().from(tamers).where(eq(tamers.id, target.entityId))
     if (targetTamer) {
-      const body = targetTamer.attributes?.body ?? 0
-      const endurance = targetTamer.skills?.endurance ?? 0
-      targetArmor = body + endurance
+      const attrs = typeof targetTamer.attributes === 'string' ? JSON.parse(targetTamer.attributes) : targetTamer.attributes
+      const skills = typeof targetTamer.skills === 'string' ? JSON.parse(targetTamer.skills) : targetTamer.skills
+      targetArmor = (attrs?.body ?? 0) + (skills?.endurance ?? 0)
     }
   }
 
@@ -270,6 +272,45 @@ export default defineEventHandler(async (event) => {
     }
     return p
   })
+
+  // Auto-devolve check: if target is KO'd but has evolution history, devolve instead
+  let autoDevolveLog: any = null
+  const damagedTarget = finalParticipants.find((p: any) => p.id === body.targetId)
+  if (damagedTarget && hit &&
+      damagedTarget.currentWounds >= damagedTarget.maxWounds &&
+      damagedTarget.evolutionLineId &&
+      damagedTarget.woundsHistory?.length > 0) {
+    const previousState = damagedTarget.woundsHistory.pop()
+    if (previousState) {
+      const oldEntityId = damagedTarget.entityId
+      damagedTarget.entityId = previousState.entityId
+      damagedTarget.maxWounds = previousState.maxWounds
+      damagedTarget.currentWounds = previousState.wounds
+
+      // Update evolution line to previous stage
+      await db.update(evolutionLines).set({
+        currentStageIndex: previousState.stageIndex,
+        updatedAt: new Date(),
+      }).where(eq(evolutionLines.id, damagedTarget.evolutionLineId))
+
+      // Get old and new names for log
+      const [oldDigimon] = await db.select().from(digimon).where(eq(digimon.id, oldEntityId))
+      const [newDigimon] = await db.select().from(digimon).where(eq(digimon.id, previousState.entityId))
+
+      autoDevolveLog = {
+        id: `log-${Date.now()}-autodevolve`,
+        timestamp: new Date().toISOString(),
+        round: encounter.round,
+        actorId: damagedTarget.id,
+        actorName: oldDigimon?.name || 'Digimon',
+        action: `was knocked out and devolved to ${newDigimon?.name || 'previous form'}!`,
+        target: null,
+        result: `Wounds restored to ${previousState.wounds}`,
+        damage: null,
+        effects: ['Auto-Devolve'],
+      }
+    }
+  }
 
   // Get attacker name
   let attackerName = 'Unknown'
@@ -328,7 +369,7 @@ export default defineEventHandler(async (event) => {
     hit: hit,
   }
 
-  const updatedBattleLog = [...battleLog, attackLogEntry, dodgeLogEntry]
+  const updatedBattleLog = [...battleLog, attackLogEntry, dodgeLogEntry, ...(autoDevolveLog ? [autoDevolveLog] : [])]
 
   // Update encounter
   const updateData: any = {
