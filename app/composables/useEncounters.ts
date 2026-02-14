@@ -24,6 +24,11 @@ export interface CombatParticipant {
   maxWounds: number
   usedAttackIds?: string[]
   dodgePenalty?: number
+  evolutionLineId?: string
+  woundsHistory?: Array<{ stageIndex: number; wounds: number; entityId: string; maxWounds: number }>
+  usedSpecialOrders?: string[]
+  interceptPenalty?: number
+  intercedeOptOuts?: string[]
 }
 
 export interface BattleLogEntry {
@@ -159,7 +164,8 @@ export function useEncounters() {
     entityId: string,
     initiative: number,
     initiativeRoll: number,
-    maxWounds: number = 5
+    maxWounds: number = 5,
+    evolutionLineId?: string
   ): CombatParticipant {
     return {
       id: `${type}-${entityId}-${Date.now()}`,
@@ -174,6 +180,7 @@ export function useEncounters() {
       hasActed: false,
       currentWounds: 0,
       maxWounds,
+      ...(evolutionLineId ? { evolutionLineId } : {}),
     }
   }
 
@@ -251,7 +258,7 @@ export function useEncounters() {
         p.hasActed = false
         p.usedAttackIds = []
         // Decrement effect durations
-        p.activeEffects = p.activeEffects
+        p.activeEffects = (p.activeEffects || [])
           .map((e) => ({ ...e, duration: e.duration - 1 }))
           .filter((e) => e.duration > 0)
       })
@@ -272,6 +279,12 @@ export function useEncounters() {
       nextParticipant.isActive = true
       nextParticipant.dodgePenalty = 0
 
+      // Apply intercept penalty (costs 1 simple action from this turn)
+      if (nextParticipant.interceptPenalty) {
+        nextParticipant.actionsRemaining.simple = Math.max(0, 2 - nextParticipant.interceptPenalty)
+        nextParticipant.interceptPenalty = 0
+      }
+
       // Also reset partner digimon's dodge penalty (partner excluded from turnOrder)
       if (digimonMap && nextParticipant.type === 'tamer') {
         const partner = participants.find((p) => {
@@ -281,6 +294,11 @@ export function useEncounters() {
         })
         if (partner) {
           partner.dodgePenalty = 0
+          // Apply partner's intercept penalty to the DIGIMON's own actions, not the tamer's
+          if (partner.interceptPenalty) {
+            partner.actionsRemaining = { simple: Math.max(0, 2 - partner.interceptPenalty) }
+            partner.interceptPenalty = 0
+          }
         }
       }
     }
@@ -365,7 +383,7 @@ export function useEncounters() {
 
   async function createRequest(
     encounterId: string,
-    type: 'digimon-selection' | 'initiative-roll' | 'dodge-roll',
+    type: 'digimon-selection' | 'initiative-roll' | 'dodge-roll' | 'intercede-offer',
     targetTamerId: string,
     targetParticipantId?: string,
     data?: any
