@@ -75,6 +75,40 @@ export default defineEventHandler(async (event) => {
     targetName = t?.name || 'Tamer'
   }
 
+  // Auto-miss: 0 accuracy successes = immediate miss, no intercede/dodge requests
+  if (body.accuracySuccesses === 0) {
+    const missLog = {
+      id: `log-${Date.now()}-miss`,
+      timestamp: new Date().toISOString(),
+      round: encounter.round || 0,
+      actorId: body.attackerId,
+      actorName: attackerName,
+      action: 'Attack Result',
+      target: targetName,
+      result: 'AUTO MISS - 0 accuracy successes',
+      damage: 0,
+      effects: ['Miss'],
+      hit: false,
+    }
+
+    await db.update(encounters).set({
+      participants: JSON.stringify(participants),
+      battleLog: JSON.stringify([...battleLog, missLog]),
+      updatedAt: new Date(),
+    }).where(eq(encounters.id, encounterId))
+
+    const [updated] = await db.select().from(encounters).where(eq(encounters.id, encounterId))
+    return {
+      ...updated,
+      participants: parseJsonField(updated.participants),
+      turnOrder: parseJsonField(updated.turnOrder),
+      battleLog: parseJsonField(updated.battleLog),
+      pendingRequests: parseJsonField(updated.pendingRequests),
+      requestResponses: parseJsonField(updated.requestResponses),
+      hazards: parseJsonField(updated.hazards),
+    }
+  }
+
   // Find eligible tamers (those with partner digimon in encounter, not opted out)
   const eligibleTamerIds: string[] = []
   for (const p of participants) {
