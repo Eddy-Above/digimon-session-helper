@@ -191,6 +191,9 @@ export interface DigimonDerivedStats {
   ram: number             // (Agility / 10) + Stage Bonus
   // Movement
   movement: number        // Base Movement from Stage + modifiers
+  // Range & Effective Limit
+  range: number           // floor((Accuracy + Brains) / 2) + BIT
+  effectiveLimit: number  // floor(Accuracy / 2) + Brains + BIT
 }
 
 export interface Attack {
@@ -357,6 +360,9 @@ export function calculateDigimonDerivedStats(
   const cpu = Math.floor(body / 10) + stageConfig.stageBonus
   const ram = Math.floor(agility / 10) + stageConfig.stageBonus
 
+  const range = Math.floor((baseStats.accuracy + brains) / 2) + bit
+  const effectiveLimit = Math.floor(baseStats.accuracy / 2) + brains + bit
+
   return {
     brains,
     body,
@@ -366,6 +372,8 @@ export function calculateDigimonDerivedStats(
     cpu,
     ram,
     movement: stageConfig.movement,
+    range,
+    effectiveLimit,
   }
 }
 

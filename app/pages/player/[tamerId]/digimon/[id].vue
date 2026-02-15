@@ -467,7 +467,7 @@ const hasLinkedEvolutions = computed(() => {
           </div>
 
           <!-- Combat Stats -->
-          <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
+          <div class="grid grid-cols-2 md:grid-cols-3 gap-3 mt-3">
             <div class="bg-digimon-dark-700 rounded-lg p-3 text-center">
               <div class="text-xs text-digimon-dark-400 mb-1">Wound Boxes</div>
               <div class="text-lg font-bold text-red-400">{{ derivedStats.woundBoxes }}</div>
@@ -475,6 +475,14 @@ const hasLinkedEvolutions = computed(() => {
             <div class="bg-digimon-dark-700 rounded-lg p-3 text-center">
               <div class="text-xs text-digimon-dark-400 mb-1">Movement</div>
               <div class="text-lg font-bold text-blue-400">{{ derivedStats.movement }}m</div>
+            </div>
+            <div class="bg-digimon-dark-700 rounded-lg p-3 text-center">
+              <div class="text-xs text-digimon-dark-400 mb-1">Range</div>
+              <div class="text-lg font-bold text-cyan-400">{{ derivedStats.range }}</div>
+            </div>
+            <div class="bg-digimon-dark-700 rounded-lg p-3 text-center">
+              <div class="text-xs text-digimon-dark-400 mb-1">Eff. Limit</div>
+              <div class="text-lg font-bold text-cyan-400">{{ derivedStats.effectiveLimit }}m</div>
             </div>
             <div class="bg-digimon-dark-700 rounded-lg p-3 text-center">
               <div class="text-xs text-digimon-dark-400 mb-1">Stage Bonus</div>

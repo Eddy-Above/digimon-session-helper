@@ -297,12 +297,12 @@ function getParticipantAttacks(participant: CombatParticipant) {
 // Calculate attack stats based on digimon stats, qualities, and tags (mirrors AttackSelector logic)
 function getAttackStats(participant: CombatParticipant, attack: any) {
   if (participant.type !== 'digimon') {
-    return { accuracy: 0, damage: 0, accuracyBonus: 0, damageBonus: 0, notes: [] }
+    return { accuracy: 0, damage: 0, accuracyBonus: 0, damageBonus: 0, notes: [], range: 0, effectiveLimit: 0 }
   }
 
   const digimon = digimonMap.value.get(participant.entityId)
   if (!digimon) {
-    return { accuracy: 0, damage: 0, accuracyBonus: 0, damageBonus: 0, notes: [] }
+    return { accuracy: 0, damage: 0, accuracyBonus: 0, damageBonus: 0, notes: [], range: 0, effectiveLimit: 0 }
   }
 
   // Get base stats (baseStats + bonusStats), then apply stance modifier
@@ -447,12 +447,16 @@ function getAttackStats(participant: CombatParticipant, attack: any) {
   }
 
   // Return calculated stats
+  const stats = calcDigimonStats(digimon)
+
   return {
     accuracy: baseAccuracy + accuracyBonus,
     damage: baseDamage + damageBonus,
     accuracyBonus,
     damageBonus,
     notes,
+    range: stats.range,
+    effectiveLimit: stats.effectiveLimit,
   }
 }
 
@@ -1955,6 +1959,14 @@ async function handleUpdateHazard(hazard: Hazard) {
                       </span>
                     </div>
 
+                    <!-- Range & Effective Limit -->
+                    <div class="flex items-center gap-1">
+                      <span class="text-digimon-dark-400">Range:</span>
+                      <span class="text-white font-medium">{{ getAttackStats(currentTurnParticipant, attack).range }}</span>
+                      <span class="text-digimon-dark-400 ml-1">Limit:</span>
+                      <span class="text-white font-medium">{{ getAttackStats(currentTurnParticipant, attack).effectiveLimit }}m</span>
+                    </div>
+
                     <!-- Tags -->
                     <div v-if="attack.tags?.length" class="flex items-center gap-1">
                       <span class="text-digimon-dark-400">Tags:</span>
@@ -2059,9 +2071,13 @@ async function handleUpdateHazard(hazard: Hazard) {
                       </div>
                     </div>
 
-                    <!-- Dodge penalty indicator -->
-                    <div v-if="item.participant.dodgePenalty" class="mb-2">
-                      <span class="text-xs text-red-400">Dodge -{{ item.participant.dodgePenalty }}</span>
+                    <!-- Speed/Movement and Dodge penalty -->
+                    <div class="flex gap-3 mb-2 text-xs">
+                      <span v-if="getEntityDetails(item.participant)?.derived" class="text-digimon-dark-400">
+                        {{ item.participant.type === 'tamer' ? 'Speed' : 'Movement' }}:
+                        <span class="text-digimon-dark-300">{{ item.participant.type === 'tamer' ? getEntityDetails(item.participant)?.derived.speed : getEntityDetails(item.participant)?.derived.movement }}</span>
+                      </span>
+                      <span v-if="item.participant.dodgePenalty" class="text-red-400">Dodge -{{ item.participant.dodgePenalty }}</span>
                     </div>
 
                     <!-- Digivolve/Devolve buttons for non-partner digimon -->
@@ -2248,6 +2264,11 @@ async function handleUpdateHazard(hazard: Hazard) {
                     </div>
                     <span class="text-digimon-dark-400">({{ item.partnerDigimon.actionsRemaining.simple }}/2)</span>
                   </div>
+
+                  <!-- Movement -->
+                  <span v-if="getEntityDetails(item.partnerDigimon)?.derived" class="text-digimon-dark-400">
+                    Mov: <span class="text-digimon-dark-300">{{ getEntityDetails(item.partnerDigimon)?.derived.movement }}</span>
+                  </span>
 
                   <!-- Dodge penalty -->
                   <span v-if="item.partnerDigimon.dodgePenalty" class="text-red-400">Dodge -{{ item.partnerDigimon.dodgePenalty }}</span>

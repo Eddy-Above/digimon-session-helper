@@ -183,6 +183,9 @@ export function useDigimonStats(form: Ref<any> | any) {
 
     const movement = effectiveBase + speedyBonus
 
+    const range = Math.floor((accuracy + brains) / 2) + bit
+    const effectiveLimit = Math.floor(accuracy / 2) + brains + bit
+
     return {
       brains,
       body,
@@ -194,6 +197,8 @@ export function useDigimonStats(form: Ref<any> | any) {
       movement,
       baseMovement: effectiveBase,
       stageBonus: stageConfig.stageBonus,
+      range,
+      effectiveLimit,
     }
   })
 

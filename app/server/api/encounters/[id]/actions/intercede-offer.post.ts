@@ -11,6 +11,7 @@ interface IntercedeOfferBody {
   attackData: any // Full attack data for later resolution
   bolstered?: boolean
   bolsterType?: 'damage-accuracy' | 'bit-cpu'
+  skipActionDeduction?: boolean // When called from attack.post.ts which already deducted actions
 }
 
 export default defineEventHandler(async (event) => {
@@ -50,28 +51,30 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 404, message: 'Attacker or target not found' })
   }
 
-  // Deduct attacker actions and track used attack
-  const attackActionCost = body.bolstered ? 2 : 1
-  participants = participants.map((p: any) => {
-    if (p.id === body.attackerId) {
-      const updated: any = {
-        ...p,
-        actionsRemaining: { simple: Math.max(0, (p.actionsRemaining?.simple || 0) - attackActionCost) },
-        usedAttackIds: [...(p.usedAttackIds || []), body.attackId],
-        // Consume Directed effect on attacker (bonus was applied client-side to accuracy pool)
-        activeEffects: (p.activeEffects || []).filter((e: any) => e.name !== 'Directed'),
-      }
-      // Track bolster usage for digimon
-      if (body.bolstered && p.type === 'digimon') {
-        updated.digimonBolsterCount = (p.digimonBolsterCount ?? 0) + 1
-        if (body.bolsterType === 'bit-cpu') {
-          updated.lastBitCpuBolsterRound = encounter.round
+  // Deduct attacker actions and track used attack (skip if already done by attack.post.ts)
+  if (!body.skipActionDeduction) {
+    const attackActionCost = body.bolstered ? 2 : 1
+    participants = participants.map((p: any) => {
+      if (p.id === body.attackerId) {
+        const updated: any = {
+          ...p,
+          actionsRemaining: { simple: Math.max(0, (p.actionsRemaining?.simple || 0) - attackActionCost) },
+          usedAttackIds: [...(p.usedAttackIds || []), body.attackId],
+          // Consume Directed effect on attacker (bonus was applied client-side to accuracy pool)
+          activeEffects: (p.activeEffects || []).filter((e: any) => e.name !== 'Directed'),
         }
+        // Track bolster usage for digimon
+        if (body.bolstered && p.type === 'digimon') {
+          updated.digimonBolsterCount = (p.digimonBolsterCount ?? 0) + 1
+          if (body.bolsterType === 'bit-cpu') {
+            updated.lastBitCpuBolsterRound = encounter.round
+          }
+        }
+        return updated
       }
-      return updated
-    }
-    return p
-  })
+      return p
+    })
+  }
 
   // Get attacker and target names
   let attackerName = 'Unknown'
@@ -154,8 +157,13 @@ export default defineEventHandler(async (event) => {
     }
   }
 
-  if (eligibleTamerIds.length === 0) {
-    // No eligible tamers — check if target is player-controlled or NPC
+  // GM always gets intercede modal unless explicitly opted out via "Never Intercede"
+  const gmParticipant = participants.find((p: any) => p.id === 'gm')
+  const gmOptOuts: string[] = gmParticipant?.intercedeOptOuts || []
+  const gmEligible = !gmOptOuts.includes(body.targetId)
+
+  if (eligibleTamerIds.length === 0 && !gmEligible) {
+    // No eligible tamers and GM not eligible — check if target is player-controlled or NPC
     let isPlayerTarget = false
     if (target.type === 'tamer') {
       isPlayerTarget = true
@@ -255,6 +263,55 @@ export default defineEventHandler(async (event) => {
     }
   }
 
+  // If no player tamers eligible but GM is, create GM-only intercede offer
+  if (eligibleTamerIds.length === 0 && gmEligible) {
+    const intercedeGroupId = `intercede-${Date.now()}`
+    const gmRequest = {
+      id: `req-${Date.now()}-gm`,
+      type: 'intercede-offer',
+      targetTamerId: 'GM',
+      targetParticipantId: body.targetId,
+      timestamp: new Date().toISOString(),
+      data: {
+        intercedeGroupId,
+        attackerId: body.attackerId,
+        targetId: body.targetId,
+        attackerName,
+        targetName,
+        accuracySuccesses: body.accuracySuccesses,
+        accuracyDice: body.accuracyDice,
+        attackId: body.attackId,
+        attackData: body.attackData,
+        eligibleTamerIds: [],
+        bolstered: body.bolstered || false,
+        bolsterType: body.bolsterType || null,
+        bolsterDamageBonus: body.bolstered && body.bolsterType === 'damage-accuracy' ? 2 : 0,
+        bolsterBitCpuBonus: body.bolstered && body.bolsterType === 'bit-cpu' ? 1 : 0,
+      },
+    }
+
+    await db.update(encounters).set({
+      pendingRequests: JSON.stringify([...pendingRequests, gmRequest]),
+      participants: JSON.stringify(participants),
+      updatedAt: new Date(),
+    }).where(eq(encounters.id, encounterId))
+
+    const [updated] = await db.select().from(encounters).where(eq(encounters.id, encounterId))
+    if (!updated) {
+      throw createError({ statusCode: 500, message: 'Failed to retrieve encounter after update' })
+    }
+
+    return {
+      ...updated,
+      participants: parseJsonField(updated.participants),
+      turnOrder: parseJsonField(updated.turnOrder),
+      battleLog: parseJsonField(updated.battleLog),
+      pendingRequests: parseJsonField(updated.pendingRequests),
+      requestResponses: parseJsonField(updated.requestResponses),
+      hazards: parseJsonField(updated.hazards),
+    }
+  }
+
   // Create a unique intercede group ID to link all offers for this attack
   const intercedeGroupId = `intercede-${Date.now()}`
 
@@ -284,23 +341,7 @@ export default defineEventHandler(async (event) => {
     },
   }))
 
-  // Check GM opt-outs and add GM request
-  const gmParticipant = participants.find((p: any) => p.id === 'gm')
-  const gmOptOuts: string[] = gmParticipant?.intercedeOptOuts || []
-  const gmCharOptOuts: Record<string, string[]> = gmParticipant?.gmCharacterOptOuts || {}
-  const charOptOutsForTarget: string[] = gmCharOptOuts[body.targetId] || []
-
-  // GM is eligible if not fully opted out AND at least one interceptor is not character-opted-out
-  const allInterceptorIds = participants
-    .filter((p: any) =>
-      (p.type === 'tamer' || p.type === 'digimon') &&
-      p.id !== body.attackerId &&
-      p.id !== body.targetId
-    )
-    .map((p: any) => p.id)
-  const hasValidInterceptor = allInterceptorIds.some((id: string) => !charOptOutsForTarget.includes(id))
-  const gmEligible = !gmOptOuts.includes(body.targetId) && hasValidInterceptor
-
+  // Add GM intercede offer if eligible (reusing check computed earlier)
   if (gmEligible) {
     newRequests.push({
       id: `req-${Date.now()}-gm`,

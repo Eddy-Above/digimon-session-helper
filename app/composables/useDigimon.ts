@@ -216,6 +216,9 @@ export function useDigimon() {
 
     const movement = effectiveBase + speedyBonus
 
+    const range = Math.floor((totalStats.accuracy + brains) / 2) + bit
+    const effectiveLimit = Math.floor(totalStats.accuracy / 2) + brains + bit
+
     return {
       brains,
       body,
@@ -226,6 +229,8 @@ export function useDigimon() {
       ram,
       movement,
       stageBonus: stageConfig.stageBonus,
+      range,
+      effectiveLimit,
     }
   }
 
