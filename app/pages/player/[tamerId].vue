@@ -746,12 +746,12 @@ function getParticipantAttacks(participant: CombatParticipant): any[] {
 
 function getAttackStats(participant: CombatParticipant, attack: any) {
   if (participant.type !== 'digimon') {
-    return { accuracy: 0, damage: 0, accuracyBonus: 0, damageBonus: 0, notes: [] }
+    return { accuracy: 0, damage: 0, accuracyBonus: 0, damageBonus: 0, notes: [], range: 0, effectiveLimit: 0 }
   }
 
   const digimon = partnerDigimon.value.find((d) => d.id === participant.entityId)
   if (!digimon) {
-    return { accuracy: 0, damage: 0, accuracyBonus: 0, damageBonus: 0, notes: [] }
+    return { accuracy: 0, damage: 0, accuracyBonus: 0, damageBonus: 0, notes: [], range: 0, effectiveLimit: 0 }
   }
 
   // Get base stats (baseStats + bonusStats), then apply stance modifier
@@ -869,12 +869,16 @@ function getAttackStats(participant: CombatParticipant, attack: any) {
     notes.push(`Directed +${directedEffect.value}`)
   }
 
+  const stats = calcDigimonStats(digimon)
+
   return {
     accuracy: baseAccuracy + accuracyBonus,
     damage: baseDamage + damageBonus,
     accuracyBonus,
     damageBonus,
     notes,
+    range: stats.range,
+    effectiveLimit: stats.effectiveLimit,
   }
 }
 
@@ -917,6 +921,10 @@ async function changePlayerStance(participant: CombatParticipant, stance: Combat
 
   target.actionsRemaining.simple = Math.max(0, (target.actionsRemaining?.simple || 0) - 1)
   target.currentStance = stance
+
+  // Force Vue reactivity by reassigning activeEncounter with new object references
+  activeEncounter.value = { ...activeEncounter.value, participants: [...participants] }
+
   await updateEncounter(activeEncounter.value.id, { participants })
   await addBattleLogEntry(activeEncounter.value.id, {
     round: activeEncounter.value.round,
@@ -928,7 +936,6 @@ async function changePlayerStance(participant: CombatParticipant, stance: Combat
     damage: null,
     effects: [],
   })
-  await loadData()
 }
 
 async function usePlayerAction(participant: CombatParticipant, actionType: 'movement') {
@@ -1616,6 +1623,7 @@ const intercedeOptions = computed(() => {
   if (!currentIntercedeRequest.value || !activeEncounter.value) return []
   const participants = (activeEncounter.value.participants as CombatParticipant[]) || []
   const targetId = currentIntercedeRequest.value.data?.targetId
+  const attackerId = currentIntercedeRequest.value.data?.attackerId
   const options: { id: string; name: string; type: string }[] = []
 
   // Find my tamer participant
@@ -1630,11 +1638,11 @@ const intercedeOptions = computed(() => {
   })
 
   // Offer tamer as interceptor (if tamer is not the target)
-  if (myTamerParticipant && myTamerParticipant.id !== targetId) {
+  if (myTamerParticipant && myTamerParticipant.id !== targetId && myTamerParticipant.id !== attackerId) {
     options.push({ id: myTamerParticipant.id, name: tamer.value?.name || 'Tamer', type: 'tamer' })
   }
   // Offer partner digimon as interceptor (if digimon is not the target)
-  if (myDigimonParticipant && myDigimonParticipant.id !== targetId) {
+  if (myDigimonParticipant && myDigimonParticipant.id !== targetId && myDigimonParticipant.id !== attackerId) {
     const digi = allDigimon.value.find((d) => d.id === myDigimonParticipant.entityId)
     options.push({ id: myDigimonParticipant.id, name: digi?.name || 'Digimon', type: 'digimon' })
   }
@@ -2353,6 +2361,9 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
                             ({{ getAttackStats(participant, attack).damageBonus }})
                           </span>
                         </div>
+                        <div class="text-digimon-dark-400 text-xs mt-0.5">
+                          Range: {{ getAttackStats(participant, attack).range }} | Limit: {{ getAttackStats(participant, attack).effectiveLimit }}m
+                        </div>
                       </div>
                     </div>
                   </button>
@@ -2872,6 +2883,9 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
                         </span>
                         <span v-if="attack.type === 'damage'" class="text-orange-400">
                           DMG: {{ getAttackDamage(getCurrentForm(chain.chainId)!, { range: attack.range, tags: attack.tags || [] }) }}
+                        </span>
+                        <span class="text-digimon-dark-400">
+                          Range: {{ calcDigimonStats(getCurrentForm(chain.chainId)!).range }} | Limit: {{ calcDigimonStats(getCurrentForm(chain.chainId)!).effectiveLimit }}m
                         </span>
                       </div>
                     </div>

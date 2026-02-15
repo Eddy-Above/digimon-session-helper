@@ -65,6 +65,11 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, message: 'Interceptor cannot be the same as the target' })
   }
 
+  // Interceptor cannot be the same as the attacker
+  if (body.interceptorParticipantId === request.data.attackerId) {
+    throw createError({ statusCode: 400, message: 'Attacker cannot intercede their own attack' })
+  }
+
   // Determine if interceptor's turn has already happened this round
   const turnOrder = parseJsonField(encounter.turnOrder)
   const currentTurnIndex = encounter.currentTurnIndex || 0
