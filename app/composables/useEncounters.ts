@@ -257,6 +257,7 @@ export function useEncounters() {
         p.actionsRemaining = { simple: 2 }
         p.hasActed = false
         p.usedAttackIds = []
+        p.hasAttemptedDigivolve = false
         // Decrement effect durations
         p.activeEffects = (p.activeEffects || [])
           .map((e) => ({ ...e, duration: e.duration - 1 }))

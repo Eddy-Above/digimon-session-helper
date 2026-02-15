@@ -4,6 +4,7 @@ import type { CombatParticipant, BattleLogEntry, Hazard } from '../../composable
 import type { Digimon } from '../../server/db/schema'
 import type { Tamer } from '../../server/db/schema'
 import { getUnlockedSpecialOrders, getOrderActionCost, getOrderUsageLimit } from '../../utils/specialOrders'
+import { DIGIVOLVE_WILLPOWER_DC } from '../../types'
 
 definePageMeta({
   title: 'Encounter',
@@ -58,6 +59,12 @@ const selectedTamerForRequest = ref('')
 const selectedAttack = ref<{ participant: any; attack: any } | null>(null)
 const showTargetSelector = ref(false)
 const selectedTargetId = ref<string | null>(null)
+
+// Willpower roll modal state for digivolution
+const showWillpowerRollModal = ref(false)
+const willpowerRollResult = ref<{ rolls: number[]; total: number } | null>(null)
+const hasRolledWillpower = ref(false)
+const pendingDigivolve = ref<{ participant: CombatParticipant; targetChainIndex: number; targetSpecies: string; tamer: Tamer } | null>(null)
 
 // Entity lookup maps
 const digimonMap = computed(() => {
@@ -1026,15 +1033,38 @@ async function handleEndCombat() {
   }
 }
 
+// Get the tamer for a partner digimon participant
+function getTamerForDigimonParticipant(participant: CombatParticipant): Tamer | null {
+  const digimonEntity = digimonMap.value.get(participant.entityId)
+  if (!digimonEntity?.partnerId) return null
+  return tamerMap.value.get(digimonEntity.partnerId) || null
+}
+
 // Digivolve / Devolve handler
 async function handleDigivolve(participant: CombatParticipant, targetChainIndex: number) {
   if (!currentEncounter.value) return
+
+  // Check if this is an evolve (not devolve) for a partner digimon
+  const evoOptions = getParticipantEvolutionOptions(participant)
+  const isEvolve = evoOptions.evolveTargets.some((t: any) => t.chainIndex === targetChainIndex)
+  const tamer = getTamerForDigimonParticipant(participant)
+
+  if (isEvolve && tamer) {
+    // Partner digimon evolving — need willpower roll
+    const target = evoOptions.evolveTargets.find((t: any) => t.chainIndex === targetChainIndex)
+    pendingDigivolve.value = { participant, targetChainIndex, targetSpecies: target?.species || 'Unknown', tamer }
+    willpowerRollResult.value = null
+    hasRolledWillpower.value = false
+    showWillpowerRollModal.value = true
+    return
+  }
+
+  // Non-partner digimon or devolve — proceed directly
   try {
-    const result = await $fetch(`/api/encounters/${currentEncounter.value.id}/actions/digivolve`, {
+    await $fetch(`/api/encounters/${currentEncounter.value.id}/actions/digivolve`, {
       method: 'POST',
       body: { participantId: participant.id, targetChainIndex },
     })
-    // Refresh encounter and digimon data
     await fetchEncounter(currentEncounter.value.id)
     await fetchDigimon()
     await fetchEvolutionLines()
@@ -1042,6 +1072,61 @@ async function handleDigivolve(participant: CombatParticipant, targetChainIndex:
     console.error('Digivolve failed:', e)
     alert(e?.data?.message || 'Failed to digivolve')
   }
+}
+
+function rollWillpowerGM() {
+  if (!pendingDigivolve.value) return
+  const tamer = pendingDigivolve.value.tamer
+  const attrs = typeof tamer.attributes === 'string' ? JSON.parse(tamer.attributes as any) : tamer.attributes
+  const willpower = attrs?.willpower || 0
+  const rolls: number[] = []
+  for (let i = 0; i < 3; i++) rolls.push(Math.floor(Math.random() * 6) + 1)
+  const total = rolls.reduce((a: number, b: number) => a + b, 0) + willpower
+  willpowerRollResult.value = { rolls, total }
+  hasRolledWillpower.value = true
+}
+
+async function submitWillpowerRollGM() {
+  if (!currentEncounter.value || !willpowerRollResult.value || !pendingDigivolve.value) return
+
+  const tamer = pendingDigivolve.value.tamer
+  const dc = DIGIVOLVE_WILLPOWER_DC[tamer.campaignLevel]
+  const passed = willpowerRollResult.value.total >= dc
+
+  if (passed) {
+    try {
+      await $fetch(`/api/encounters/${currentEncounter.value.id}/actions/digivolve`, {
+        method: 'POST',
+        body: {
+          participantId: pendingDigivolve.value.participant.id,
+          targetChainIndex: pendingDigivolve.value.targetChainIndex,
+        },
+      })
+    } catch (e: any) {
+      console.error('Digivolve failed:', e)
+      alert(e?.data?.message || 'Failed to digivolve')
+    }
+  } else {
+    try {
+      await $fetch(`/api/encounters/${currentEncounter.value.id}/actions/digivolve-fail`, {
+        method: 'POST',
+        body: {
+          participantId: pendingDigivolve.value.participant.id,
+          targetSpecies: pendingDigivolve.value.targetSpecies,
+          rollTotal: willpowerRollResult.value.total,
+          dc,
+        },
+      })
+    } catch (e: any) {
+      console.error('Digivolve fail logging failed:', e)
+    }
+  }
+
+  showWillpowerRollModal.value = false
+  pendingDigivolve.value = null
+  await fetchEncounter(currentEncounter.value.id)
+  await fetchDigimon()
+  await fetchEvolutionLines()
 }
 
 // Get evolution options for a participant
@@ -1452,6 +1537,7 @@ onMounted(async () => {
   // Auto-refresh encounter every 5 seconds to see player responses
   refreshInterval = setInterval(() => {
     fetchEncounter(route.params.id as string)
+    fetchEvolutionLines()
   }, 5000)
 })
 
@@ -2030,16 +2116,16 @@ async function handleUpdateHazard(hazard: Hazard) {
                   <button
                     v-for="target in getParticipantEvolutionOptions(item.partnerDigimon).evolveTargets"
                     :key="`evo-${target.chainIndex}`"
-                    :disabled="(item.partnerDigimon.actionsRemaining?.simple || 0) < 2"
+                    :disabled="(item.partnerDigimon.actionsRemaining?.simple || 0) < 2 || item.participant.hasAttemptedDigivolve"
                     :class="[
                       'text-xs px-2 py-1 rounded font-medium',
-                      (item.partnerDigimon.actionsRemaining?.simple || 0) >= 2
+                      (item.partnerDigimon.actionsRemaining?.simple || 0) >= 2 && !item.participant.hasAttemptedDigivolve
                         ? 'bg-purple-600 hover:bg-purple-500 text-white cursor-pointer'
                         : 'bg-digimon-dark-600 text-digimon-dark-400 cursor-not-allowed'
                     ]"
                     @click="handleDigivolve(item.partnerDigimon, target.chainIndex)"
                   >
-                    Digivolve → {{ target.species }}
+                    {{ item.participant.hasAttemptedDigivolve ? 'Digivolve attempted' : `Digivolve → ${target.species}` }}
                   </button>
                   <button
                     v-if="getParticipantEvolutionOptions(item.partnerDigimon).canDevolve"
@@ -2765,5 +2851,100 @@ async function handleUpdateHazard(hazard: Hazard) {
         </div>
       </Teleport>
     </template>
+
+    <!-- Willpower Roll Modal (for digivolution) -->
+    <Teleport to="body">
+      <div
+        v-if="showWillpowerRollModal && pendingDigivolve"
+        class="fixed inset-0 bg-black/80 flex items-center justify-center z-50"
+      >
+        <div class="bg-digimon-dark-800 rounded-xl p-6 w-full max-w-md border-2 border-purple-500">
+          <h2 class="font-display text-xl font-semibold text-purple-400 mb-4">
+            Willpower Check — Digivolve to {{ pendingDigivolve.targetSpecies }}
+          </h2>
+
+          <div class="mb-4 p-3 bg-purple-900/20 rounded-lg">
+            <p class="text-white text-sm">
+              <span class="font-semibold">{{ pendingDigivolve.tamer.name }}</span> must pass a Willpower check
+            </p>
+            <p class="text-white text-sm mt-1">
+              DC <span class="font-semibold">{{ DIGIVOLVE_WILLPOWER_DC[pendingDigivolve.tamer.campaignLevel] }}</span>
+              <span class="text-digimon-dark-400 ml-1">({{ pendingDigivolve.tamer.campaignLevel }})</span>
+            </p>
+            <p class="text-digimon-dark-300 text-sm mt-1">
+              3d6 + {{ (typeof pendingDigivolve.tamer.attributes === 'string' ? JSON.parse(pendingDigivolve.tamer.attributes as any) : pendingDigivolve.tamer.attributes)?.willpower || 0 }} (Willpower)
+            </p>
+          </div>
+
+          <!-- Dice Roller -->
+          <div class="mb-4">
+            <div class="bg-digimon-dark-700 rounded-lg p-4 mb-4">
+              <div class="flex gap-2 items-center justify-center mb-4">
+                <span class="text-white font-semibold">3d6 + Willpower</span>
+              </div>
+
+              <button
+                :disabled="hasRolledWillpower"
+                @click="rollWillpowerGM"
+                :class="[
+                  'w-full text-white px-4 py-2 rounded-lg font-semibold transition-colors',
+                  hasRolledWillpower ? 'bg-digimon-dark-600 opacity-50 cursor-not-allowed' : 'bg-purple-600 hover:bg-purple-700'
+                ]"
+              >
+                {{ hasRolledWillpower ? 'Already Rolled' : 'Roll Willpower' }}
+              </button>
+            </div>
+
+            <div
+              v-if="willpowerRollResult"
+              class="bg-digimon-dark-700 rounded-lg p-4 mb-4 text-center"
+            >
+              <div class="text-sm text-digimon-dark-400 mb-2">Willpower Roll</div>
+              <div class="flex justify-center gap-1 mb-2">
+                <span
+                  v-for="(die, idx) in willpowerRollResult.rolls"
+                  :key="idx"
+                  class="w-8 h-8 flex items-center justify-center rounded font-bold text-sm bg-digimon-dark-600 text-white"
+                >
+                  {{ die }}
+                </span>
+                <span class="w-8 h-8 flex items-center justify-center text-digimon-dark-400 font-bold">+</span>
+                <span class="w-8 h-8 flex items-center justify-center rounded font-bold text-sm bg-purple-700 text-white">
+                  {{ (typeof pendingDigivolve.tamer.attributes === 'string' ? JSON.parse(pendingDigivolve.tamer.attributes as any) : pendingDigivolve.tamer.attributes)?.willpower || 0 }}
+                </span>
+              </div>
+              <div class="text-3xl font-bold mb-1" :class="willpowerRollResult.total >= DIGIVOLVE_WILLPOWER_DC[pendingDigivolve.tamer.campaignLevel] ? 'text-green-400' : 'text-red-400'">
+                {{ willpowerRollResult.total }}
+              </div>
+              <div class="text-sm" :class="willpowerRollResult.total >= DIGIVOLVE_WILLPOWER_DC[pendingDigivolve.tamer.campaignLevel] ? 'text-green-400' : 'text-red-400'">
+                {{ willpowerRollResult.total >= DIGIVOLVE_WILLPOWER_DC[pendingDigivolve.tamer.campaignLevel] ? 'SUCCESS' : 'FAILURE' }}
+                <span class="text-digimon-dark-400 ml-1">(vs DC {{ DIGIVOLVE_WILLPOWER_DC[pendingDigivolve.tamer.campaignLevel] }})</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="flex gap-2">
+            <button
+              @click="showWillpowerRollModal = false; pendingDigivolve = null"
+              class="flex-1 bg-digimon-dark-600 hover:bg-digimon-dark-500 text-white px-4 py-2 rounded-lg font-semibold transition-colors"
+              :disabled="hasRolledWillpower"
+            >
+              Cancel
+            </button>
+            <button
+              :disabled="!willpowerRollResult"
+              @click="submitWillpowerRollGM"
+              :class="[
+                'flex-1 text-white px-4 py-2 rounded-lg font-semibold transition-colors',
+                !willpowerRollResult ? 'bg-digimon-dark-600 opacity-50 cursor-not-allowed' :
+                willpowerRollResult.total >= DIGIVOLVE_WILLPOWER_DC[pendingDigivolve.tamer.campaignLevel] ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'
+              ]"
+            >
+              {{ willpowerRollResult && willpowerRollResult.total >= DIGIVOLVE_WILLPOWER_DC[pendingDigivolve.tamer.campaignLevel] ? 'Digivolve!' : 'Accept Failure' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>

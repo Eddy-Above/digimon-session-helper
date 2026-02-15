@@ -118,6 +118,11 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, message: 'Target evolution stage is locked' })
   }
 
+  // Only one digivolve attempt per turn (evolving only, devolving is always allowed)
+  if (isEvolve && tamerParticipant.hasAttemptedDigivolve) {
+    throw createError({ statusCode: 400, message: 'Already attempted digivolution this turn' })
+  }
+
   // Fetch new digimon to get stats
   const [newDigimon] = await db.select().from(digimon).where(eq(digimon.id, targetEntry.digimonId))
   if (!newDigimon) {
@@ -141,6 +146,7 @@ export default defineEventHandler(async (event) => {
       return {
         ...p,
         actionsRemaining: { simple: Math.max(0, (p.actionsRemaining?.simple || 0) - 1) },
+        ...(isEvolve ? { hasAttemptedDigivolve: true } : {}),
       }
     }
 
