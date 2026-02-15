@@ -467,7 +467,7 @@ const hasLinkedEvolutions = computed(() => {
           </div>
 
           <!-- Combat Stats -->
-          <div class="grid grid-cols-2 md:grid-cols-3 gap-3 mt-3">
+          <div class="grid grid-cols-3 md:grid-cols-6 gap-3 mt-3">
             <div class="bg-digimon-dark-700 rounded-lg p-3 text-center">
               <div class="text-xs text-digimon-dark-400 mb-1">Wound Boxes</div>
               <div class="text-lg font-bold text-red-400">{{ derivedStats.woundBoxes }}</div>
@@ -825,6 +825,8 @@ const hasLinkedEvolutions = computed(() => {
           :base-stats="form.baseStats"
           :bonus-stats="form.bonusStats"
           :data-optimization="form.dataOptimization"
+          :digimon-range="derivedStats.range"
+          :effective-limit="derivedStats.effectiveLimit"
           @add="handleAddAttack"
           @remove="removeAttack"
           @edit="editAttack"

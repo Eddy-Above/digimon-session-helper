@@ -746,12 +746,12 @@ function getParticipantAttacks(participant: CombatParticipant): any[] {
 
 function getAttackStats(participant: CombatParticipant, attack: any) {
   if (participant.type !== 'digimon') {
-    return { accuracy: 0, damage: 0, accuracyBonus: 0, damageBonus: 0, notes: [], range: 0, effectiveLimit: 0 }
+    return { accuracy: 0, damage: 0, accuracyBonus: 0, damageBonus: 0, notes: [], range: 0, effectiveLimit: 0, attackRange: null, attackEffectiveLimit: null }
   }
 
   const digimon = partnerDigimon.value.find((d) => d.id === participant.entityId)
   if (!digimon) {
-    return { accuracy: 0, damage: 0, accuracyBonus: 0, damageBonus: 0, notes: [], range: 0, effectiveLimit: 0 }
+    return { accuracy: 0, damage: 0, accuracyBonus: 0, damageBonus: 0, notes: [], range: 0, effectiveLimit: 0, attackRange: null, attackEffectiveLimit: null }
   }
 
   // Get base stats (baseStats + bonusStats), then apply stance modifier
@@ -871,6 +871,18 @@ function getAttackStats(participant: CombatParticipant, attack: any) {
 
   const stats = calcDigimonStats(digimon)
 
+  // Per-attack range: melee = 1 (or Reach x 2), ranged = calculated
+  const reachQuality = digimon.qualities?.find((q: any) => q.id === 'reach')
+  const reachRanks = reachQuality?.ranks || 0
+  let attackRange: number | null = null
+  let attackEffectiveLimit: number | null = null
+  if (attack.range === 'melee') {
+    attackRange = reachRanks > 0 ? reachRanks * 2 : 1
+  } else {
+    attackRange = stats.range
+    attackEffectiveLimit = stats.effectiveLimit
+  }
+
   return {
     accuracy: baseAccuracy + accuracyBonus,
     damage: baseDamage + damageBonus,
@@ -879,6 +891,8 @@ function getAttackStats(participant: CombatParticipant, attack: any) {
     notes,
     range: stats.range,
     effectiveLimit: stats.effectiveLimit,
+    attackRange,
+    attackEffectiveLimit,
   }
 }
 
@@ -1832,6 +1846,17 @@ function getAttackAccuracy(digimon: Digimon, attack: { range: 'melee' | 'ranged'
   return digimon.baseStats.accuracy + (bonusStats.accuracy || 0) + bonuses.accuracy
 }
 
+// Get per-attack range: melee = 1 (or Reach x 2), ranged = calculated
+function getPerAttackRange(digimon: Digimon, attackRange: 'melee' | 'ranged'): { range: number; effectiveLimit: number | null } {
+  if (attackRange === 'melee') {
+    const reachQuality = (digimon as any).qualities?.find((q: any) => q.id === 'reach')
+    const reachRanks = reachQuality?.ranks || 0
+    return { range: reachRanks > 0 ? reachRanks * 2 : 1, effectiveLimit: null }
+  }
+  const stats = calcDigimonStats(digimon)
+  return { range: stats.range, effectiveLimit: stats.effectiveLimit }
+}
+
 // Calculate attack damage pool (base + bonus + tag/quality bonuses)
 // Note: Stage bonus is NOT added to the pool - it's added to final damage after the roll
 function getAttackDamage(digimon: Digimon, attack: { range: 'melee' | 'ranged'; tags: string[] }): number {
@@ -2361,8 +2386,8 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
                             ({{ getAttackStats(participant, attack).damageBonus }})
                           </span>
                         </div>
-                        <div class="text-digimon-dark-400 text-xs mt-0.5">
-                          Range: {{ getAttackStats(participant, attack).range }} | Limit: {{ getAttackStats(participant, attack).effectiveLimit }}m
+                        <div v-if="getAttackStats(participant, attack).attackRange != null" class="text-digimon-dark-400 text-xs mt-0.5">
+                          Range: {{ getAttackStats(participant, attack).attackRange }}m<template v-if="getAttackStats(participant, attack).attackEffectiveLimit != null"> | Limit: {{ getAttackStats(participant, attack).attackEffectiveLimit }}m</template>
                         </div>
                       </div>
                     </div>
@@ -2885,7 +2910,7 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
                           DMG: {{ getAttackDamage(getCurrentForm(chain.chainId)!, { range: attack.range, tags: attack.tags || [] }) }}
                         </span>
                         <span class="text-digimon-dark-400">
-                          Range: {{ calcDigimonStats(getCurrentForm(chain.chainId)!).range }} | Limit: {{ calcDigimonStats(getCurrentForm(chain.chainId)!).effectiveLimit }}m
+                          Range: {{ getPerAttackRange(getCurrentForm(chain.chainId)!, attack.range).range }}m<template v-if="getPerAttackRange(getCurrentForm(chain.chainId)!, attack.range).effectiveLimit != null"> | Limit: {{ getPerAttackRange(getCurrentForm(chain.chainId)!, attack.range).effectiveLimit }}m</template>
                         </span>
                       </div>
                     </div>

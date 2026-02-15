@@ -1047,7 +1047,7 @@ function handleCancel() {
                 <div class="text-lg font-bold text-green-400">{{ derivedStats.ram }}</div>
               </div>
             </div>
-            <div class="grid grid-cols-2 md:grid-cols-3 gap-3 mt-3">
+            <div class="grid grid-cols-3 md:grid-cols-6 gap-3 mt-3">
               <div class="bg-digimon-dark-700 rounded-lg p-3 text-center">
                 <div class="text-xs text-digimon-dark-400 mb-1">Wound Boxes</div>
                 <div class="text-lg font-bold text-red-400">{{ derivedStats.woundBoxes }}</div>
@@ -1368,6 +1368,8 @@ function handleCancel() {
             :current-qualities="form.qualities || []"
             :base-stats="form.baseStats"
             :data-optimization="form.dataOptimization"
+            :digimon-range="derivedStats.range"
+            :effective-limit="derivedStats.effectiveLimit"
             @add="handleAddAttack"
             @remove="removeAttack"
             @edit="editAttack"

@@ -297,12 +297,12 @@ function getParticipantAttacks(participant: CombatParticipant) {
 // Calculate attack stats based on digimon stats, qualities, and tags (mirrors AttackSelector logic)
 function getAttackStats(participant: CombatParticipant, attack: any) {
   if (participant.type !== 'digimon') {
-    return { accuracy: 0, damage: 0, accuracyBonus: 0, damageBonus: 0, notes: [], range: 0, effectiveLimit: 0 }
+    return { accuracy: 0, damage: 0, accuracyBonus: 0, damageBonus: 0, notes: [], range: 0, effectiveLimit: 0, attackRange: null, attackEffectiveLimit: null }
   }
 
   const digimon = digimonMap.value.get(participant.entityId)
   if (!digimon) {
-    return { accuracy: 0, damage: 0, accuracyBonus: 0, damageBonus: 0, notes: [], range: 0, effectiveLimit: 0 }
+    return { accuracy: 0, damage: 0, accuracyBonus: 0, damageBonus: 0, notes: [], range: 0, effectiveLimit: 0, attackRange: null, attackEffectiveLimit: null }
   }
 
   // Get base stats (baseStats + bonusStats), then apply stance modifier
@@ -449,6 +449,18 @@ function getAttackStats(participant: CombatParticipant, attack: any) {
   // Return calculated stats
   const stats = calcDigimonStats(digimon)
 
+  // Per-attack range: melee = 1 (or Reach x 2), ranged = calculated
+  const reachQuality = (digimon as any).qualities?.find((q: any) => q.id === 'reach')
+  const reachRanks = reachQuality?.ranks || 0
+  let attackRange: number | null = null
+  let attackEffectiveLimit: number | null = null
+  if (attack.range === 'melee') {
+    attackRange = reachRanks > 0 ? reachRanks * 2 : 1
+  } else {
+    attackRange = stats.range
+    attackEffectiveLimit = stats.effectiveLimit
+  }
+
   return {
     accuracy: baseAccuracy + accuracyBonus,
     damage: baseDamage + damageBonus,
@@ -457,6 +469,8 @@ function getAttackStats(participant: CombatParticipant, attack: any) {
     notes,
     range: stats.range,
     effectiveLimit: stats.effectiveLimit,
+    attackRange,
+    attackEffectiveLimit,
   }
 }
 
@@ -1960,11 +1974,13 @@ async function handleUpdateHazard(hazard: Hazard) {
                     </div>
 
                     <!-- Range & Effective Limit -->
-                    <div class="flex items-center gap-1">
+                    <div v-if="getAttackStats(currentTurnParticipant, attack).attackRange != null" class="flex items-center gap-1">
                       <span class="text-digimon-dark-400">Range:</span>
-                      <span class="text-white font-medium">{{ getAttackStats(currentTurnParticipant, attack).range }}</span>
-                      <span class="text-digimon-dark-400 ml-1">Limit:</span>
-                      <span class="text-white font-medium">{{ getAttackStats(currentTurnParticipant, attack).effectiveLimit }}m</span>
+                      <span class="text-white font-medium">{{ getAttackStats(currentTurnParticipant, attack).attackRange }}m</span>
+                      <template v-if="getAttackStats(currentTurnParticipant, attack).attackEffectiveLimit != null">
+                        <span class="text-digimon-dark-400 ml-1">Limit:</span>
+                        <span class="text-white font-medium">{{ getAttackStats(currentTurnParticipant, attack).attackEffectiveLimit }}m</span>
+                      </template>
                     </div>
 
                     <!-- Tags -->
