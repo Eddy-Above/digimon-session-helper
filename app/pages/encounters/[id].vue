@@ -59,12 +59,27 @@ const selectedTamerForRequest = ref('')
 const selectedAttack = ref<{ participant: any; attack: any } | null>(null)
 const showTargetSelector = ref(false)
 const selectedTargetId = ref<string | null>(null)
+const bolsterAttackEnabled = ref(false)
+const bolsterAttackType = ref<'damage-accuracy' | 'bit-cpu'>('damage-accuracy')
+
+// Direct action state
+const showDirectTargetSelector = ref(false)
+const pendingDirectBolstered = ref(false)
 
 // Willpower roll modal state for digivolution
 const showWillpowerRollModal = ref(false)
 const willpowerRollResult = ref<{ rolls: number[]; total: number } | null>(null)
 const hasRolledWillpower = ref(false)
 const pendingDigivolve = ref<{ participant: CombatParticipant; targetChainIndex: number; targetSpecies: string; tamer: Tamer } | null>(null)
+
+// GM Intercede modal state
+const showGmIntercedeModal = ref(false)
+const gmIntercedeRequest = ref<any>(null)
+const gmIntercedeLoading = ref(false)
+const showGmIntercedeResultModal = ref(false)
+const gmIntercedeResultData = ref<any>(null)
+const gmIntercedeView = ref<'main' | 'select-interceptor' | 'select-optout'>('main')
+const gmOptOutSelections = ref<Set<string>>(new Set())
 
 // Entity lookup maps
 const digimonMap = computed(() => {
@@ -290,8 +305,9 @@ function getAttackStats(participant: CombatParticipant, attack: any) {
     return { accuracy: 0, damage: 0, accuracyBonus: 0, damageBonus: 0, notes: [] }
   }
 
-  // Get base stats (baseStats + bonusStats)
-  const baseAccuracy = (digimon.baseStats?.accuracy ?? 0) + ((digimon as any).bonusStats?.accuracy ?? 0)
+  // Get base stats (baseStats + bonusStats), then apply stance modifier
+  const rawAccuracy = (digimon.baseStats?.accuracy ?? 0) + ((digimon as any).bonusStats?.accuracy ?? 0)
+  const baseAccuracy = applyStanceToAccuracy(rawAccuracy, participant.currentStance)
   const baseDamage = (digimon.baseStats?.damage ?? 0) + ((digimon as any).bonusStats?.damage ?? 0)
 
   let damageBonus = 0
@@ -423,6 +439,13 @@ function getAttackStats(participant: CombatParticipant, attack: any) {
     }
   }
 
+  // Directed effect bonus
+  const directedEffect = participant.activeEffects?.find(e => e.name === 'Directed')
+  if (directedEffect?.value) {
+    accuracyBonus += directedEffect.value
+    notes.push(`Directed +${directedEffect.value}`)
+  }
+
   // Return calculated stats
   return {
     accuracy: baseAccuracy + accuracyBonus,
@@ -469,7 +492,16 @@ function getDodgePool(participant: CombatParticipant): number {
       pool = derived.dodgePool || 3
     }
   }
-  return Math.max(1, pool - (participant.dodgePenalty ?? 0))
+  pool = applyStanceToDodge(pool, participant.currentStance)
+  pool = Math.max(1, pool - (participant.dodgePenalty ?? 0))
+
+  // Add Directed effect bonus to dodge pool
+  const directedEffect = participant.activeEffects?.find(e => e.name === 'Directed')
+  if (directedEffect?.value) {
+    pool += directedEffect.value
+  }
+
+  return pool
 }
 
 // Get participant name (tamer or digimon) for display
@@ -499,17 +531,84 @@ function getGmIntercedeOptions(request: any): any[] {
   )
 }
 
+// Get GM character opt-outs from participant data
+const gmCharacterOptOuts = computed(() => {
+  if (!currentEncounter.value) return {} as Record<string, string[]>
+  const participants = (currentEncounter.value.participants as any[]) || []
+  const gmP = participants.find((p: any) => p.id === 'gm')
+  return (gmP?.gmCharacterOptOuts || {}) as Record<string, string[]>
+})
+
+// All GM intercede options (unfiltered, for opt-out selection view)
+const gmIntercedeAllOptions = computed(() => {
+  if (!gmIntercedeRequest.value) return []
+  return getGmIntercedeOptions(gmIntercedeRequest.value).map((p: any) => ({
+    id: p.id,
+    name: getParticipantName(p.id) || p.id,
+  }))
+})
+
+// GM intercede options filtered by per-character opt-outs (for interceptor selection)
+const gmIntercedeOptionsWithNames = computed(() => {
+  if (!gmIntercedeRequest.value) return []
+  const targetId = gmIntercedeRequest.value.data?.targetId
+  const optedOut = targetId ? (gmCharacterOptOuts.value[targetId] || []) : []
+  return gmIntercedeAllOptions.value.filter((o: any) => !optedOut.includes(o.id))
+})
+
+// Auto-detect GM intercede offers
+const gmIntercedeOffer = computed(() => {
+  return pendingRequests.value.find(
+    (r: any) => r.type === 'intercede-offer' && r.targetTamerId === 'GM'
+  ) || null
+})
+
+// Auto-open GM intercede modal when a GM intercede request appears
+watch(gmIntercedeOffer, (newVal) => {
+  if (newVal && !showGmIntercedeModal.value) {
+    openGmIntercedeModal(newVal)
+  }
+  // Close modal if the offer was claimed by someone else
+  if (!newVal && showGmIntercedeModal.value) {
+    showGmIntercedeModal.value = false
+    gmIntercedeRequest.value = null
+  }
+})
+
+function openGmIntercedeModal(request: any) {
+  gmIntercedeRequest.value = request
+  gmIntercedeView.value = 'main'
+  gmOptOutSelections.value = new Set()
+  showGmIntercedeModal.value = true
+}
+
+function closeGmIntercedeResultModal() {
+  showGmIntercedeResultModal.value = false
+  gmIntercedeResultData.value = null
+}
+
 // Get all valid targets for an attack (exclude the attacker)
 function getAttackTargets(attackerId: string): CombatParticipant[] {
   if (!currentEncounter.value) return []
   const participants = (currentEncounter.value.participants as CombatParticipant[]) || []
-  return participants.filter(p => p.id !== attackerId)
+  return participants.filter(p => p.id !== attackerId && p.type !== 'gm')
 }
 
 // Open target selection modal
 function selectAttackAndShowTargets(participant: CombatParticipant, attack: any) {
   selectedAttack.value = { participant, attack }
+  bolsterAttackEnabled.value = false
+  bolsterAttackType.value = 'damage-accuracy'
   showTargetSelector.value = true
+}
+
+// Check if an attack can be bolstered
+function canBolsterAttack(participant: CombatParticipant, attack: any): boolean {
+  if (participant.type !== 'digimon') return false
+  if ((participant.actionsRemaining?.simple || 0) < 2) return false
+  if ((participant.digimonBolsterCount ?? 0) >= 2) return false
+  if (attack.tags?.some((t: string) => t.toLowerCase().includes('signature'))) return false
+  return true
 }
 
 // Confirm attack and execute
@@ -519,9 +618,14 @@ async function confirmAttack(target: CombatParticipant) {
   try {
     const { participant, attack } = selectedAttack.value
 
-    // Roll accuracy (count successes: 5+ = 1 success)
+    // Calculate accuracy with bolster bonus
     const attackStats = getAttackStats(participant, attack)
-    const accuracyPool = attackStats.accuracy
+    let accuracyPool = attackStats.accuracy
+    if (bolsterAttackEnabled.value && bolsterAttackType.value === 'damage-accuracy') {
+      accuracyPool += 2
+    }
+
+    // Roll accuracy (count successes: 5+ = 1 success)
     const accuracyDiceResults = []
     for (let i = 0; i < accuracyPool; i++) {
       accuracyDiceResults.push(Math.floor(Math.random() * 6) + 1)
@@ -543,6 +647,8 @@ async function confirmAttack(target: CombatParticipant) {
             dicePool: accuracyPool,
             attackStats: getAttackStats(participant, attack),
           },
+          bolstered: bolsterAttackEnabled.value,
+          bolsterType: bolsterAttackEnabled.value ? bolsterAttackType.value : undefined,
         },
       })
       // Add attack log entry
@@ -591,22 +697,88 @@ async function cancelIntercedeGroup(intercedeGroupId: string) {
 // GM intercede response functions
 async function handleGmIntercedeClaim(requestId: string, interceptorId: string) {
   if (!currentEncounter.value) return
+
+  const capturedRequest = gmIntercedeRequest.value
+  gmIntercedeLoading.value = true
   try {
-    await $fetch(`/api/encounters/${currentEncounter.value.id}/actions/intercede-claim`, {
+    const result = await $fetch<any>(`/api/encounters/${currentEncounter.value.id}/actions/intercede-claim`, {
       method: 'POST', body: { requestId, interceptorParticipantId: interceptorId }
     })
+
+    showGmIntercedeModal.value = false
+
+    // Extract intercede result from API response to show result modal
+    if (result && capturedRequest) {
+      const battleLog = (result.battleLog as any[]) || []
+      const intercedeEntry = battleLog.findLast(
+        (entry: any) =>
+          entry.actorId === interceptorId &&
+          typeof entry.action === 'string' &&
+          entry.action.startsWith('Interceded for')
+      )
+
+      if (intercedeEntry) {
+        gmIntercedeResultData.value = {
+          attackerName: capturedRequest.data.attackerName,
+          targetName: capturedRequest.data.targetName,
+          interceptorName: intercedeEntry.actorName,
+          accuracySuccesses: capturedRequest.data.accuracySuccesses,
+          finalDamage: intercedeEntry.finalDamage,
+          baseDamage: intercedeEntry.baseDamage,
+          netSuccesses: intercedeEntry.netSuccesses,
+          targetArmor: intercedeEntry.targetArmor,
+          armorPiercing: intercedeEntry.armorPiercing,
+          effectiveArmor: intercedeEntry.effectiveArmor,
+        }
+        showGmIntercedeResultModal.value = true
+      }
+    }
+
+    await fetchEncounter(currentEncounter.value.id)
   } catch (e: any) {
-    alert(e?.data?.message || 'Intercede failed')
+    if (e?.statusCode === 409) {
+      alert('Another player already interceded for this attack!')
+    } else {
+      alert(e?.data?.message || 'Intercede failed')
+    }
+  } finally {
+    gmIntercedeLoading.value = false
+    gmIntercedeRequest.value = null
   }
-  await fetchEncounter(currentEncounter.value.id)
 }
 
 async function handleGmIntercedeSkip(requestId: string, optOut = false) {
   if (!currentEncounter.value) return
-  await $fetch(`/api/encounters/${currentEncounter.value.id}/actions/intercede-skip`, {
-    method: 'POST', body: { requestId, optOut }
-  })
-  await fetchEncounter(currentEncounter.value.id)
+  gmIntercedeLoading.value = true
+  try {
+    await $fetch(`/api/encounters/${currentEncounter.value.id}/actions/intercede-skip`, {
+      method: 'POST', body: { requestId, optOut }
+    })
+    showGmIntercedeModal.value = false
+    gmIntercedeRequest.value = null
+    await fetchEncounter(currentEncounter.value.id)
+  } finally {
+    gmIntercedeLoading.value = false
+  }
+}
+
+// Save per-character opt-outs for GM intercede (doesn't skip the request, just saves preferences)
+async function handleGmSaveCharacterOptOuts() {
+  if (!currentEncounter.value || !gmIntercedeRequest.value) return
+  gmIntercedeLoading.value = true
+  try {
+    await $fetch(`/api/encounters/${currentEncounter.value.id}/actions/intercede-skip`, {
+      method: 'POST',
+      body: {
+        requestId: gmIntercedeRequest.value.id,
+        characterOptOuts: Array.from(gmOptOutSelections.value),
+      }
+    })
+    await fetchEncounter(currentEncounter.value.id)
+    gmIntercedeView.value = 'main'
+  } finally {
+    gmIntercedeLoading.value = false
+  }
 }
 
 // Add participant handler - supports adding multiple of the same entity
@@ -1278,64 +1450,44 @@ async function useMovement(participantId?: string) {
   }
 }
 
-// Tamer direct action (costs 1 simple action)
-async function useTamerDirectAction(participantId?: string) {
+// Tamer direct action - opens target selector
+function openDirectTargetSelector(bolstered: boolean) {
+  pendingDirectBolstered.value = bolstered
+  showDirectTargetSelector.value = true
+}
+
+// Get eligible digimon targets for Direct
+function getDirectTargets(): CombatParticipant[] {
+  if (!currentEncounter.value) return []
+  const participants = (currentEncounter.value.participants as CombatParticipant[]) || []
+  return participants.filter(p => p.type === 'digimon')
+}
+
+// Confirm direct action on selected digimon
+async function confirmDirect(targetDigimon: CombatParticipant) {
   if (!currentEncounter.value) return
+  const tamer = activeParticipant.value
+  if (!tamer || tamer.type !== 'tamer') return
 
-  const participants = currentEncounter.value.participants as CombatParticipant[]
-  const targetId = participantId || activeParticipant.value?.id
-  if (!targetId) return
-
-  const active = participants.find((p) => p.id === targetId)
-  if (!active || active.type !== 'tamer') return
-  if ((active.actionsRemaining?.simple || 0) < 1) return
-
-  active.actionsRemaining.simple = Math.max(0, (active.actionsRemaining?.simple || 0) - 1)
-  await updateEncounter(currentEncounter.value.id, { participants })
-
-  const entity = getEntityDetails(active)
-  if (entity) {
-    await addBattleLogEntry(currentEncounter.value.id, {
-      round: currentEncounter.value.round,
-      actorId: active.id,
-      actorName: entity.name,
-      action: 'Tamer Direct Action',
-      target: null,
-      result: 'Tamer took a direct action',
-      damage: null,
-      effects: [],
+  try {
+    await $fetch(`/api/encounters/${currentEncounter.value.id}/actions/direct`, {
+      method: 'POST',
+      body: {
+        participantId: tamer.id,
+        targetDigimonId: targetDigimon.id,
+        bolstered: pendingDirectBolstered.value,
+      },
     })
+    showDirectTargetSelector.value = false
+    await fetchEncounter(currentEncounter.value.id)
+  } catch (e: any) {
+    console.error('Direct failed:', e)
+    alert(e?.data?.message || 'Failed to execute Direct')
   }
 }
 
-// Tamer bolster direct action (costs 2 simple actions)
-async function useTamerBolsterDirect(participantId?: string) {
-  if (!currentEncounter.value) return
-
-  const participants = currentEncounter.value.participants as CombatParticipant[]
-  const targetId = participantId || activeParticipant.value?.id
-  if (!targetId) return
-
-  const active = participants.find((p) => p.id === targetId)
-  if (!active || active.type !== 'tamer') return
-  if ((active.actionsRemaining?.simple || 0) < 2) return
-
-  active.actionsRemaining.simple = Math.max(0, (active.actionsRemaining?.simple || 0) - 2)
-  await updateEncounter(currentEncounter.value.id, { participants })
-
-  const entity = getEntityDetails(active)
-  if (entity) {
-    await addBattleLogEntry(currentEncounter.value.id, {
-      round: currentEncounter.value.round,
-      actorId: active.id,
-      actorName: entity.name,
-      action: 'Bolster Direct Action',
-      target: null,
-      result: 'Tamer used bolster direct action',
-      damage: null,
-      effects: [],
-    })
-  }
+function cancelDirectSelection() {
+  showDirectTargetSelector.value = false
 }
 
 // Re-roll initiative for a participant
@@ -2210,20 +2362,20 @@ async function handleUpdateHazard(hazard: Hazard) {
             <div v-if="activeParticipant.type === 'tamer'" class="space-y-2 mb-4">
               <label class="block text-sm text-digimon-dark-400">Tamer Actions</label>
               <button
-                :disabled="activeParticipant.actionsRemaining.simple < 1"
+                :disabled="activeParticipant.actionsRemaining.simple < 1 || activeParticipant.hasDirectedThisTurn"
                 class="w-full bg-amber-600 hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed
                        text-white px-3 py-2 rounded text-sm font-medium"
-                @click="useTamerDirectAction()"
+                @click="openDirectTargetSelector(false)"
               >
-                Direct Action (1 Simple)
+                Direct (1 Simple){{ activeParticipant.hasDirectedThisTurn ? ' - Used' : '' }}
               </button>
               <button
-                :disabled="activeParticipant.actionsRemaining.simple < 2"
+                :disabled="activeParticipant.actionsRemaining.simple < 2 || activeParticipant.hasDirectedThisTurn"
                 class="w-full bg-amber-700 hover:bg-amber-800 disabled:opacity-50 disabled:cursor-not-allowed
                        text-white px-3 py-2 rounded text-sm font-medium"
-                @click="useTamerBolsterDirect()"
+                @click="openDirectTargetSelector(true)"
               >
-                Bolster Direct (2 Simple)
+                Bolster Direct (2 Simple){{ activeParticipant.hasDirectedThisTurn ? ' - Used' : '' }}
               </button>
             </div>
 
@@ -2273,7 +2425,7 @@ async function handleUpdateHazard(hazard: Hazard) {
                 <h3 class="text-lg font-semibold text-white mb-4">Enemy Scan - Select Target</h3>
                 <div class="space-y-2 max-h-60 overflow-y-auto">
                   <button
-                    v-for="p in (currentEncounter?.participants as CombatParticipant[] || []).filter(p => p.id !== activeParticipant.id)"
+                    v-for="p in (currentEncounter?.participants as CombatParticipant[] || []).filter(p => p.id !== activeParticipant.id && p.type !== 'gm')"
                     :key="p.id"
                     class="w-full bg-digimon-dark-700 hover:bg-digimon-dark-600 text-white px-3 py-2 rounded text-sm text-left"
                     @click="handleUseSpecialOrder(activeParticipant, 'Enemy Scan', p.id)"
@@ -2381,33 +2533,7 @@ async function handleUpdateHazard(hazard: Hazard) {
                     </button>
                   </template>
                   <template v-else-if="request.type === 'intercede-offer' && request.targetTamerId === 'GM'">
-                    <!-- GM intercede: show buttons for each eligible interceptor -->
-                    <div class="flex flex-col gap-1 w-full">
-                      <div class="flex flex-wrap gap-1">
-                        <button
-                          v-for="opt in getGmIntercedeOptions(request)"
-                          :key="opt.id"
-                          @click="handleGmIntercedeClaim(request.id, opt.id)"
-                          class="bg-yellow-700 hover:bg-yellow-600 text-white text-xs px-2 py-1 rounded"
-                        >
-                          {{ getParticipantName(opt.id) || opt.id }}
-                        </button>
-                      </div>
-                      <div class="flex gap-1">
-                        <button
-                          @click="handleGmIntercedeSkip(request.id)"
-                          class="bg-digimon-dark-600 hover:bg-digimon-dark-500 text-white text-xs px-2 py-1 rounded"
-                        >
-                          Skip
-                        </button>
-                        <button
-                          @click="handleGmIntercedeSkip(request.id, true)"
-                          class="bg-red-900 hover:bg-red-800 text-white text-xs px-2 py-1 rounded"
-                        >
-                          Never
-                        </button>
-                      </div>
-                    </div>
+                    <!-- GM intercede modal auto-appears -->
                   </template>
                   <template v-else-if="request.type === 'intercede-offer'">
                     <!-- Player intercede: just cancel button -->
@@ -2831,6 +2957,51 @@ async function handleUpdateHazard(hazard: Hazard) {
               </div>
             </div>
 
+            <!-- Bolster Attack Toggle -->
+            <div
+              v-if="selectedAttack && canBolsterAttack(selectedAttack.participant, selectedAttack.attack)"
+              class="mb-4 p-3 bg-digimon-dark-700 rounded-lg border border-digimon-dark-600"
+            >
+              <label class="flex items-center gap-2 cursor-pointer mb-2">
+                <input
+                  type="checkbox"
+                  v-model="bolsterAttackEnabled"
+                  class="rounded border-digimon-dark-500 bg-digimon-dark-600 text-amber-500"
+                />
+                <span class="text-sm text-amber-400 font-medium">Bolster Attack (2 Simple Actions)</span>
+                <span class="text-xs text-digimon-dark-400 ml-auto">
+                  {{ (selectedAttack.participant.digimonBolsterCount ?? 0) }}/2 used
+                </span>
+              </label>
+              <div v-if="bolsterAttackEnabled" class="flex gap-2 mt-2">
+                <button
+                  @click="bolsterAttackType = 'damage-accuracy'"
+                  :class="[
+                    'flex-1 text-xs px-2 py-1.5 rounded transition-colors',
+                    bolsterAttackType === 'damage-accuracy'
+                      ? 'bg-amber-600 text-white'
+                      : 'bg-digimon-dark-600 text-digimon-dark-300 hover:bg-digimon-dark-500'
+                  ]"
+                >
+                  +2 Damage & Accuracy
+                </button>
+                <button
+                  @click="bolsterAttackType = 'bit-cpu'"
+                  :disabled="selectedAttack.participant.lastBitCpuBolsterRound !== undefined &&
+                    (currentEncounter?.round || 0) - selectedAttack.participant.lastBitCpuBolsterRound < 2"
+                  :class="[
+                    'flex-1 text-xs px-2 py-1.5 rounded transition-colors',
+                    bolsterAttackType === 'bit-cpu'
+                      ? 'bg-amber-600 text-white'
+                      : 'bg-digimon-dark-600 text-digimon-dark-300 hover:bg-digimon-dark-500',
+                    'disabled:opacity-50 disabled:cursor-not-allowed'
+                  ]"
+                >
+                  +1 BIT/CPU (Effect)
+                </button>
+              </div>
+            </div>
+
             <!-- Action buttons -->
             <div class="flex gap-3">
               <button
@@ -2838,7 +3009,7 @@ async function handleUpdateHazard(hazard: Hazard) {
                 :disabled="!selectedTargetId"
                 class="flex-1 bg-digimon-orange-600 hover:bg-digimon-orange-700 disabled:bg-digimon-dark-600 disabled:text-digimon-dark-400 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg transition-colors font-medium"
               >
-                Attack{{ selectedAttack?.attack?.name ? ` with ${selectedAttack.attack.name}` : '' }}
+                {{ bolsterAttackEnabled ? 'Bolster ' : '' }}Attack{{ selectedAttack?.attack?.name ? ` with ${selectedAttack.attack.name}` : '' }}
               </button>
               <button
                 @click="cancelAttackSelection"
@@ -2851,6 +3022,64 @@ async function handleUpdateHazard(hazard: Hazard) {
         </div>
       </Teleport>
     </template>
+
+    <!-- Direct Target Selection Modal -->
+    <Teleport to="body">
+      <div
+        v-if="showDirectTargetSelector"
+        class="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4"
+        @click.self="cancelDirectSelection"
+      >
+        <div class="bg-digimon-dark-800 rounded-xl p-6 max-w-md w-full border-2 border-amber-500">
+          <h2 class="text-xl font-display font-semibold text-amber-400 mb-4">
+            {{ pendingDirectBolstered ? 'Bolster Direct' : 'Direct' }} — Select Digimon
+          </h2>
+          <p class="text-sm text-digimon-dark-400 mb-4">
+            Choose a Digimon to direct. They will receive a bonus to their next Accuracy or Dodge roll.
+          </p>
+
+          <div class="space-y-2 mb-6">
+            <button
+              v-for="target in getDirectTargets()"
+              :key="target.id"
+              @click="confirmDirect(target)"
+              class="w-full bg-digimon-dark-700 hover:bg-amber-900/30 rounded-lg p-3 border border-digimon-dark-600 hover:border-amber-500 transition-all text-left"
+            >
+              <div class="flex items-center gap-3">
+                <div class="w-8 h-8 rounded bg-digimon-dark-600 flex items-center justify-center overflow-hidden">
+                  <img
+                    v-if="getEntityDetails(target)?.spriteUrl"
+                    :src="getEntityDetails(target)!.spriteUrl!"
+                    :alt="getEntityDetails(target)?.name || 'target'"
+                    class="max-w-full max-h-full object-contain"
+                  />
+                  <span v-else class="text-lg">{{ getEntityDetails(target)?.icon }}</span>
+                </div>
+                <div class="flex-1">
+                  <div class="font-semibold text-white text-sm">
+                    {{ getEntityDetails(target)?.name || 'Unknown' }}
+                  </div>
+                  <div class="text-xs text-digimon-dark-400">
+                    {{ getEntityDetails(target)?.species }}
+                  </div>
+                </div>
+              </div>
+            </button>
+
+            <div v-if="getDirectTargets().length === 0" class="text-center text-digimon-dark-400 py-4">
+              No digimon targets available.
+            </div>
+          </div>
+
+          <button
+            @click="cancelDirectSelection"
+            class="w-full bg-digimon-dark-700 hover:bg-digimon-dark-600 text-white px-4 py-2 rounded-lg transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </Teleport>
 
     <!-- Willpower Roll Modal (for digivolution) -->
     <Teleport to="body">
@@ -2941,6 +3170,222 @@ async function handleUpdateHazard(hazard: Hazard) {
               ]"
             >
               {{ willpowerRollResult && willpowerRollResult.total >= DIGIVOLVE_WILLPOWER_DC[pendingDigivolve.tamer.campaignLevel] ? 'Digivolve!' : 'Accept Failure' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- GM Intercede Modal -->
+    <Teleport to="body">
+      <div
+        v-if="showGmIntercedeModal && gmIntercedeRequest"
+        class="fixed inset-0 bg-black/80 flex items-center justify-center z-50"
+      >
+        <div class="bg-digimon-dark-800 rounded-xl p-6 w-full max-w-md border-2 border-yellow-500">
+
+          <!-- Main View -->
+          <template v-if="gmIntercedeView === 'main'">
+            <h2 class="font-display text-xl font-semibold text-yellow-400 mb-4">
+              Intercede?
+            </h2>
+
+            <div class="mb-4 p-3 bg-yellow-900/20 rounded-lg">
+              <p class="text-white text-sm">
+                <span class="font-semibold">{{ gmIntercedeRequest.data?.attackerName }}</span>
+                is attacking
+                <span class="font-semibold">{{ gmIntercedeRequest.data?.targetName }}</span>!
+              </p>
+              <p class="text-yellow-300 text-xs mt-1">
+                {{ gmIntercedeRequest.data?.accuracySuccesses }} accuracy successes
+              </p>
+            </div>
+
+            <div class="mb-4 p-3 bg-digimon-dark-700 rounded-lg text-sm text-digimon-dark-300">
+              <p class="mb-1">If you intercede:</p>
+              <ul class="list-disc list-inside space-y-1 text-xs">
+                <li>Your chosen participant takes the hit instead (0 dodge)</li>
+                <li>The interceptor loses 1 simple action on their next turn</li>
+              </ul>
+            </div>
+
+            <div class="flex flex-col gap-2">
+              <button
+                :disabled="gmIntercedeLoading || gmIntercedeOptionsWithNames.length === 0"
+                @click="gmIntercedeView = 'select-interceptor'"
+                class="w-full bg-yellow-600 hover:bg-yellow-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg font-semibold transition-colors"
+              >
+                {{ gmIntercedeOptionsWithNames.length === 0 ? 'No eligible interceptors' : 'Intercede' }}
+              </button>
+              <button
+                :disabled="gmIntercedeLoading"
+                @click="handleGmIntercedeSkip(gmIntercedeRequest.id)"
+                class="w-full bg-digimon-dark-700 hover:bg-digimon-dark-600 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg font-semibold transition-colors"
+              >
+                {{ gmIntercedeLoading ? 'Processing...' : 'Skip' }}
+              </button>
+              <button
+                :disabled="gmIntercedeLoading"
+                @click="() => {
+                  const targetId = gmIntercedeRequest.data?.targetId
+                  const existing = targetId ? (gmCharacterOptOuts[targetId] || []) : []
+                  gmOptOutSelections = new Set(existing)
+                  gmIntercedeView = 'select-optout'
+                }"
+                class="w-full bg-red-800/50 hover:bg-red-700/50 disabled:opacity-50 disabled:cursor-not-allowed text-red-300 px-4 py-2 rounded-lg text-sm transition-colors"
+              >
+                Never Intercede
+              </button>
+            </div>
+          </template>
+
+          <!-- Select Interceptor View -->
+          <template v-else-if="gmIntercedeView === 'select-interceptor'">
+            <h2 class="font-display text-xl font-semibold text-yellow-400 mb-4">
+              Select Interceptor
+            </h2>
+
+            <div class="mb-4 p-3 bg-yellow-900/20 rounded-lg">
+              <p class="text-white text-sm">
+                Choose who will intercede for
+                <span class="font-semibold">{{ gmIntercedeRequest.data?.targetName }}</span>
+              </p>
+            </div>
+
+            <div class="flex flex-col gap-2">
+              <button
+                v-for="option in gmIntercedeOptionsWithNames"
+                :key="option.id"
+                :disabled="gmIntercedeLoading"
+                @click="handleGmIntercedeClaim(gmIntercedeRequest.id, option.id)"
+                class="w-full bg-yellow-600 hover:bg-yellow-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg font-semibold transition-colors"
+              >
+                {{ gmIntercedeLoading ? 'Processing...' : option.name }}
+              </button>
+              <button
+                :disabled="gmIntercedeLoading"
+                @click="gmIntercedeView = 'main'"
+                class="w-full bg-digimon-dark-700 hover:bg-digimon-dark-600 text-white px-4 py-2 rounded-lg font-semibold transition-colors"
+              >
+                Back
+              </button>
+            </div>
+          </template>
+
+          <!-- Select Opt-Out View -->
+          <template v-else-if="gmIntercedeView === 'select-optout'">
+            <h2 class="font-display text-xl font-semibold text-yellow-400 mb-4">
+              Never Intercede
+            </h2>
+
+            <div class="mb-4 p-3 bg-yellow-900/20 rounded-lg">
+              <p class="text-white text-sm">
+                Select characters that should never intercede for
+                <span class="font-semibold">{{ gmIntercedeRequest.data?.targetName }}</span>
+              </p>
+            </div>
+
+            <div class="flex flex-col gap-2 mb-4">
+              <label
+                v-for="option in gmIntercedeAllOptions"
+                :key="option.id"
+                class="flex items-center gap-3 p-2 rounded-lg bg-digimon-dark-700 hover:bg-digimon-dark-600 cursor-pointer transition-colors"
+              >
+                <input
+                  type="checkbox"
+                  :checked="gmOptOutSelections.has(option.id)"
+                  @change="() => {
+                    const newSet = new Set(gmOptOutSelections)
+                    if (newSet.has(option.id)) {
+                      newSet.delete(option.id)
+                    } else {
+                      newSet.add(option.id)
+                    }
+                    gmOptOutSelections = newSet
+                  }"
+                  class="w-4 h-4 rounded accent-red-500"
+                />
+                <span class="text-white text-sm">{{ option.name }}</span>
+              </label>
+            </div>
+
+            <div class="flex flex-col gap-2">
+              <button
+                :disabled="gmIntercedeLoading"
+                @click="handleGmSaveCharacterOptOuts"
+                class="w-full bg-red-700 hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg font-semibold transition-colors"
+              >
+                {{ gmIntercedeLoading ? 'Saving...' : 'Confirm' }}
+              </button>
+              <button
+                :disabled="gmIntercedeLoading"
+                @click="gmIntercedeView = 'main'"
+                class="w-full bg-digimon-dark-700 hover:bg-digimon-dark-600 text-white px-4 py-2 rounded-lg font-semibold transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </template>
+
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- GM Intercede Result Modal -->
+    <Teleport to="body">
+      <div
+        v-if="showGmIntercedeResultModal && gmIntercedeResultData"
+        class="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4"
+      >
+        <div class="bg-digimon-dark-800 rounded-xl p-6 w-full max-w-2xl border-2 border-yellow-500">
+          <h2 class="text-2xl font-bold text-yellow-500 mb-2">
+            Intercede Result
+          </h2>
+          <p class="text-digimon-dark-300 mb-4">
+            <span class="text-white font-semibold">{{ gmIntercedeResultData.interceptorName }}</span>
+            took the hit for
+            <span class="text-white font-semibold">{{ gmIntercedeResultData.targetName }}</span>!
+          </p>
+
+          <div class="mb-4 p-4 bg-digimon-dark-700 rounded-lg">
+            <h3 class="text-lg font-semibold text-orange-400 mb-2">Attack Details</h3>
+            <div class="flex items-center gap-2">
+              <span class="text-digimon-dark-400">Attacker:</span>
+              <span class="text-white">{{ gmIntercedeResultData.attackerName }}</span>
+            </div>
+            <div class="flex items-center gap-2 mt-2">
+              <span class="text-digimon-dark-400">Accuracy Successes:</span>
+              <span class="text-orange-400 font-bold text-xl">{{ gmIntercedeResultData.accuracySuccesses }}</span>
+            </div>
+          </div>
+
+          <div class="mb-6 p-4 bg-digimon-dark-700 rounded-lg border-2 border-red-500">
+            <div class="flex items-center justify-between mb-2">
+              <h3 class="text-lg font-semibold text-red-400">
+                HIT! (Intercede = 0 Dodge)
+              </h3>
+              <div class="text-digimon-dark-400">
+                Net Successes:
+                <span class="text-orange-400 font-bold text-xl ml-2">
+                  {{ gmIntercedeResultData.netSuccesses >= 0 ? '+' : '' }}{{ gmIntercedeResultData.netSuccesses }}
+                </span>
+              </div>
+            </div>
+
+            <div class="mt-4 pt-4 border-t border-digimon-dark-600">
+              <div class="flex items-center justify-between">
+                <span class="text-red-400 font-semibold text-lg">Damage Taken:</span>
+                <span class="text-red-500 font-bold text-3xl">{{ gmIntercedeResultData.finalDamage }}</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="flex justify-end">
+            <button
+              @click="closeGmIntercedeResultModal"
+              class="px-6 py-2 bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg font-medium transition-colors"
+            >
+              Close
             </button>
           </div>
         </div>

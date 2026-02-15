@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm'
 import { db, digimon, tamers, evolutionLines } from '../db'
 import { EFFECT_ALIGNMENT } from '../../data/attackConstants'
+import { applyStanceToDodge } from '../../utils/stanceModifiers'
 
 interface ResolveNpcAttackParams {
   participants: any[]
@@ -94,7 +95,14 @@ export async function resolveNpcAttack(params: ResolveNpcAttackParams): Promise<
       dodgePool = (attrs?.agility ?? 0) + (skills?.dodge ?? 0) || 3
     }
   }
+  dodgePool = applyStanceToDodge(dodgePool, target.currentStance)
   dodgePool = Math.max(1, dodgePool - (target.dodgePenalty ?? 0))
+
+  // Apply Directed bonus to dodge pool (for NPC targets that were directed by a tamer)
+  const directedEffect = (target.activeEffects || []).find((e: any) => e.name === 'Directed')
+  if (directedEffect?.value) {
+    dodgePool += directedEffect.value
+  }
 
   // Roll dodge
   const dodgeDiceResults: number[] = []
@@ -147,6 +155,8 @@ export async function resolveNpcAttack(params: ResolveNpcAttackParams): Promise<
       const updated = {
         ...p,
         dodgePenalty: (p.dodgePenalty ?? 0) + 1,
+        // Consume Directed effect (bonus was applied to dodge pool above)
+        activeEffects: (p.activeEffects || []).filter((e: any) => e.name !== 'Directed'),
       }
       if (hit) {
         updated.currentWounds = Math.min(p.maxWounds, (p.currentWounds || 0) + damageDealt)

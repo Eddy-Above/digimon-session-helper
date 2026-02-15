@@ -121,6 +121,14 @@ const willpowerRollResult = ref<{ rolls: number[]; total: number } | null>(null)
 const hasRolledWillpower = ref(false)
 const pendingDigivolve = ref<{ participant: CombatParticipant; targetChainIndex: number; targetSpecies: string } | null>(null)
 
+// Direct action state
+const showDirectTargetSelector = ref(false)
+const pendingDirectBolstered = ref(false)
+
+// Bolster attack state
+const bolsterAttackEnabled = ref(false)
+const bolsterAttackType = ref<'damage-accuracy' | 'bit-cpu'>('damage-accuracy')
+
 // Note: Evolution chain navigation now uses currentDigimonId (see digimonChains computed)
 
 // Composables
@@ -154,7 +162,19 @@ async function loadData() {
       await fetchTamers()
       allTamers.value = allTamersFromComposable.value
 
-      const active = encounters.value.find((e) => e.phase === 'combat' || e.phase === 'setup' || e.phase === 'initiative')
+      // Find an active encounter that this tamer is relevant to (participating or has pending requests)
+      const active = encounters.value.find((e) => {
+        if (e.phase !== 'combat' && e.phase !== 'setup' && e.phase !== 'initiative') return false
+        const pts = (e.participants as CombatParticipant[]) || []
+        const reqs = (e.pendingRequests as any[]) || []
+        const isParticipating = pts.some(
+          (p) =>
+            (p.type === 'tamer' && p.entityId === fetchedTamer.id) ||
+            (p.type === 'digimon' && partnerDigimon.value.some((d) => d.id === p.entityId))
+        )
+        const hasPendingRequests = reqs.some((r) => r.targetTamerId === fetchedTamer.id)
+        return isParticipating || hasPendingRequests
+      })
       if (active) {
         // Fetch all digimon in the encounter (partner and enemy)
         const participants = active.participants as CombatParticipant[]
@@ -170,74 +190,61 @@ async function loadData() {
           }
         }
 
-        // Check if this tamer or their Digimon are participating OR if there are pending requests for them
+        activeEncounter.value = active
+        // Extract my pending requests
+        myRequests.value = getMyPendingRequests(active, fetchedTamer.id)
+
+        // Reconstruct attack results from persisted responses (handles page refresh)
+        const responses = (active.requestResponses as any[]) || []
         const pendingRequests = (active.pendingRequests as any[]) || []
-        const isParticipating = participants.some(
-          (p) =>
-            (p.type === 'tamer' && p.entityId === fetchedTamer.id) ||
-            (p.type === 'digimon' && partnerDigimon.value.some((d) => d.id === p.entityId))
+        const myPartIds = new Set(
+          participants
+            .filter((p) =>
+              (p.type === 'tamer' && p.entityId === fetchedTamer.id) ||
+              (p.type === 'digimon' && partnerDigimon.value.some((d) => d.id === p.entityId))
+            )
+            .map((p) => p.id)
         )
-        const hasPendingRequests = pendingRequests.some((r) => r.targetTamerId === fetchedTamer.id)
 
-        if (isParticipating || hasPendingRequests) {
-          activeEncounter.value = active
-          // Extract my pending requests
-          myRequests.value = getMyPendingRequests(active, fetchedTamer.id)
+        for (const resp of responses) {
+          if (resp.response?.type !== 'dodge-rolled') continue
+          if (!myPartIds.has(resp.attackerParticipantId)) continue
+          // Skip if already in queue
+          if (attackResultQueue.value.some((r) => r.responseId === resp.id)) continue
+          // Skip if already being tracked as pending
+          if (pendingAttacks.value.some((pa) => pa.participantId === resp.attackerParticipantId)) continue
 
-          // Reconstruct attack results from persisted responses (handles page refresh)
-          const responses = (active.requestResponses as any[]) || []
-          const myPartIds = new Set(
-            participants
-              .filter((p) =>
-                (p.type === 'tamer' && p.entityId === fetchedTamer.id) ||
-                (p.type === 'digimon' && partnerDigimon.value.some((d) => d.id === p.entityId))
-              )
-              .map((p) => p.id)
-          )
+          // Find matching request
+          const matchingRequest = pendingRequests.find((req: any) => req.id === resp.requestId)
+          if (!matchingRequest) continue
 
-          for (const resp of responses) {
-            if (resp.response?.type !== 'dodge-rolled') continue
-            if (!myPartIds.has(resp.attackerParticipantId)) continue
-            // Skip if already in queue
-            if (attackResultQueue.value.some((r) => r.responseId === resp.id)) continue
-            // Skip if already being tracked as pending
-            if (pendingAttacks.value.some((pa) => pa.participantId === resp.attackerParticipantId)) continue
+          // Reconstruct synthetic pending attack from request data
+          const syntheticPendingAttack = {
+            trackingId: `reconstructed-${resp.id}`,
+            timestamp: new Date(resp.response.timestamp).getTime(),
+            attackName: matchingRequest.data?.attackName || 'Unknown',
+            targetName: matchingRequest.data?.targetName || 'Unknown',
+            accuracyDicePool: matchingRequest.data?.accuracyDicePool || 0,
+            accuracyDiceResults: matchingRequest.data?.accuracyDiceResults || [],
+            accuracySuccesses: matchingRequest.data?.accuracySuccesses || 0,
+            participantId: resp.attackerParticipantId,
+            attackData: { id: matchingRequest.data?.attackId, name: matchingRequest.data?.attackName, tags: [] }
+          }
 
-            // Find matching request
-            const matchingRequest = pendingRequests.find((req: any) => req.id === resp.requestId)
-            if (!matchingRequest) continue
-
-            // Reconstruct synthetic pending attack from request data
-            const syntheticPendingAttack = {
-              trackingId: `reconstructed-${resp.id}`,
-              timestamp: new Date(resp.response.timestamp).getTime(),
-              attackName: matchingRequest.data?.attackName || 'Unknown',
-              targetName: matchingRequest.data?.targetName || 'Unknown',
-              accuracyDicePool: matchingRequest.data?.accuracyDicePool || 0,
-              accuracyDiceResults: matchingRequest.data?.accuracyDiceResults || [],
-              accuracySuccesses: matchingRequest.data?.accuracySuccesses || 0,
-              participantId: resp.attackerParticipantId,
-              attackData: { id: matchingRequest.data?.attackId, name: matchingRequest.data?.attackName, tags: [] }
-            }
-
-            // Find the attack definition with tags from the digimon's attacks for proper damage calc
-            const attackerParticipant = participants.find((p: any) => p.id === resp.attackerParticipantId)
-            if (attackerParticipant?.type === 'digimon') {
-              const attackerDigi = allDigimon.value.find((d) => d.id === attackerParticipant.entityId)
-              if (attackerDigi?.attacks) {
-                const attacks = typeof attackerDigi.attacks === 'string' ? JSON.parse(attackerDigi.attacks) : attackerDigi.attacks
-                const attackDef = attacks?.find((a: any) => a.id === matchingRequest.data?.attackId)
-                if (attackDef) {
-                  syntheticPendingAttack.attackData = attackDef
-                }
+          // Find the attack definition with tags from the digimon's attacks for proper damage calc
+          const attackerParticipant = participants.find((p: any) => p.id === resp.attackerParticipantId)
+          if (attackerParticipant?.type === 'digimon') {
+            const attackerDigi = allDigimon.value.find((d) => d.id === attackerParticipant.entityId)
+            if (attackerDigi?.attacks) {
+              const attacks = typeof attackerDigi.attacks === 'string' ? JSON.parse(attackerDigi.attacks) : attackerDigi.attacks
+              const attackDef = attacks?.find((a: any) => a.id === matchingRequest.data?.attackId)
+              if (attackDef) {
+                syntheticPendingAttack.attackData = attackDef
               }
             }
-
-            showAttackResult(syntheticPendingAttack, matchingRequest, resp)
           }
-        } else {
-          activeEncounter.value = null
-          myRequests.value = []
+
+          showAttackResult(syntheticPendingAttack, matchingRequest, resp)
         }
       } else {
         activeEncounter.value = null
@@ -535,8 +542,17 @@ const dodgeDicePool = computed(() => {
     }
   }
 
+  pool = applyStanceToDodge(pool, targetParticipant.currentStance)
   const penalty = currentDodgeRequest.value?.data?.dodgePenalty ?? 0
-  return Math.max(1, pool - penalty)
+  pool = Math.max(1, pool - penalty)
+
+  // Add Directed effect bonus to dodge pool
+  const directedEffect = targetParticipant.activeEffects?.find(e => e.name === 'Directed')
+  if (directedEffect?.value) {
+    pool += directedEffect.value
+  }
+
+  return pool
 })
 
 // Initiative modifiers
@@ -738,8 +754,9 @@ function getAttackStats(participant: CombatParticipant, attack: any) {
     return { accuracy: 0, damage: 0, accuracyBonus: 0, damageBonus: 0, notes: [] }
   }
 
-  // Get base stats (baseStats + bonusStats)
-  const baseAccuracy = (digimon.baseStats?.accuracy ?? 0) + ((digimon as any).bonusStats?.accuracy ?? 0)
+  // Get base stats (baseStats + bonusStats), then apply stance modifier
+  const rawAccuracy = (digimon.baseStats?.accuracy ?? 0) + ((digimon as any).bonusStats?.accuracy ?? 0)
+  const baseAccuracy = applyStanceToAccuracy(rawAccuracy, participant.currentStance)
   const baseDamage = (digimon.baseStats?.damage ?? 0) + ((digimon as any).bonusStats?.damage ?? 0)
 
   let damageBonus = 0
@@ -845,6 +862,13 @@ function getAttackStats(participant: CombatParticipant, attack: any) {
     }
   }
 
+  // Directed effect bonus
+  const directedEffect = participant.activeEffects?.find(e => e.name === 'Directed')
+  if (directedEffect?.value) {
+    accuracyBonus += directedEffect.value
+    notes.push(`Directed +${directedEffect.value}`)
+  }
+
   return {
     accuracy: baseAccuracy + accuracyBonus,
     damage: baseDamage + damageBonus,
@@ -907,42 +931,77 @@ async function changePlayerStance(participant: CombatParticipant, stance: Combat
   await loadData()
 }
 
-async function usePlayerAction(participant: CombatParticipant, actionType: 'movement' | 'direct' | 'bolster') {
+async function usePlayerAction(participant: CombatParticipant, actionType: 'movement') {
   if (!activeEncounter.value || !tamer.value) return
 
-  const cost = actionType === 'bolster' ? 2 : 1
-  if ((participant.actionsRemaining?.simple || 0) < cost) return
-  if ((actionType === 'direct' || actionType === 'bolster') && participant.type !== 'tamer') return
+  if ((participant.actionsRemaining?.simple || 0) < 1) return
 
   const participants = (activeEncounter.value.participants as CombatParticipant[])
   const target = participants.find((p) => p.id === participant.id)
   if (!target) return
 
-  target.actionsRemaining.simple = Math.max(0, (target.actionsRemaining?.simple || 0) - cost)
+  target.actionsRemaining.simple = Math.max(0, (target.actionsRemaining?.simple || 0) - 1)
   await updateEncounter(activeEncounter.value.id, { participants })
-
-  const actionNames: Record<string, string> = {
-    movement: 'Movement',
-    direct: 'Tamer Direct Action',
-    bolster: 'Bolster Direct Action',
-  }
-  const resultTexts: Record<string, string> = {
-    movement: 'Used movement action',
-    direct: 'Tamer took a direct action',
-    bolster: 'Tamer used bolster direct action',
-  }
 
   await addBattleLogEntry(activeEncounter.value.id, {
     round: activeEncounter.value.round,
     actorId: target.id,
     actorName: getParticipantName(target) || 'Unknown',
-    action: actionNames[actionType],
+    action: 'Movement',
     target: null,
-    result: resultTexts[actionType],
+    result: 'Used movement action',
     damage: null,
     effects: [],
   })
   await loadData()
+}
+
+// Direct action - opens target selector
+function openPlayerDirectTargetSelector(bolstered: boolean) {
+  pendingDirectBolstered.value = bolstered
+  showDirectTargetSelector.value = true
+}
+
+// Get eligible digimon targets for Direct (from player's perspective)
+function getPlayerDirectTargets(): CombatParticipant[] {
+  if (!activeEncounter.value) return []
+  const participants = (activeEncounter.value.participants as CombatParticipant[]) || []
+  return participants.filter(p => p.type === 'digimon')
+}
+
+// Confirm direct action on selected digimon
+async function confirmPlayerDirect(targetDigimon: CombatParticipant) {
+  if (!activeEncounter.value || !tamer.value) return
+
+  // Find the tamer participant
+  const participants = (activeEncounter.value.participants as CombatParticipant[]) || []
+  const tamerParticipant = participants.find(p => p.type === 'tamer' && p.entityId === tamer.value!.id)
+  if (!tamerParticipant) return
+
+  try {
+    await $fetch(`/api/encounters/${activeEncounter.value.id}/actions/direct`, {
+      method: 'POST',
+      body: {
+        participantId: tamerParticipant.id,
+        targetDigimonId: targetDigimon.id,
+        bolstered: pendingDirectBolstered.value,
+      },
+    })
+    showDirectTargetSelector.value = false
+    await loadData()
+  } catch (e: any) {
+    console.error('Direct failed:', e)
+    alert(e?.data?.message || 'Failed to execute Direct')
+  }
+}
+
+// Check if an attack can be bolstered (player version)
+function canBolsterAttack(participant: CombatParticipant, attack: any): boolean {
+  if (participant.type !== 'digimon') return false
+  if ((participant.actionsRemaining?.simple || 0) < 2) return false
+  if ((participant.digimonBolsterCount ?? 0) >= 2) return false
+  if (attack.tags?.some((t: string) => t.toLowerCase().includes('signature'))) return false
+  return true
 }
 
 function canParticipantAct(participant: CombatParticipant): boolean {
@@ -1091,6 +1150,8 @@ function getEnemyTargets(): CombatParticipant[] {
 
 async function selectAttackAndShowTargets(participant: CombatParticipant, attack: any) {
   selectedAttack.value = { participant, attack }
+  bolsterAttackEnabled.value = false
+  bolsterAttackType.value = 'damage-accuracy'
   showTargetSelector.value = true
 }
 
@@ -1100,8 +1161,13 @@ async function confirmAttack(target: CombatParticipant) {
   try {
     const { participant, attack } = selectedAttack.value
 
+    // Calculate accuracy with bolster bonus
+    let accuracyPool = getAttackStats(participant, attack).accuracy
+    if (bolsterAttackEnabled.value && bolsterAttackType.value === 'damage-accuracy') {
+      accuracyPool += 2
+    }
+
     // Roll accuracy (count successes: 5+ = 1 success)
-    const accuracyPool = getAttackStats(participant, attack).accuracy
     const accuracyDiceResults = []
     for (let i = 0; i < accuracyPool; i++) {
       accuracyDiceResults.push(Math.floor(Math.random() * 6) + 1)
@@ -1119,7 +1185,11 @@ async function confirmAttack(target: CombatParticipant) {
         successes: accuracySuccesses,
         diceResults: accuracyDiceResults,
       },
-      tamer.value.id
+      tamer.value.id,
+      bolsterAttackEnabled.value ? {
+        bolstered: true,
+        bolsterType: bolsterAttackType.value,
+      } : undefined
     )
 
     if (result) {
@@ -2145,18 +2215,18 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
                   <!-- Tamer Direct Actions -->
                   <template v-if="participant.type === 'tamer'">
                     <button
-                      :disabled="participant.actionsRemaining.simple < 1"
+                      :disabled="participant.actionsRemaining.simple < 1 || participant.hasDirectedThisTurn"
                       class="text-xs px-2 py-1 rounded bg-amber-900/50 text-amber-400 hover:bg-amber-900/80 disabled:opacity-50 disabled:cursor-not-allowed"
-                      @click="usePlayerAction(participant, 'direct')"
+                      @click="openPlayerDirectTargetSelector(false)"
                     >
-                      Direct (1)
+                      Direct (1){{ participant.hasDirectedThisTurn ? ' - Used' : '' }}
                     </button>
                     <button
-                      :disabled="participant.actionsRemaining.simple < 2"
+                      :disabled="participant.actionsRemaining.simple < 2 || participant.hasDirectedThisTurn"
                       class="text-xs px-2 py-1 rounded bg-amber-900/50 text-amber-400 hover:bg-amber-900/80 disabled:opacity-50 disabled:cursor-not-allowed"
-                      @click="usePlayerAction(participant, 'bolster')"
+                      @click="openPlayerDirectTargetSelector(true)"
                     >
-                      Bolster (2)
+                      Bolster Direct (2){{ participant.hasDirectedThisTurn ? ' - Used' : '' }}
                     </button>
                   </template>
                 </div>
@@ -3256,6 +3326,51 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
           </button>
         </div>
 
+        <!-- Bolster Attack Toggle -->
+        <div
+          v-if="selectedAttack && canBolsterAttack(selectedAttack.participant, selectedAttack.attack)"
+          class="mb-4 p-3 bg-digimon-dark-700 rounded-lg border border-digimon-dark-600"
+        >
+          <label class="flex items-center gap-2 cursor-pointer mb-2">
+            <input
+              type="checkbox"
+              v-model="bolsterAttackEnabled"
+              class="rounded border-digimon-dark-500 bg-digimon-dark-600 text-amber-500"
+            />
+            <span class="text-sm text-amber-400 font-medium">Bolster Attack (2 Simple Actions)</span>
+            <span class="text-xs text-digimon-dark-400 ml-auto">
+              {{ (selectedAttack.participant.digimonBolsterCount ?? 0) }}/2 used
+            </span>
+          </label>
+          <div v-if="bolsterAttackEnabled" class="flex gap-2 mt-2">
+            <button
+              @click="bolsterAttackType = 'damage-accuracy'"
+              :class="[
+                'flex-1 text-xs px-2 py-1.5 rounded transition-colors',
+                bolsterAttackType === 'damage-accuracy'
+                  ? 'bg-amber-600 text-white'
+                  : 'bg-digimon-dark-600 text-digimon-dark-300 hover:bg-digimon-dark-500'
+              ]"
+            >
+              +2 Damage & Accuracy
+            </button>
+            <button
+              @click="bolsterAttackType = 'bit-cpu'"
+              :disabled="selectedAttack.participant.lastBitCpuBolsterRound !== undefined &&
+                (activeEncounter?.round || 0) - selectedAttack.participant.lastBitCpuBolsterRound < 2"
+              :class="[
+                'flex-1 text-xs px-2 py-1.5 rounded transition-colors',
+                bolsterAttackType === 'bit-cpu'
+                  ? 'bg-amber-600 text-white'
+                  : 'bg-digimon-dark-600 text-digimon-dark-300 hover:bg-digimon-dark-500',
+                'disabled:opacity-50 disabled:cursor-not-allowed'
+              ]"
+            >
+              +1 BIT/CPU (Effect)
+            </button>
+          </div>
+        </div>
+
         <!-- Action buttons -->
         <div class="flex gap-3">
           <button
@@ -3263,7 +3378,7 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
             :disabled="!selectedTargetId"
             class="flex-1 bg-digimon-orange-600 hover:bg-digimon-orange-700 disabled:bg-digimon-dark-600 disabled:text-digimon-dark-400 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg font-semibold transition-colors"
           >
-            Attack{{ selectedAttack?.attack?.name ? ` with ${selectedAttack.attack.name}` : '' }}
+            {{ bolsterAttackEnabled ? 'Bolster ' : '' }}Attack{{ selectedAttack?.attack?.name ? ` with ${selectedAttack.attack.name}` : '' }}
           </button>
           <button
             @click="showTargetSelector = false; selectedAttack = null; selectedTargetId = null"
@@ -3272,6 +3387,61 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
             Cancel
           </button>
         </div>
+      </div>
+    </div>
+  </Teleport>
+
+  <!-- Direct Target Selection Modal -->
+  <Teleport to="body">
+    <div
+      v-if="showDirectTargetSelector"
+      class="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4"
+      @click.self="showDirectTargetSelector = false"
+    >
+      <div class="bg-digimon-dark-800 rounded-xl p-6 max-w-md w-full border-2 border-amber-500">
+        <h2 class="text-xl font-display font-semibold text-amber-400 mb-4">
+          {{ pendingDirectBolstered ? 'Bolster Direct' : 'Direct' }} — Select Digimon
+        </h2>
+        <p class="text-sm text-digimon-dark-400 mb-4">
+          Choose a Digimon to direct. They will receive a bonus to their next Accuracy or Dodge roll.
+        </p>
+
+        <div class="space-y-2 mb-6">
+          <button
+            v-for="target in getPlayerDirectTargets()"
+            :key="target.id"
+            @click="confirmPlayerDirect(target)"
+            class="w-full bg-digimon-dark-700 hover:bg-amber-900/30 rounded-lg p-3 border border-digimon-dark-600 hover:border-amber-500 transition-all text-left"
+          >
+            <div class="flex items-center gap-3">
+              <div class="w-8 h-8 rounded bg-digimon-dark-600 flex items-center justify-center overflow-hidden">
+                <img
+                  v-if="getParticipantImage(target)"
+                  :src="getParticipantImage(target)!"
+                  :alt="getParticipantName(target) || 'target'"
+                  class="max-w-full max-h-full object-contain"
+                />
+                <span v-else class="text-lg">?</span>
+              </div>
+              <div class="flex-1">
+                <div class="font-semibold text-white text-sm">
+                  {{ getParticipantName(target) || 'Unknown' }}
+                </div>
+              </div>
+            </div>
+          </button>
+
+          <div v-if="getPlayerDirectTargets().length === 0" class="text-center text-digimon-dark-400 py-4">
+            No digimon targets available.
+          </div>
+        </div>
+
+        <button
+          @click="showDirectTargetSelector = false"
+          class="w-full bg-digimon-dark-700 hover:bg-digimon-dark-600 text-white px-4 py-2 rounded-lg transition-colors"
+        >
+          Cancel
+        </button>
       </div>
     </div>
   </Teleport>

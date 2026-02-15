@@ -130,12 +130,16 @@ export default defineEventHandler(async (event) => {
           simple: Math.max(0, (p.actionsRemaining?.simple || 0) - actionCost),
         },
         usedAttackIds: [...(p.usedAttackIds || []), body.attackId],
+        // Consume Directed effect on attacker (bonus was applied client-side to accuracy pool by GM)
+        activeEffects: (p.activeEffects || []).filter((e: any) => e.name !== 'Directed'),
       }
     }
     if (p.id === body.targetId) {
       return {
         ...p,
         dodgePenalty: (p.dodgePenalty ?? 0) + 1,
+        // Consume Directed effect (bonus was applied client-side to dodge pool by GM)
+        activeEffects: (p.activeEffects || []).filter((e: any) => e.name !== 'Directed'),
       }
     }
     return p
