@@ -136,6 +136,11 @@ export function useDigimonStats(form: Ref<any> | any) {
     const health = f.baseStats.health + (f.bonusStats?.health || 0)
     const stageConfig = currentStageConfig.value
     const sizeConfig = currentSizeConfig.value
+    const qualities = f.qualities || []
+
+    // Apply quality bonuses before computing derived stats
+    const dataOpt = qualities.find((q) => q.id === 'data-optimization')
+    if (dataOpt?.choiceId === 'guardian') armor += 2
 
     const brains = Math.floor(accuracy / 2) + stageConfig.brainsBonus
     const body = Math.max(0, Math.floor((health + damage + armor) / 3) + sizeConfig.bodyBonus)
@@ -146,16 +151,13 @@ export function useDigimonStats(form: Ref<any> | any) {
     const ram = Math.floor(agility / 10) + stageConfig.stageBonus
 
     const stageBaseMovement = stageConfig.movement
-    const qualities = f.qualities || []
 
     // Calculate effective base movement (after base movement modifiers)
     let effectiveBase = stageBaseMovement
 
     // Data Optimization modifiers
-    const dataOpt = qualities.find((q) => q.id === 'data-optimization')
     if (dataOpt?.choiceId === 'speed-striker') effectiveBase += 2
     if (dataOpt?.choiceId === 'guardian') effectiveBase -= 1
-    if (dataOpt?.choiceId === 'guardian') armor += 2
 
     // Data Specialization modifiers
     const dataSpec = qualities.find((q) => q.id === 'data-specialization')
