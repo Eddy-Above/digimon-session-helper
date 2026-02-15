@@ -84,6 +84,10 @@ export default defineEventHandler(async (event) => {
         const idx = turnOrder.indexOf(tamerOfInterceptor.id)
         turnHasGone = idx >= 0 && idx < currentTurnIndex
       }
+    } else {
+      // NPC digimon — check own turn position directly
+      const idx = turnOrder.indexOf(interceptor.id)
+      turnHasGone = idx >= 0 && idx < currentTurnIndex
     }
   }
 

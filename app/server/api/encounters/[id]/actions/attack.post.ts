@@ -9,6 +9,8 @@ interface AttackActionBody {
   accuracySuccesses: number
   accuracyDiceResults: number[]
   tamerId: string
+  bolstered?: boolean
+  bolsterType?: 'damage-accuracy' | 'bit-cpu'
 }
 
 export default defineEventHandler(async (event) => {
@@ -108,8 +110,45 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  // Attacks cost 1 simple action
-  const actionCostSimple = 1
+  // Bolster validation (digimon only)
+  if (body.bolstered && actor.type === 'digimon') {
+    // Check battle-wide bolster limit (max 2 per digimon per battle)
+    if ((actor.digimonBolsterCount ?? 0) >= 2) {
+      throw createError({
+        statusCode: 403,
+        message: 'Digimon has already bolstered the maximum of 2 times this battle',
+      })
+    }
+
+    // Check BIT/CPU bolster cooldown (once every 2 rounds)
+    if (body.bolsterType === 'bit-cpu' && actor.lastBitCpuBolsterRound !== undefined) {
+      if (encounter.round - actor.lastBitCpuBolsterRound < 2) {
+        throw createError({
+          statusCode: 403,
+          message: 'BIT/CPU bolster can only be used once every 2 rounds',
+        })
+      }
+    }
+
+    // Check for Signature tag (cannot bolster Signature attacks)
+    if (actor.type === 'digimon') {
+      const [actorDigimon] = await db.select().from(digimon).where(eq(digimon.id, actor.entityId))
+      if (actorDigimon?.attacks) {
+        const attacks = typeof actorDigimon.attacks === 'string'
+          ? JSON.parse(actorDigimon.attacks) : actorDigimon.attacks
+        const attackDef = attacks?.find((a: any) => a.id === body.attackId)
+        if (attackDef?.tags?.some((t: string) => t.toLowerCase().includes('signature'))) {
+          throw createError({
+            statusCode: 403,
+            message: 'Cannot bolster a Signature Move',
+          })
+        }
+      }
+    }
+  }
+
+  // Attacks cost 1 simple action, or 2 if bolstered
+  const actionCostSimple = body.bolstered ? 2 : 1
 
   // Validate participant has enough actions
   if ((actor.actionsRemaining?.simple || 0) < actionCostSimple) {
@@ -121,15 +160,25 @@ export default defineEventHandler(async (event) => {
 
   // Create new participant with decremented actions and tracked used attack
   // Dodge penalty is incremented later when dodge response is processed (responses.post.ts)
+  // Also consume any "Directed" effect on the attacker (bonus was applied client-side to accuracy pool)
   const updatedParticipants = participants.map((p: any) => {
     if (p.id === body.participantId) {
-      return {
+      const updated: any = {
         ...p,
         actionsRemaining: {
           simple: Math.max(0, (p.actionsRemaining?.simple || 0) - actionCostSimple),
         },
         usedAttackIds: [...(p.usedAttackIds || []), body.attackId],
+        activeEffects: (p.activeEffects || []).filter((e: any) => e.name !== 'Directed'),
       }
+      // Track bolster usage for digimon
+      if (body.bolstered && p.type === 'digimon') {
+        updated.digimonBolsterCount = (p.digimonBolsterCount ?? 0) + 1
+        if (body.bolsterType === 'bit-cpu') {
+          updated.lastBitCpuBolsterRound = encounter.round
+        }
+      }
+      return updated
     }
     return p
   })
@@ -265,6 +314,11 @@ export default defineEventHandler(async (event) => {
       accuracyDiceResults: body.accuracyDiceResults,
       // Pre-increment dodge penalty for this specific roll
       dodgePenalty: target.dodgePenalty ?? 0,
+      // Bolster bonuses (stored for damage/effect calculation in responses.post.ts)
+      bolstered: body.bolstered || false,
+      bolsterType: body.bolsterType || null,
+      bolsterDamageBonus: body.bolstered && body.bolsterType === 'damage-accuracy' ? 2 : 0,
+      bolsterBitCpuBonus: body.bolstered && body.bolsterType === 'bit-cpu' ? 1 : 0,
     },
   }
 

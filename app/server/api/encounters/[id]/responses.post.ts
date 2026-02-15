@@ -279,6 +279,11 @@ export default defineEventHandler(async (event) => {
       }
     }
 
+    // Apply bolster damage bonus
+    if (request.data.bolsterDamageBonus) {
+      attackBaseDamage += request.data.bolsterDamageBonus
+    }
+
     // Calculate final damage
     let damageDealt = 0
     if (hit) {
@@ -306,6 +311,8 @@ export default defineEventHandler(async (event) => {
         const updated = {
           ...p,
           dodgePenalty: (p.dodgePenalty ?? 0) + 1,
+          // Consume Directed effect (bonus was applied client-side to dodge pool)
+          activeEffects: (p.activeEffects || []).filter((e: any) => e.name !== 'Directed'),
         }
 
         // Apply damage and effects only if hit

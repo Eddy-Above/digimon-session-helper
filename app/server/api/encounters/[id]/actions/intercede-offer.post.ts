@@ -9,6 +9,8 @@ interface IntercedeOfferBody {
   accuracyDice: number[]
   attackId: string
   attackData: any // Full attack data for later resolution
+  bolstered?: boolean
+  bolsterType?: 'damage-accuracy' | 'bit-cpu'
 }
 
 export default defineEventHandler(async (event) => {
@@ -49,13 +51,24 @@ export default defineEventHandler(async (event) => {
   }
 
   // Deduct attacker actions and track used attack
+  const attackActionCost = body.bolstered ? 2 : 1
   participants = participants.map((p: any) => {
     if (p.id === body.attackerId) {
-      return {
+      const updated: any = {
         ...p,
-        actionsRemaining: { simple: Math.max(0, (p.actionsRemaining?.simple || 0) - 1) },
+        actionsRemaining: { simple: Math.max(0, (p.actionsRemaining?.simple || 0) - attackActionCost) },
         usedAttackIds: [...(p.usedAttackIds || []), body.attackId],
+        // Consume Directed effect on attacker (bonus was applied client-side to accuracy pool)
+        activeEffects: (p.activeEffects || []).filter((e: any) => e.name !== 'Directed'),
       }
+      // Track bolster usage for digimon
+      if (body.bolstered && p.type === 'digimon') {
+        updated.digimonBolsterCount = (p.digimonBolsterCount ?? 0) + 1
+        if (body.bolsterType === 'bit-cpu') {
+          updated.lastBitCpuBolsterRound = encounter.round
+        }
+      }
+      return updated
     }
     return p
   })
@@ -176,6 +189,11 @@ export default defineEventHandler(async (event) => {
           attackerParticipantId: body.attackerId,
           targetEntityId: target.entityId,
           dodgePenalty: target.dodgePenalty ?? 0,
+          // Bolster bonuses for damage calculation
+          bolstered: body.bolstered || false,
+          bolsterType: body.bolsterType || null,
+          bolsterDamageBonus: body.bolstered && body.bolsterType === 'damage-accuracy' ? 2 : 0,
+          bolsterBitCpuBonus: body.bolstered && body.bolsterType === 'bit-cpu' ? 1 : 0,
         },
       }
 
@@ -258,13 +276,30 @@ export default defineEventHandler(async (event) => {
       attackId: body.attackId,
       attackData: body.attackData,
       eligibleTamerIds,
+      // Pass through bolster bonuses
+      bolstered: body.bolstered || false,
+      bolsterType: body.bolsterType || null,
+      bolsterDamageBonus: body.bolstered && body.bolsterType === 'damage-accuracy' ? 2 : 0,
+      bolsterBitCpuBonus: body.bolstered && body.bolsterType === 'bit-cpu' ? 1 : 0,
     },
   }))
 
   // Check GM opt-outs and add GM request
   const gmParticipant = participants.find((p: any) => p.id === 'gm')
   const gmOptOuts: string[] = gmParticipant?.intercedeOptOuts || []
-  const gmEligible = !gmOptOuts.includes(body.targetId)
+  const gmCharOptOuts: Record<string, string[]> = gmParticipant?.gmCharacterOptOuts || {}
+  const charOptOutsForTarget: string[] = gmCharOptOuts[body.targetId] || []
+
+  // GM is eligible if not fully opted out AND at least one interceptor is not character-opted-out
+  const allInterceptorIds = participants
+    .filter((p: any) =>
+      (p.type === 'tamer' || p.type === 'digimon') &&
+      p.id !== body.attackerId &&
+      p.id !== body.targetId
+    )
+    .map((p: any) => p.id)
+  const hasValidInterceptor = allInterceptorIds.some((id: string) => !charOptOutsForTarget.includes(id))
+  const gmEligible = !gmOptOuts.includes(body.targetId) && hasValidInterceptor
 
   if (gmEligible) {
     newRequests.push({

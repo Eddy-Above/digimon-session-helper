@@ -17,6 +17,7 @@ export interface CombatParticipant {
     duration: number
     source: string
     description: string
+    value?: number
   }>
   isActive: boolean
   hasActed: boolean
@@ -29,6 +30,9 @@ export interface CombatParticipant {
   usedSpecialOrders?: string[]
   interceptPenalty?: number
   intercedeOptOuts?: string[]
+  hasDirectedThisTurn?: boolean
+  digimonBolsterCount?: number
+  lastBitCpuBolsterRound?: number
 }
 
 export interface BattleLogEntry {
@@ -258,6 +262,11 @@ export function useEncounters() {
         p.hasActed = false
         p.usedAttackIds = []
         p.hasAttemptedDigivolve = false
+        // Apply intercept penalty from previous round
+        if (p.interceptPenalty) {
+          p.actionsRemaining.simple = Math.max(0, 2 - p.interceptPenalty)
+          p.interceptPenalty = 0
+        }
         // Decrement effect durations
         p.activeEffects = (p.activeEffects || [])
           .map((e) => ({ ...e, duration: e.duration - 1 }))
@@ -279,12 +288,7 @@ export function useEncounters() {
     if (nextParticipant) {
       nextParticipant.isActive = true
       nextParticipant.dodgePenalty = 0
-
-      // Apply intercept penalty (costs 1 simple action from this turn)
-      if (nextParticipant.interceptPenalty) {
-        nextParticipant.actionsRemaining.simple = Math.max(0, 2 - nextParticipant.interceptPenalty)
-        nextParticipant.interceptPenalty = 0
-      }
+      nextParticipant.hasDirectedThisTurn = false
 
       // Also reset partner digimon's dodge penalty (partner excluded from turnOrder)
       if (digimonMap && nextParticipant.type === 'tamer') {
@@ -295,11 +299,6 @@ export function useEncounters() {
         })
         if (partner) {
           partner.dodgePenalty = 0
-          // Apply partner's intercept penalty to the DIGIMON's own actions, not the tamer's
-          if (partner.interceptPenalty) {
-            partner.actionsRemaining = { simple: Math.max(0, 2 - partner.interceptPenalty) }
-            partner.interceptPenalty = 0
-          }
         }
       }
     }
@@ -515,7 +514,11 @@ export function useEncounters() {
       successes: number
       diceResults: number[]
     },
-    tamerId: string
+    tamerId: string,
+    bolsterData?: {
+      bolstered: boolean
+      bolsterType?: 'damage-accuracy' | 'bit-cpu'
+    }
   ): Promise<Encounter | null> {
     loading.value = true
     error.value = null
@@ -530,6 +533,8 @@ export function useEncounters() {
           accuracySuccesses: accuracyData.successes,
           accuracyDiceResults: accuracyData.diceResults,
           tamerId,
+          bolstered: bolsterData?.bolstered || false,
+          bolsterType: bolsterData?.bolsterType,
         },
       })
       // Update local state
