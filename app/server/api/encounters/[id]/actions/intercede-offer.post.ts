@@ -77,6 +77,14 @@ export default defineEventHandler(async (event) => {
 
   // Auto-miss: 0 accuracy successes = immediate miss, no intercede/dodge requests
   if (body.accuracySuccesses === 0) {
+    // Still increment dodge penalty on target (successive attacks reduce dodge pool)
+    participants = participants.map((p: any) => {
+      if (p.id === body.targetId) {
+        return { ...p, dodgePenalty: (p.dodgePenalty ?? 0) + 1 }
+      }
+      return p
+    })
+
     const missLog = {
       id: `log-${Date.now()}-miss`,
       timestamp: new Date().toISOString(),

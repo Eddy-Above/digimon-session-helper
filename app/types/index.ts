@@ -60,6 +60,12 @@ export type TormentSeverity = 'minor' | 'major' | 'terrible'
 
 export type CampaignLevel = 'standard' | 'enhanced' | 'extreme'
 
+export const DIGIVOLVE_WILLPOWER_DC: Record<CampaignLevel, number> = {
+  standard: 12,
+  enhanced: 15,
+  extreme: 17,
+}
+
 // === Stage Configuration ===
 
 export interface StageConfig {
@@ -253,6 +259,7 @@ export interface CombatParticipant {
   activeEffects: ActiveEffect[]
   isActive: boolean       // Currently taking turn
   hasActed: boolean       // Has completed turn this round
+  hasAttemptedDigivolve?: boolean  // Has attempted digivolution this turn (evolve only, not devolve)
 }
 
 export interface ActiveEffect {
