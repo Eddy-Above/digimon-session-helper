@@ -36,6 +36,8 @@ interface Props {
   baseStats?: BaseStats
   bonusStats?: BaseStats
   dataOptimization?: string
+  digimonRange?: number
+  effectiveLimit?: number
 }
 
 const props = defineProps<Props>()
@@ -352,12 +354,26 @@ function getAttackStats(attack: Attack) {
     // in the tags section below, so we don't duplicate them as notes
   }
 
+  // Per-attack range: melee = 1 (or Reach x 2), ranged = calculated
+  const reachQuality = props.currentQualities?.find(q => q.id === 'reach')
+  const reachRanks = reachQuality?.ranks || 0
+  let attackRange: number | null = null
+  let attackEffectiveLimit: number | null = null
+  if (attack.range === 'melee') {
+    attackRange = reachRanks > 0 ? reachRanks * 2 : 1
+  } else if (props.digimonRange != null) {
+    attackRange = props.digimonRange
+    attackEffectiveLimit = props.effectiveLimit ?? null
+  }
+
   return {
     accuracy: baseAccuracy + accuracyBonus,
     damage: baseDamage + damageBonus,
     damageBonus,
     accuracyBonus,
     notes,
+    attackRange,
+    attackEffectiveLimit,
   }
 }
 </script>
@@ -393,6 +409,9 @@ function getAttackStats(attack: Attack) {
             </span>
             <span v-for="note in getAttackStats(attack).notes" :key="note" class="text-xs text-cyan-400">
               {{ note }}
+            </span>
+            <span v-if="getAttackStats(attack).attackRange != null" class="text-xs text-digimon-dark-400">
+              Range: {{ getAttackStats(attack).attackRange }}m<template v-if="getAttackStats(attack).attackEffectiveLimit != null"> | Limit: {{ getAttackStats(attack).attackEffectiveLimit }}m</template>
             </span>
           </div>
           <div v-if="attack.tags.length > 0" class="flex gap-1 mt-2 flex-wrap">
