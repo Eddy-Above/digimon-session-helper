@@ -132,7 +132,7 @@ export function useDigimonStats(form: Ref<any> | any) {
     const accuracy = f.baseStats.accuracy + (f.bonusStats?.accuracy || 0)
     const damage = f.baseStats.damage + (f.bonusStats?.damage || 0)
     const dodge = f.baseStats.dodge + (f.bonusStats?.dodge || 0)
-    const armor = f.baseStats.armor + (f.bonusStats?.armor || 0)
+    let armor = f.baseStats.armor + (f.bonusStats?.armor || 0)
     const health = f.baseStats.health + (f.bonusStats?.health || 0)
     const stageConfig = currentStageConfig.value
     const sizeConfig = currentSizeConfig.value
@@ -155,6 +155,7 @@ export function useDigimonStats(form: Ref<any> | any) {
     const dataOpt = qualities.find((q) => q.id === 'data-optimization')
     if (dataOpt?.choiceId === 'speed-striker') effectiveBase += 2
     if (dataOpt?.choiceId === 'guardian') effectiveBase -= 1
+    if (dataOpt?.choiceId === 'guardian') armor += 2
 
     // Data Specialization modifiers
     const dataSpec = qualities.find((q) => q.id === 'data-specialization')
