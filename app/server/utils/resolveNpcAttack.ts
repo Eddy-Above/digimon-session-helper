@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm'
-import { db, digimon, tamers, evolutionLines } from '../db'
+import { db, digimon, tamers } from '../db'
 import { EFFECT_ALIGNMENT } from '../../data/attackConstants'
 import { applyStanceToDodge } from '../../utils/stanceModifiers'
 
@@ -199,10 +199,8 @@ export async function resolveNpcAttack(params: ResolveNpcAttackParams): Promise<
       damagedTarget.maxWounds = previousState.maxWounds
       damagedTarget.currentWounds = previousState.wounds
 
-      await db.update(evolutionLines).set({
-        currentStageIndex: previousState.stageIndex,
-        updatedAt: new Date(),
-      }).where(eq(evolutionLines.id, damagedTarget.evolutionLineId))
+      // Update npcStageIndex on the participant (NPCs track stage locally)
+      (damagedTarget as any).npcStageIndex = previousState.stageIndex
 
       const [oldDigimon] = await db.select().from(digimon).where(eq(digimon.id, oldEntityId))
       const [newDigimon] = await db.select().from(digimon).where(eq(digimon.id, previousState.entityId))
