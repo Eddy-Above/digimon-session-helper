@@ -192,12 +192,14 @@ export async function resolveNpcAttack(params: ResolveNpcAttackParams): Promise<
       damagedTarget.currentWounds >= damagedTarget.maxWounds &&
       damagedTarget.evolutionLineId &&
       damagedTarget.woundsHistory?.length > 0) {
-    const previousState = damagedTarget.woundsHistory.pop()
+    const rawState = damagedTarget.woundsHistory.pop()
+    // Handle case where previousState might be serialized as JSON string
+    const previousState = typeof rawState === 'string' ? JSON.parse(rawState) : rawState
     if (previousState) {
       const oldEntityId = damagedTarget.entityId
       damagedTarget.entityId = previousState.entityId
       damagedTarget.maxWounds = previousState.maxWounds
-      damagedTarget.currentWounds = previousState.wounds
+      damagedTarget.currentWounds = previousState.wounds !== undefined ? previousState.wounds : 0
 
       // Update npcStageIndex on the participant (NPCs track stage locally)
       (damagedTarget as any).npcStageIndex = previousState.stageIndex
@@ -213,7 +215,7 @@ export async function resolveNpcAttack(params: ResolveNpcAttackParams): Promise<
         actorName: oldDigimon?.name || 'Digimon',
         action: `was knocked out and devolved to ${newDigimon?.name || 'previous form'}!`,
         target: null,
-        result: `Wounds restored to ${previousState.wounds}`,
+        result: `Wounds restored to ${previousState.wounds !== undefined ? previousState.wounds : 0}`,
         damage: null,
         effects: ['Auto-Devolve'],
       }
