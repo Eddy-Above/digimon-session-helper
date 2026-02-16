@@ -14,16 +14,18 @@ interface ResolveNpcAttackParams {
   round: number
   attackerName: string
   targetName: string
+  turnOrder?: string[]
 }
 
 /**
  * Auto-resolve an attack against an NPC target (rolls dodge server-side, calculates damage).
  * Does NOT deduct attacker actions — caller handles that.
- * Returns updated participants and battleLog arrays.
+ * Returns updated participants, battleLog, and optionally turnOrder arrays.
  */
 export async function resolveNpcAttack(params: ResolveNpcAttackParams): Promise<{
   participants: any[]
   battleLog: any[]
+  turnOrder?: string[]
 }> {
   let { participants, battleLog } = params
 
@@ -220,6 +222,30 @@ export async function resolveNpcAttack(params: ResolveNpcAttackParams): Promise<
     }
   }
 
+  // --- Remove defeated NPC from encounter ---
+  let defeatedLog: any = null
+  if (damagedTarget && hit &&
+      damagedTarget.currentWounds >= damagedTarget.maxWounds &&
+      damagedTarget.isEnemy &&
+      !autoDevolveLog) {
+    participants = participants.filter((p: any) => p.id !== params.targetParticipantId)
+    if (params.turnOrder) {
+      params.turnOrder = params.turnOrder.filter((id: string) => id !== params.targetParticipantId)
+    }
+    defeatedLog = {
+      id: `log-${Date.now()}-defeated`,
+      timestamp: new Date().toISOString(),
+      round: params.round,
+      actorId: params.targetParticipantId,
+      actorName: params.targetName,
+      action: 'was defeated and removed from the encounter!',
+      target: null,
+      result: 'Defeated',
+      damage: null,
+      effects: ['Defeated'],
+    }
+  }
+
   // --- Battle log ---
   const dodgeLogEntry = {
     id: `log-${Date.now()}-dodge`,
@@ -241,7 +267,7 @@ export async function resolveNpcAttack(params: ResolveNpcAttackParams): Promise<
     hit,
   }
 
-  battleLog = [...battleLog, dodgeLogEntry, ...(autoDevolveLog ? [autoDevolveLog] : [])]
+  battleLog = [...battleLog, dodgeLogEntry, ...(autoDevolveLog ? [autoDevolveLog] : []), ...(defeatedLog ? [defeatedLog] : [])]
 
-  return { participants, battleLog }
+  return { participants, battleLog, turnOrder: params.turnOrder }
 }

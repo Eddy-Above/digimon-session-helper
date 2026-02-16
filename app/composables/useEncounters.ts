@@ -33,6 +33,7 @@ export interface CombatParticipant {
   hasDirectedThisTurn?: boolean
   digimonBolsterCount?: number
   lastBitCpuBolsterRound?: number
+  isEnemy?: boolean
 }
 
 export interface BattleLogEntry {
@@ -169,7 +170,8 @@ export function useEncounters() {
     initiative: number,
     initiativeRoll: number,
     maxWounds: number = 5,
-    evolutionLineId?: string
+    evolutionLineId?: string,
+    isEnemy?: boolean
   ): CombatParticipant {
     return {
       id: `${type}-${entityId}-${Date.now()}`,
@@ -185,6 +187,7 @@ export function useEncounters() {
       currentWounds: 0,
       maxWounds,
       ...(evolutionLineId ? { evolutionLineId } : {}),
+      ...(isEnemy ? { isEnemy } : {}),
     }
   }
 
