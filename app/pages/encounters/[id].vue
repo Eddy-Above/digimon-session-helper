@@ -2147,6 +2147,7 @@ async function handleUpdateHazard(hazard: Hazard) {
                         <span class="text-digimon-dark-300">{{ item.participant.type === 'tamer' ? getEntityDetails(item.participant)?.derived.speed : getEntityDetails(item.participant)?.derived.movement }}</span>
                       </span>
                       <span v-if="item.participant.dodgePenalty" class="text-red-400">Dodge -{{ item.participant.dodgePenalty }}</span>
+                      <span v-if="item.participant.combatMonsterBonus" class="text-amber-400">Combat Monster +{{ item.participant.combatMonsterBonus }}</span>
                     </div>
 
                     <!-- Digivolve/Devolve buttons for non-partner digimon -->
@@ -2341,6 +2342,7 @@ async function handleUpdateHazard(hazard: Hazard) {
 
                   <!-- Dodge penalty -->
                   <span v-if="item.partnerDigimon.dodgePenalty" class="text-red-400">Dodge -{{ item.partnerDigimon.dodgePenalty }}</span>
+                  <span v-if="item.partnerDigimon.combatMonsterBonus" class="text-amber-400">Combat Monster +{{ item.partnerDigimon.combatMonsterBonus }}</span>
 
                   <button
                     class="text-xs text-digimon-dark-400 hover:text-white flex-shrink-0"

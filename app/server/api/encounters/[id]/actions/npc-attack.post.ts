@@ -204,6 +204,26 @@ export default defineEventHandler(async (event) => {
     }
   }
 
+  // Combat Monster for attacker
+  let attackerHasCombatMonster = false
+  let attackerHealthStat = 0
+  let attackerCombatMonsterBonus = 0
+  if (attackerDigimon) {
+    const baseStats = typeof attackerDigimon.baseStats === 'string'
+      ? JSON.parse(attackerDigimon.baseStats)
+      : attackerDigimon.baseStats
+    const bonusStats = typeof (attackerDigimon as any).bonusStats === 'string'
+      ? JSON.parse((attackerDigimon as any).bonusStats)
+      : (attackerDigimon as any).bonusStats
+    attackerHealthStat = (baseStats?.health ?? 0) + (bonusStats?.health ?? 0)
+
+    const attackerQualities = typeof attackerDigimon.qualities === 'string'
+      ? JSON.parse(attackerDigimon.qualities)
+      : attackerDigimon.qualities
+    attackerHasCombatMonster = (attackerQualities || []).some((q: any) => q.id === 'combat-monster')
+    attackerCombatMonsterBonus = actor.combatMonsterBonus ?? 0
+  }
+
   // Fetch target's armor (and hold reference to targetDigimon for later use)
   let targetArmor = 0
   let targetDigimon: any = null
@@ -229,6 +249,11 @@ export default defineEventHandler(async (event) => {
       if (targetDataOpt?.choiceId === 'guardian') {
         targetArmor += 2
       }
+
+      // Store for Combat Monster
+      targetDigimon._hasComputedHealthAndQualities = true
+      targetDigimon._healthStat = (targetBaseStats?.health ?? 0) + (targetBonusStats?.health ?? 0)
+      targetDigimon._hasCombatMonster = (targetQualities || []).some((q: any) => q.id === 'combat-monster')
     }
   } else if (target.type === 'tamer') {
     const [targetTamer] = await db.select().from(tamers).where(eq(tamers.id, target.entityId))
@@ -242,6 +267,11 @@ export default defineEventHandler(async (event) => {
   // Calculate damage with armor and minimum damage of 1 on successful hits
   let damageDealt = 0
   if (hit) {
+    // Apply Combat Monster bonus from attacker
+    if (attackerHasCombatMonster && attackerCombatMonsterBonus > 0) {
+      attackBaseDamage += attackerCombatMonsterBonus
+    }
+
     const effectiveArmor = Math.max(0, targetArmor - armorPiercing)
     damageDealt = Math.max(1, attackBaseDamage + netSuccesses - effectiveArmor)
   }
@@ -249,10 +279,24 @@ export default defineEventHandler(async (event) => {
   // Apply damage to target and auto-apply attack effects
   let appliedEffectName: string | null = null
   const finalParticipants = updatedParticipants.map((p: any) => {
+    // Handle attacker: reset Combat Monster bonus on hit
+    if (p.id === body.participantId && hit && attackerHasCombatMonster) {
+      return { ...p, combatMonsterBonus: 0 }
+    }
+
+    // Handle target: apply damage and Combat Monster accumulation
     if (p.id === body.targetId && hit) {
       const updated = {
         ...p,
         currentWounds: Math.min(p.maxWounds, (p.currentWounds || 0) + damageDealt),
+      }
+
+      // Accumulate Combat Monster bonus for target
+      if (targetDigimon?._hasCombatMonster) {
+        updated.combatMonsterBonus = Math.min(
+          targetDigimon._healthStat,
+          (p.combatMonsterBonus ?? 0) + damageDealt
+        )
       }
 
       // Auto-apply effect if attack has one and conditions are met

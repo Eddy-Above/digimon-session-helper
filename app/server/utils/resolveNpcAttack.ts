@@ -76,6 +76,26 @@ export async function resolveNpcAttack(params: ResolveNpcAttackParams): Promise<
     }
   }
 
+  // --- Combat Monster for attacker ---
+  let attackerHasCombatMonster = false
+  let attackerHealthStat = 0
+  let attackerCombatMonsterBonus = 0
+  if (attacker.type === 'digimon') {
+    const [attackerDigimon] = await db.select().from(digimon).where(eq(digimon.id, attacker.entityId))
+    if (attackerDigimon) {
+      const baseStats = typeof attackerDigimon.baseStats === 'string'
+        ? JSON.parse(attackerDigimon.baseStats) : attackerDigimon.baseStats
+      const bonusStats = typeof (attackerDigimon as any).bonusStats === 'string'
+        ? JSON.parse((attackerDigimon as any).bonusStats) : (attackerDigimon as any).bonusStats
+      attackerHealthStat = (baseStats?.health ?? 0) + (bonusStats?.health ?? 0)
+
+      const attackerQualities = typeof attackerDigimon.qualities === 'string'
+        ? JSON.parse(attackerDigimon.qualities) : attackerDigimon.qualities
+      attackerHasCombatMonster = (attackerQualities || []).some((q: any) => q.id === 'combat-monster')
+      attackerCombatMonsterBonus = attacker.combatMonsterBonus ?? 0
+    }
+  }
+
   // --- Target dodge pool ---
   let dodgePool = 3
   if (target.type === 'digimon') {
@@ -117,8 +137,15 @@ export async function resolveNpcAttack(params: ResolveNpcAttackParams): Promise<
   const netSuccesses = params.accuracySuccesses - dodgeSuccesses
   const hit = netSuccesses >= 0
 
-  // Target armor
+  // Apply Combat Monster bonus to attacker's damage on hit
+  if (hit && attackerHasCombatMonster && attackerCombatMonsterBonus > 0) {
+    attackBaseDamage += attackerCombatMonsterBonus
+  }
+
+  // Target armor and Combat Monster
   let targetArmor = 0
+  let targetHasCombatMonster = false
+  let targetHealthStat = 0
   if (target.type === 'digimon') {
     const [targetDigimon] = await db.select().from(digimon).where(eq(digimon.id, target.entityId))
     if (targetDigimon) {
@@ -127,11 +154,13 @@ export async function resolveNpcAttack(params: ResolveNpcAttackParams): Promise<
       const bonusStats = typeof (targetDigimon as any).bonusStats === 'string'
         ? JSON.parse((targetDigimon as any).bonusStats) : (targetDigimon as any).bonusStats
       targetArmor = (baseStats?.armor ?? 0) + (bonusStats?.armor ?? 0)
+      targetHealthStat = (baseStats?.health ?? 0) + (bonusStats?.health ?? 0)
 
       const qualities = typeof targetDigimon.qualities === 'string'
         ? JSON.parse(targetDigimon.qualities) : targetDigimon.qualities
       const dataOpt = qualities?.find((q: any) => q.id === 'data-optimization')
       if (dataOpt?.choiceId === 'guardian') targetArmor += 2
+      targetHasCombatMonster = (qualities || []).some((q: any) => q.id === 'combat-monster')
     }
   } else if (target.type === 'tamer') {
     const [targetTamer] = await db.select().from(tamers).where(eq(tamers.id, target.entityId))
@@ -153,6 +182,12 @@ export async function resolveNpcAttack(params: ResolveNpcAttackParams): Promise<
   // --- Apply damage, effects, dodge penalty ---
   let appliedEffectName: string | null = null
   participants = participants.map((p: any) => {
+    // Handle attacker: reset Combat Monster bonus on hit
+    if (p.id === params.attackerParticipantId && hit && attackerHasCombatMonster) {
+      return { ...p, combatMonsterBonus: 0 }
+    }
+
+    // Handle target: apply damage and Combat Monster accumulation
     if (p.id === params.targetParticipantId) {
       const updated = {
         ...p,
@@ -162,6 +197,15 @@ export async function resolveNpcAttack(params: ResolveNpcAttackParams): Promise<
       }
       if (hit) {
         updated.currentWounds = Math.min(p.maxWounds, (p.currentWounds || 0) + damageDealt)
+
+        // Accumulate Combat Monster bonus for target
+        if (targetHasCombatMonster) {
+          updated.combatMonsterBonus = Math.min(
+            targetHealthStat,
+            (p.combatMonsterBonus ?? 0) + damageDealt
+          )
+        }
+
         if (attackDef?.effect) {
           const shouldApply = attackDef.type === 'damage' ? damageDealt >= 2 : true
           if (shouldApply) {
