@@ -1,5 +1,6 @@
 import { eq } from 'drizzle-orm'
-import { db, encounters, digimon } from '../../../../db'
+import { db, encounters, digimon, tamers } from '../../../../db'
+import { resolveParticipantName } from '../../../../utils/participantName'
 
 interface AttackActionBody {
   participantId: string
@@ -183,15 +184,37 @@ export default defineEventHandler(async (event) => {
     return p
   })
 
+  // Resolve actor name
+  let actorName = 'Unknown'
+  if (actor.type === 'tamer') {
+    const [tamerEntity] = await db.select().from(tamers).where(eq(tamers.id, actor.entityId))
+    actorName = tamerEntity?.name || `Tamer ${actor.entityId}`
+  } else if (actor.type === 'digimon') {
+    const [actorDigimon] = await db.select().from(digimon).where(eq(digimon.id, actor.entityId))
+    const baseName = actorDigimon?.name || `Digimon ${actor.entityId}`
+    actorName = resolveParticipantName(actor, participants, baseName, actorDigimon?.isEnemy || false)
+  }
+
+  // Resolve target name
+  let targetName = 'Unknown'
+  if (target.type === 'tamer') {
+    const [tamerEntity] = await db.select().from(tamers).where(eq(tamers.id, target.entityId))
+    targetName = tamerEntity?.name || `Tamer ${target.entityId}`
+  } else if (target.type === 'digimon') {
+    const [targetDigimon] = await db.select().from(digimon).where(eq(digimon.id, target.entityId))
+    const baseName = targetDigimon?.name || `Digimon ${target.entityId}`
+    targetName = resolveParticipantName(target, participants, baseName, targetDigimon?.isEnemy || false)
+  }
+
   // Add battle log entry for the attack
   const attackLogEntry = {
     id: `log-${Date.now()}`,
     timestamp: new Date().toISOString(),
     round: encounter.round,
     actorId: actor.id,
-    actorName: actor.type === 'tamer' ? `Tamer ${actor.entityId}` : `Digimon ${actor.entityId}`,
+    actorName: actorName,
     action: 'Attack',
-    target: target.type === 'tamer' ? `Tamer ${target.entityId}` : `Digimon ${target.entityId}`,
+    target: targetName,
     result: `${body.accuracyDicePool}d6 => [${body.accuracyDiceResults.join(',')}] = ${body.accuracySuccesses} successes`,
     damage: null,
     effects: ['Attack', 'Accuracy Roll'],
@@ -206,9 +229,9 @@ export default defineEventHandler(async (event) => {
       timestamp: new Date().toISOString(),
       round: encounter.round,
       actorId: actor.id,
-      actorName: actor.type === 'tamer' ? `Tamer ${actor.entityId}` : `Digimon ${actor.entityId}`,
+      actorName: actorName,
       action: 'Attack Result',
-      target: target.type === 'tamer' ? `Tamer ${target.entityId}` : `Digimon ${target.entityId}`,
+      target: targetName,
       result: 'AUTO MISS - 0 accuracy successes',
       damage: 0,
       effects: ['Miss'],

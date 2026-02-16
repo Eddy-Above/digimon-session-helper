@@ -378,7 +378,9 @@ export default defineEventHandler(async (event) => {
     // Filter out defeated NPC from turn order
     updatedTurnOrder = turnOrder.filter((id: string) => id !== body.targetId)
 
-    const targetNameForLog = targetDigimon?.name || (target.type === 'tamer' ? 'Tamer' : 'Digimon')
+    const targetNameForLog = target.type === 'digimon'
+      ? resolveParticipantName(target, participants, targetDigimon?.name || 'Digimon', targetDigimon?.isEnemy || false)
+      : (target.type === 'tamer' ? targetDigimon?.name || 'Tamer' : 'Unknown')
     npcDefeatedLog = {
       id: `log-${Date.now()}-defeated`,
       timestamp: new Date().toISOString(),
