@@ -876,7 +876,8 @@ async function handleAddParticipant() {
       initiative,
       initiativeRoll,
       maxWounds,
-      evoLineId
+      evoLineId,
+      selectedEntityType.value === 'enemy' ? true : undefined
     )
 
     const result = await addParticipant(currentEncounter.value.id, participant, digimonMap.value)
@@ -1606,6 +1607,12 @@ async function updateWounds(participantId: string, wounds: number) {
         effects: [],
       })
     }
+  }
+
+  // Auto-remove NPC if defeated
+  const updated = (currentEncounter.value.participants as CombatParticipant[]).find(p => p.id === participantId)
+  if (updated?.isEnemy && wounds >= updated.maxWounds) {
+    await removeParticipant(currentEncounter.value.id, participantId)
   }
 }
 

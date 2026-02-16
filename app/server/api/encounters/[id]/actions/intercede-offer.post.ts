@@ -43,6 +43,7 @@ export default defineEventHandler(async (event) => {
   }
 
   let participants = parseJsonField(encounter.participants)
+  let turnOrder = parseJsonField(encounter.turnOrder)
   const pendingRequests = parseJsonField(encounter.pendingRequests)
   const battleLog = parseJsonField(encounter.battleLog)
 
@@ -240,11 +241,13 @@ export default defineEventHandler(async (event) => {
         accuracyDice: body.accuracyDice,
         round: encounter.round || 0,
         attackerName, targetName,
+        turnOrder,
       })
 
       await db.update(encounters).set({
         participants: JSON.stringify(result.participants),
         battleLog: JSON.stringify(result.battleLog),
+        ...(result.turnOrder ? { turnOrder: JSON.stringify(result.turnOrder) } : {}),
         updatedAt: new Date(),
       }).where(eq(encounters.id, encounterId))
 

@@ -204,10 +204,12 @@ export default defineEventHandler(async (event) => {
     }
   }
 
-  // Fetch target's armor
+  // Fetch target's armor (and hold reference to targetDigimon for later use)
   let targetArmor = 0
+  let targetDigimon: any = null
   if (target.type === 'digimon') {
-    const [targetDigimon] = await db.select().from(digimon).where(eq(digimon.id, target.entityId))
+    const [tDigimon] = await db.select().from(digimon).where(eq(digimon.id, target.entityId))
+    targetDigimon = tDigimon
     if (targetDigimon) {
       // Parse baseStats and bonusStats if they're JSON strings
       const targetBaseStats = typeof targetDigimon.baseStats === 'string'
@@ -319,6 +321,34 @@ export default defineEventHandler(async (event) => {
     }
   }
 
+  // Remove defeated NPC from encounter
+  let npcDefeatedLog: any = null
+  let updatedTurnOrder = turnOrder
+  let finalParticipantsAfterDefeat = finalParticipants
+  if (damagedTarget && hit &&
+      damagedTarget.currentWounds >= damagedTarget.maxWounds &&
+      damagedTarget.isEnemy &&
+      !autoDevolveLog) {
+    // Filter out defeated NPC from participants
+    finalParticipantsAfterDefeat = finalParticipants.filter((p: any) => p.id !== body.targetId)
+    // Filter out defeated NPC from turn order
+    updatedTurnOrder = turnOrder.filter((id: string) => id !== body.targetId)
+
+    const targetNameForLog = targetDigimon?.name || (target.type === 'tamer' ? 'Tamer' : 'Digimon')
+    npcDefeatedLog = {
+      id: `log-${Date.now()}-defeated`,
+      timestamp: new Date().toISOString(),
+      round: encounter.round,
+      actorId: body.targetId,
+      actorName: targetNameForLog,
+      action: 'was defeated and removed from the encounter!',
+      target: null,
+      result: 'Defeated',
+      damage: null,
+      effects: ['Defeated'],
+    }
+  }
+
   // Get attacker name
   let attackerName = 'Unknown'
   if (actor.type === 'tamer') {
@@ -378,12 +408,13 @@ export default defineEventHandler(async (event) => {
     hit: hit,
   }
 
-  const updatedBattleLog = [...battleLog, attackLogEntry, dodgeLogEntry, ...(autoDevolveLog ? [autoDevolveLog] : [])]
+  const updatedBattleLog = [...battleLog, attackLogEntry, dodgeLogEntry, ...(autoDevolveLog ? [autoDevolveLog] : []), ...(npcDefeatedLog ? [npcDefeatedLog] : [])]
 
   // Update encounter
   const updateData: any = {
-    participants: JSON.stringify(finalParticipants),
+    participants: JSON.stringify(finalParticipantsAfterDefeat),
     battleLog: JSON.stringify(updatedBattleLog),
+    ...(npcDefeatedLog ? { turnOrder: JSON.stringify(updatedTurnOrder) } : {}),
     updatedAt: new Date(),
   }
 
