@@ -140,49 +140,46 @@ export default defineEventHandler(async (event) => {
   const newName = targetEntry.species
 
   participants = participants.map((p: any) => {
-    // Deduct 1 simple action from the acting participant (tamer for partner, digimon for NPC)
-    if (p.id === actingParticipant.id) {
-      return {
-        ...p,
-        actionsRemaining: { simple: Math.max(0, (p.actionsRemaining?.simple || 0) - 1) },
-        ...(isEvolve ? { hasAttemptedDigivolve: true } : {}),
+    const isActingParticipant = p.id === actingParticipant.id
+    const isDigivolving = p.id === body.participantId
+
+    if (!isActingParticipant && !isDigivolving) return p
+
+    // Build action-cost changes (apply to acting participant — tamer or NPC digimon)
+    const actionChanges = isActingParticipant
+      ? {
+          actionsRemaining: { simple: Math.max(0, (p.actionsRemaining?.simple || 0) - 1) },
+          ...(isEvolve ? { hasAttemptedDigivolve: true } : {}),
+        }
+      : {}
+
+    // Build evolution changes (apply to the digivolving participant)
+    let evoChanges: any = {}
+    if (isDigivolving) {
+      if (isEvolve) {
+        // Evolve: store current wounds in history, full heal
+        const woundsHistory = [...(p.woundsHistory || [])]
+        woundsHistory.push({
+          stageIndex: currentStageIndex,
+          wounds: p.currentWounds || 0,
+          entityId: p.entityId,
+          maxWounds: p.maxWounds,
+        })
+        evoChanges = { entityId: newDigimon.id, maxWounds: newMaxWounds, currentWounds: 0, woundsHistory }
+      } else {
+        // Devolve: restore wounds from history
+        const woundsHistory = [...(p.woundsHistory || [])]
+        const previousState = woundsHistory.pop()
+        evoChanges = {
+          entityId: previousState?.entityId || newDigimon.id,
+          maxWounds: previousState?.maxWounds || newMaxWounds,
+          currentWounds: previousState?.wounds ?? 0,
+          woundsHistory,
+        }
       }
     }
 
-    if (p.id !== body.participantId) return p
-
-    if (isEvolve) {
-      // Evolve: store current wounds in history, full heal
-      const woundsHistory = [...(p.woundsHistory || [])]
-      woundsHistory.push({
-        stageIndex: currentStageIndex,
-        wounds: p.currentWounds || 0,
-        entityId: p.entityId,
-        maxWounds: p.maxWounds,
-      })
-
-      return {
-        ...p,
-        entityId: newDigimon.id,
-        maxWounds: newMaxWounds,
-        currentWounds: 0, // Full heal on digivolve
-        woundsHistory,
-        // Digimon keeps its remaining actions
-      }
-    } else {
-      // Devolve: restore wounds from history
-      const woundsHistory = [...(p.woundsHistory || [])]
-      const previousState = woundsHistory.pop()
-
-      return {
-        ...p,
-        entityId: previousState?.entityId || newDigimon.id,
-        maxWounds: previousState?.maxWounds || newMaxWounds,
-        currentWounds: previousState?.wounds ?? 0,
-        woundsHistory,
-        // Digimon keeps its remaining actions
-      }
-    }
+    return { ...p, ...actionChanges, ...evoChanges }
   })
 
   // Update evolution line currentStageIndex
