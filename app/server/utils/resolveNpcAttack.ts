@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm'
 import { db, digimon, tamers } from '../db'
 import { EFFECT_ALIGNMENT } from '../../data/attackConstants'
 import { applyStanceToDodge } from '../../utils/stanceModifiers'
+import { resolveParticipantName } from './participantName'
 
 interface ResolveNpcAttackParams {
   participants: any[]
@@ -256,7 +257,7 @@ export async function resolveNpcAttack(params: ResolveNpcAttackParams): Promise<
         timestamp: new Date().toISOString(),
         round: params.round,
         actorId: damagedTarget.id,
-        actorName: oldDigimon?.name || 'Digimon',
+        actorName: resolveParticipantName(damagedTarget, params.participants, oldDigimon?.name || 'Digimon', damagedTarget?.isEnemy || false),
         action: `was knocked out and devolved to ${newDigimon?.name || 'previous form'}!`,
         target: null,
         result: `Wounds restored to ${previousState.wounds !== undefined ? previousState.wounds : 0}`,
