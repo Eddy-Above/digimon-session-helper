@@ -245,12 +245,39 @@ export default defineEventHandler(async (event) => {
       }
     }
 
+    // Combat Monster for attacker
+    let attackerHasCombatMonster = false
+    let attackerHealthStat = 0
+    let attackerCombatMonsterBonus = 0
+    if (attackerParticipant?.type === 'digimon') {
+      const [attackerDigimon] = await db.select().from(digimon).where(eq(digimon.id, request.data.attackerEntityId))
+      if (attackerDigimon) {
+        const baseStats = typeof attackerDigimon.baseStats === 'string'
+          ? JSON.parse(attackerDigimon.baseStats)
+          : attackerDigimon.baseStats
+        const bonusStats = typeof (attackerDigimon as any).bonusStats === 'string'
+          ? JSON.parse((attackerDigimon as any).bonusStats)
+          : (attackerDigimon as any).bonusStats
+        attackerHealthStat = (baseStats?.health ?? 0) + (bonusStats?.health ?? 0)
+
+        const attackerQualities = typeof attackerDigimon.qualities === 'string'
+          ? JSON.parse(attackerDigimon.qualities)
+          : attackerDigimon.qualities
+        attackerHasCombatMonster = (attackerQualities || []).some((q: any) => q.id === 'combat-monster')
+        attackerCombatMonsterBonus = attackerParticipant.combatMonsterBonus ?? 0
+      }
+    }
+
     // Get target armor
     let targetArmor = 0
     const targetParticipant = participants.find((p: any) => p.id === request.targetParticipantId)
 
+    let targetHasCombatMonster = false
+    let targetHealthStat = 0
+    let targetDigimonRef: any = null
     if (targetParticipant?.type === 'digimon') {
       const [targetDigimon] = await db.select().from(digimon).where(eq(digimon.id, request.data.targetEntityId))
+      targetDigimonRef = targetDigimon
       if (targetDigimon) {
         const targetBaseStats = typeof targetDigimon.baseStats === 'string'
           ? JSON.parse(targetDigimon.baseStats)
@@ -260,6 +287,7 @@ export default defineEventHandler(async (event) => {
           : (targetDigimon as any).bonusStats
 
         targetArmor = (targetBaseStats?.armor ?? 0) + (targetBonusStats?.armor ?? 0)
+        targetHealthStat = (targetBaseStats?.health ?? 0) + (targetBonusStats?.health ?? 0)
 
         // Add Guardian data optimization bonus (+2 armor)
         const targetQualities = typeof targetDigimon.qualities === 'string'
@@ -269,6 +297,7 @@ export default defineEventHandler(async (event) => {
         if (targetDataOpt?.choiceId === 'guardian') {
           targetArmor += 2
         }
+        targetHasCombatMonster = (targetQualities || []).some((q: any) => q.id === 'combat-monster')
       }
     } else if (targetParticipant?.type === 'tamer') {
       const [targetTamer] = await db.select().from(tamers).where(eq(tamers.id, request.data.targetEntityId))
@@ -282,6 +311,11 @@ export default defineEventHandler(async (event) => {
     // Apply bolster damage bonus
     if (request.data.bolsterDamageBonus) {
       attackBaseDamage += request.data.bolsterDamageBonus
+    }
+
+    // Apply Combat Monster bonus to attacker's damage on hit
+    if (hit && attackerHasCombatMonster && attackerCombatMonsterBonus > 0) {
+      attackBaseDamage += attackerCombatMonsterBonus
     }
 
     // Calculate final damage
@@ -307,6 +341,11 @@ export default defineEventHandler(async (event) => {
     }
 
     participants = participants.map((p: any) => {
+      // Handle attacker: reset Combat Monster bonus on hit
+      if (p.id === request.data.attackerParticipantId && hit && attackerHasCombatMonster) {
+        return { ...p, combatMonsterBonus: 0 }
+      }
+
       if (p.id === request.targetParticipantId) {
         const updated = {
           ...p,
@@ -318,6 +357,14 @@ export default defineEventHandler(async (event) => {
         // Apply damage and effects only if hit
         if (hit) {
           updated.currentWounds = Math.min(p.maxWounds, (p.currentWounds || 0) + damageDealt)
+
+          // Accumulate Combat Monster bonus for target
+          if (targetHasCombatMonster) {
+            updated.combatMonsterBonus = Math.min(
+              targetHealthStat,
+              (p.combatMonsterBonus ?? 0) + damageDealt
+            )
+          }
 
           // Auto-apply effect if attack has one and conditions are met
           if (attackDef?.effect) {

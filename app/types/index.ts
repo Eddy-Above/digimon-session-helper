@@ -264,6 +264,7 @@ export interface CombatParticipant {
   hasActed: boolean       // Has completed turn this round
   hasAttemptedDigivolve?: boolean  // Has attempted digivolution this turn (evolve only, not devolve)
   npcStageIndex?: number  // NPC-only: tracks current stage independently (allows multiple NPCs to share one evo line)
+  combatMonsterBonus?: number  // Combat Monster: cumulative damage bonus for next successful attack
 }
 
 export interface ActiveEffect {
@@ -273,6 +274,7 @@ export interface ActiveEffect {
   duration: number        // Rounds remaining
   source: string          // Who applied it
   description: string
+  value?: number          // Optional numeric value (used by Directed bonus, etc.)
 }
 
 export interface Encounter {
