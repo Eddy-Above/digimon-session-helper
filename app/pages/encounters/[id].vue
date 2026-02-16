@@ -869,7 +869,7 @@ async function handleAddParticipant() {
         return stage?.digimonId === selectedEntityId.value
       })
       if (matchingLine) evoLineId = matchingLine.id
-    } else if (selectedEntityType.value === 'enemy' && quantity === 1 && selectedNpcEvoLineId.value) {
+    } else if (selectedEntityType.value === 'enemy' && selectedNpcEvoLineId.value) {
       evoLineId = selectedNpcEvoLineId.value
     }
 
@@ -882,6 +882,12 @@ async function handleAddParticipant() {
       evoLineId,
       selectedEntityType.value === 'enemy' ? true : undefined
     )
+
+    // Initialize npcStageIndex for NPC participants with evolution line
+    if (selectedEntityType.value === 'enemy' && evoLineId) {
+      const evoLine = evolutionLines.value.find(l => l.id === evoLineId)
+      if (evoLine) (participant as any).npcStageIndex = evoLine.currentStageIndex
+    }
 
     const result = await addParticipant(currentEncounter.value.id, participant, digimonMap.value)
   }
@@ -1356,7 +1362,9 @@ function getParticipantEvolutionOptions(participant: CombatParticipant) {
   if (!evoLine) return { canEvolve: false, canDevolve: false, evolveTargets: [], devolveTarget: null }
 
   const chain = typeof evoLine.chain === 'string' ? JSON.parse(evoLine.chain) : evoLine.chain
-  const currentIndex = evoLine.currentStageIndex
+  const currentIndex = (participant as any).npcStageIndex !== undefined
+    ? (participant as any).npcStageIndex
+    : evoLine.currentStageIndex
 
   // Find unlocked children (evolution targets)
   const evolveTargets = chain
@@ -2862,8 +2870,8 @@ async function handleUpdateHazard(hazard: Hazard) {
               </p>
             </div>
 
-            <!-- NPC Evolution Line (only for single enemy with matching lines) -->
-            <div v-if="selectedEntityType === 'enemy' && addQuantity === 1 && npcEvolutionLineOptions.length > 0" class="mb-6">
+            <!-- NPC Evolution Line (for NPCs with matching evolution lines) -->
+            <div v-if="selectedEntityType === 'enemy' && npcEvolutionLineOptions.length > 0" class="mb-6">
               <label class="block text-sm text-digimon-dark-400 mb-2">Evolution Line (optional)</label>
               <select
                 v-model="selectedNpcEvoLineId"

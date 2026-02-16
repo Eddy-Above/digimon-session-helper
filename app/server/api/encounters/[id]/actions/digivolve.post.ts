@@ -77,6 +77,7 @@ export default defineEventHandler(async (event) => {
 
   // Determine who pays the action cost: tamer for partner digimon, digimon itself for NPCs
   const actingParticipant = tamerParticipant ?? participant
+  const isNpc = !tamerParticipant
 
   // Check action cost (1 simple action from tamer or digimon)
   if ((actingParticipant.actionsRemaining?.simple || 0) < 1) {
@@ -90,7 +91,9 @@ export default defineEventHandler(async (event) => {
   }
 
   const chain = typeof evoLine.chain === 'string' ? JSON.parse(evoLine.chain) : evoLine.chain
-  const currentStageIndex = evoLine.currentStageIndex
+  const currentStageIndex = (isNpc && (participant as any).npcStageIndex !== undefined)
+    ? (participant as any).npcStageIndex
+    : evoLine.currentStageIndex
 
   // Validate target chain index
   if (body.targetChainIndex < 0 || body.targetChainIndex >= chain.length) {
@@ -165,7 +168,13 @@ export default defineEventHandler(async (event) => {
           entityId: p.entityId,
           maxWounds: p.maxWounds,
         })
-        evoChanges = { entityId: newDigimon.id, maxWounds: newMaxWounds, currentWounds: 0, woundsHistory }
+        evoChanges = {
+          entityId: newDigimon.id,
+          maxWounds: newMaxWounds,
+          currentWounds: 0,
+          woundsHistory,
+          ...(isNpc ? { npcStageIndex: body.targetChainIndex } : {}),
+        }
       } else {
         // Devolve: restore wounds from history
         const woundsHistory = [...(p.woundsHistory || [])]
@@ -175,6 +184,7 @@ export default defineEventHandler(async (event) => {
           maxWounds: previousState?.maxWounds || newMaxWounds,
           currentWounds: previousState?.wounds ?? 0,
           woundsHistory,
+          ...(isNpc ? { npcStageIndex: previousState?.stageIndex ?? body.targetChainIndex } : {}),
         }
       }
     }
@@ -182,11 +192,13 @@ export default defineEventHandler(async (event) => {
     return { ...p, ...actionChanges, ...evoChanges }
   })
 
-  // Update evolution line currentStageIndex
-  await db.update(evolutionLines).set({
-    currentStageIndex: body.targetChainIndex,
-    updatedAt: new Date(),
-  }).where(eq(evolutionLines.id, participant.evolutionLineId))
+  // Update evolution line currentStageIndex (skip for NPCs, they track stage on participant)
+  if (!isNpc) {
+    await db.update(evolutionLines).set({
+      currentStageIndex: body.targetChainIndex,
+      updatedAt: new Date(),
+    }).where(eq(evolutionLines.id, participant.evolutionLineId))
+  }
 
   // Add battle log entry
   const logEntry = {

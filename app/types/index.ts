@@ -263,6 +263,7 @@ export interface CombatParticipant {
   isActive: boolean       // Currently taking turn
   hasActed: boolean       // Has completed turn this round
   hasAttemptedDigivolve?: boolean  // Has attempted digivolution this turn (evolve only, not devolve)
+  npcStageIndex?: number  // NPC-only: tracks current stage independently (allows multiple NPCs to share one evo line)
 }
 
 export interface ActiveEffect {
