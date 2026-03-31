@@ -179,6 +179,7 @@ async function handleSave() {
     await updateDigimon(digimonId.value, {
       ...form,
       partnerId: tamerId.value,
+      campaignId: campaignId.value,
     })
     router.push(`/campaigns/${campaignId.value}/player/${tamerId.value}`)
   } catch (e) {
