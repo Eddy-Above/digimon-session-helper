@@ -785,7 +785,7 @@ async function handleSubmit() {
     data.syncBonusDP = form.syncBonusDP
   }
 
-  const created = await createDigimon(data)
+  const created = await createDigimon({ ...data, campaignId: campaignId.value })
   if (created) {
     router.push(`/campaigns/${campaignId.value}/player/${tamerId.value}`)
   }
