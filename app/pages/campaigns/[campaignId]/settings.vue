@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { skillsByAttribute, skillLabels, attributes } from '~/constants/tamer-skills'
+
 definePageMeta({
   title: 'Campaign Settings',
   middleware: ['campaign-access', 'dm-access'],
@@ -23,6 +25,7 @@ const form = reactive({
     major: 0,
     terrible: 0,
   },
+  skillRenames: {} as Record<string, string>,
 })
 
 const changePassword = ref(false)
@@ -45,6 +48,12 @@ onMounted(async () => {
         form.tormentMinimums.terrible = rules.minCounts.terrible ?? 0
       }
     }
+
+    // Load skill renames
+    const renames = campaign.value.rulesSettings?.skillRenames
+    if (renames) {
+      form.skillRenames = { ...renames }
+    }
   }
   loading.value = false
 })
@@ -66,7 +75,11 @@ async function handleSave() {
     data.dmPassword = form.dmPassword || null
   }
 
-  // Add torment rules to rulesSettings
+  // Build rulesSettings
+  const activeRenames = Object.fromEntries(
+    Object.entries(form.skillRenames).filter(([_, v]) => v && v.trim())
+  )
+
   data.rulesSettings = {
     tormentRequirements: {
       mode: form.tormentMode,
@@ -78,6 +91,9 @@ async function handleSave() {
         },
       }),
     },
+    ...(Object.keys(activeRenames).length > 0 && {
+      skillRenames: activeRenames,
+    }),
   }
 
   await updateCampaign(campaignId.value, data)
@@ -260,6 +276,33 @@ async function handleSave() {
             <p class="text-xs text-digimon-dark-400 pt-2">
               New tamers must meet ALL specified minimums. Leave at 0 to allow none of that severity.
             </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Skill Renames -->
+      <div class="bg-digimon-dark-800 rounded-xl p-6 border border-digimon-dark-700">
+        <h3 class="font-semibold text-white mb-2">Skill Renames</h3>
+        <p class="text-sm text-digimon-dark-400 mb-4">
+          Override skill display names for this campaign. Leave blank to use the default name.
+        </p>
+
+        <div class="space-y-4">
+          <div v-for="attr in attributes" :key="attr">
+            <h4 class="text-sm font-medium text-digimon-dark-300 capitalize mb-2">{{ attr }}</h4>
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div v-for="skill in skillsByAttribute[attr]" :key="skill">
+                <label class="block text-xs text-digimon-dark-400 mb-1">{{ skillLabels[skill] }}</label>
+                <input
+                  v-model="form.skillRenames[skill]"
+                  type="text"
+                  :placeholder="skillLabels[skill]"
+                  maxlength="30"
+                  class="w-full bg-digimon-dark-900 border border-digimon-dark-600 rounded-lg px-3 py-2 text-white text-sm
+                         focus:border-digimon-orange-500 focus:outline-none"
+                />
+              </div>
+            </div>
           </div>
         </div>
       </div>

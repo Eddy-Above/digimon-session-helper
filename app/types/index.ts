@@ -67,8 +67,11 @@ export interface TormentRequirements {
   }
 }
 
+export type SkillRenames = Partial<Record<string, string>>
+
 export interface CampaignRulesSettings {
   tormentRequirements?: TormentRequirements
+  skillRenames?: SkillRenames
 }
 
 export type CampaignLevel = 'standard' | 'enhanced' | 'extreme'

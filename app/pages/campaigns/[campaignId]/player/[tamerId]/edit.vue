@@ -9,7 +9,7 @@ definePageMeta({
 
 const route = useRoute()
 const router = useRouter()
-const { campaignId, campaignLevel, campaignRules } = useCampaignContext()
+const { campaignId, campaignLevel, campaignRules, skillRenames, loadCampaign } = useCampaignContext()
 const tamerId = computed(() => route.params.tamerId as string)
 const { fetchTamer, updateTamer, loading, error } = useTamers()
 
@@ -70,10 +70,11 @@ const {
   canAffordTormentBox,
   getTormentBoxCost,
   unlockedSpecialOrders,
-} = useTamerForm(undefined, campaignLevel, campaignRules)
+} = useTamerForm(undefined, campaignLevel, campaignRules, skillRenames)
 
 
 onMounted(async () => {
+  await loadCampaign()
   const fetched = await fetchTamer(tamerId.value)
   if (fetched) {
     tamer.value = fetched
