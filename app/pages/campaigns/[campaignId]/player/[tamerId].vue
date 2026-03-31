@@ -2789,7 +2789,29 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
 
               <!-- Derived Stats -->
               <div class="flex flex-wrap gap-4 text-sm">
-                <span><span class="text-digimon-dark-400">Speed:</span> <span class="text-white">{{ tamerStats?.speed }}</span></span>
+                <span class="relative group">
+                  <span class="text-digimon-dark-400">Move: </span>
+                  <span class="text-white cursor-help border-b border-dotted border-digimon-dark-500">
+                    {{ tamerStats?.speed }}m
+                  </span>
+                  <!-- Hover tooltip with all movement types -->
+                  <div class="absolute bottom-full left-0 mb-2 hidden group-hover:block z-10">
+                    <div class="bg-digimon-dark-800 border border-digimon-dark-600 rounded-lg p-2 shadow-lg whitespace-nowrap">
+                      <div class="text-sm">
+                        <span class="text-digimon-dark-400">Walk:</span>
+                        <span class="text-white ml-1">{{ tamerStats?.speed }}m</span>
+                      </div>
+                      <div class="text-sm">
+                        <span class="text-digimon-dark-400">Swim:</span>
+                        <span class="text-white ml-1">{{ Math.floor((tamerStats?.speed ?? 0) / 2) }}m</span>
+                      </div>
+                      <div class="text-sm">
+                        <span class="text-digimon-dark-400">Climb:</span>
+                        <span class="text-white ml-1">{{ Math.floor((tamerStats?.speed ?? 0) / 2) }}m</span>
+                      </div>
+                    </div>
+                  </div>
+                </span>
                 <span><span class="text-digimon-dark-400">Accuracy:</span> <span class="text-white">{{ tamerStats?.accuracyPool }}</span></span>
                 <span><span class="text-digimon-dark-400">Dodge:</span> <span class="text-white">{{ tamerStats?.dodgePool }}</span></span>
                 <span><span class="text-digimon-dark-400">Damage:</span> <span class="text-white">{{ tamerStats?.damage }}</span></span>
