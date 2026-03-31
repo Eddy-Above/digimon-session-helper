@@ -1,4 +1,4 @@
-import type { Campaign, CampaignLevel, TormentRequirements, CampaignRulesSettings } from '../types'
+import type { Campaign, CampaignLevel, TormentRequirements, CampaignRulesSettings, SkillRenames } from '../types'
 
 export function useCampaignContext() {
   const route = useRoute()
@@ -15,6 +15,11 @@ export function useCampaignContext() {
     return rules?.tormentRequirements
   })
 
+  const skillRenames = computed<SkillRenames | undefined>(() => {
+    const rules = campaign.value?.rulesSettings as CampaignRulesSettings | undefined
+    return rules?.skillRenames
+  })
+
   async function loadCampaign() {
     const id = campaignId.value
     if (!id) return
@@ -27,6 +32,7 @@ export function useCampaignContext() {
     campaign,
     campaignLevel,
     campaignRules,
+    skillRenames,
     loadCampaign,
   }
 }

@@ -3,6 +3,8 @@
  * Extracted from duplicated form pages
  */
 
+import type { SkillRenames } from '../types'
+
 export const skillsByAttribute = {
   agility: ['dodge', 'fight', 'stealth'],
   body: ['athletics', 'endurance', 'featsOfStrength'],
@@ -32,3 +34,14 @@ export const skillLabels: Record<string, string> = {
 export const attributes = ['agility', 'body', 'charisma', 'intelligence', 'willpower'] as const
 export type Attribute = typeof attributes[number]
 export type SkillName = keyof typeof skillLabels
+
+export function getResolvedSkillLabels(renames?: SkillRenames): Record<string, string> {
+  if (!renames || Object.keys(renames).length === 0) return skillLabels
+  const resolved = { ...skillLabels }
+  for (const [key, customName] of Object.entries(renames)) {
+    if (key in resolved && customName && customName.trim()) {
+      resolved[key] = customName.trim()
+    }
+  }
+  return resolved
+}

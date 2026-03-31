@@ -7,9 +7,13 @@ definePageMeta({
 })
 
 const router = useRouter()
-const { campaignId, campaignLevel, campaignRules } = useCampaignContext()
+const { campaignId, campaignLevel, campaignRules, skillRenames, loadCampaign } = useCampaignContext()
 const { createTamer, loading, error } = useTamers()
 const selectedTamerId = useCookie<string | null>(`player-tamer-id-${campaignId.value}`, { default: () => null })
+
+onMounted(async () => {
+  await loadCampaign()
+})
 
 // Use the composable for all form logic
 const {
@@ -56,7 +60,7 @@ const {
   canAffordTormentBox,
   unlockedSpecialOrders,
   tormentMarkingLimits,
-} = useTamerForm(undefined, campaignLevel, campaignRules)
+} = useTamerForm(undefined, campaignLevel, campaignRules, skillRenames)
 
 // Page-specific state
 const majorAspect = reactive({ name: '', description: '' })

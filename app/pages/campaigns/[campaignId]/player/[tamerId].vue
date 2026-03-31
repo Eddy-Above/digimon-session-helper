@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { Tamer, Digimon, Encounter } from '~/server/db/schema'
 import type { CombatParticipant } from '~/composables/useEncounters'
-import { skillsByAttribute, skillLabels } from '~/constants/tamer-skills'
+import { skillsByAttribute, skillLabels as defaultSkillLabels, getResolvedSkillLabels } from '~/constants/tamer-skills'
 import type { DigimonStage } from '~/types'
 import { STAGE_CONFIG, DIGIVOLVE_WILLPOWER_DC } from '~/types'
 import { getStageColor } from '~/utils/displayHelpers'
@@ -13,7 +13,8 @@ definePageMeta({
 })
 
 const route = useRoute()
-const { campaignId, campaignLevel } = useCampaignContext()
+const { campaignId, campaignLevel, skillRenames } = useCampaignContext()
+const skillLabels = computed(() => getResolvedSkillLabels(skillRenames.value))
 const tamerId = computed(() => route.params.tamerId as string)
 
 // Check if we're on a child route (e.g., /campaigns/:campaignId/player/:tamerId/digimon/new)

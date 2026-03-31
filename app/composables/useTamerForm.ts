@@ -5,8 +5,8 @@
  */
 
 import type { CreateTamerData } from './useTamers'
-import { getTormentBoxCount, type TormentSeverity, type CampaignLevel, type TormentRequirements } from '../types'
-import { skillsByAttribute, skillLabels } from '../constants/tamer-skills'
+import { getTormentBoxCount, type TormentSeverity, type CampaignLevel, type TormentRequirements, type SkillRenames } from '../types'
+import { skillsByAttribute, skillLabels, getResolvedSkillLabels } from '../constants/tamer-skills'
 import { specialOrderThresholds, specialOrdersData } from '../data/special-orders'
 import { validateTorments } from '../utils/torment-validation'
 
@@ -20,7 +20,7 @@ export interface TormentEntry {
   cpMarkedBoxes: number
 }
 
-export function useTamerForm(initialData?: Partial<CreateTamerData>, campaignLevelOverride?: Ref<CampaignLevel> | CampaignLevel, tormentRulesOverride?: Ref<TormentRequirements | undefined> | TormentRequirements) {
+export function useTamerForm(initialData?: Partial<CreateTamerData>, campaignLevelOverride?: Ref<CampaignLevel> | CampaignLevel, tormentRulesOverride?: Ref<TormentRequirements | undefined> | TormentRequirements, skillRenamesOverride?: Ref<SkillRenames | undefined> | SkillRenames) {
   // Campaign level from parameter (defaults to 'standard')
   const campaignLevel = computed<CampaignLevel>(() => {
     if (!campaignLevelOverride) return 'standard'
@@ -31,6 +31,14 @@ export function useTamerForm(initialData?: Partial<CreateTamerData>, campaignLev
   const tormentRules = computed<TormentRequirements | undefined>(() => {
     if (!tormentRulesOverride) return undefined
     return isRef(tormentRulesOverride) ? tormentRulesOverride.value : tormentRulesOverride
+  })
+
+  // Skill renames from parameter (defaults to undefined)
+  const resolvedSkillLabels = computed(() => {
+    const renames = skillRenamesOverride
+      ? (isRef(skillRenamesOverride) ? skillRenamesOverride.value : skillRenamesOverride)
+      : undefined
+    return getResolvedSkillLabels(renames)
   })
 
   // ========================
@@ -316,7 +324,7 @@ export function useTamerForm(initialData?: Partial<CreateTamerData>, campaignLev
       const skillVal = form.skills[skill as keyof typeof form.skills]
       const attrVal = form.attributes[attr]
       if (skillVal > attrVal) {
-        violations.push(`${skillLabels[skill]} (${skillVal}) > ${attr} (${attrVal})`)
+        violations.push(`${resolvedSkillLabels.value[skill]} (${skillVal}) > ${attr} (${attrVal})`)
       }
     }
     return violations
@@ -466,7 +474,7 @@ export function useTamerForm(initialData?: Partial<CreateTamerData>, campaignLev
     newTormentSeverity,
     spriteError,
     xpSectionCollapsed,
-    skillLabels,
+    skillLabels: resolvedSkillLabels,
     skillsByAttribute,
 
     // Helper functions
