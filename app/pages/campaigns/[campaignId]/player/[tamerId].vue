@@ -13,7 +13,7 @@ definePageMeta({
 })
 
 const route = useRoute()
-const { campaignId, campaignLevel, skillRenames } = useCampaignContext()
+const { campaignId, campaignLevel, skillRenames, eddySoulRules } = useCampaignContext()
 const skillLabels = computed(() => getResolvedSkillLabels(skillRenames.value))
 const tamerId = computed(() => route.params.tamerId as string)
 
@@ -403,10 +403,16 @@ const tamerStats = computed(() => {
   return {
     woundBoxes: Math.max(2, getTotalAttribute('body') + getTotalSkill('endurance')),
     speed: getTotalAttribute('agility') + getTotalSkill('survival'),
-    accuracyPool: getTotalAttribute('agility') + getTotalSkill('fight'),
+    accuracyPool: eddySoulRules.value?.accuracyIsAgilityAthletics
+      ? getTotalAttribute('agility') + getTotalSkill('athletics')
+      : getTotalAttribute('agility') + getTotalSkill('fight'),
     dodgePool: getTotalAttribute('agility') + getTotalSkill('dodge'),
-    armor: getTotalAttribute('body') + getTotalSkill('endurance'),
-    damage: getTotalAttribute('body') + getTotalSkill('fight'),
+    armor: eddySoulRules.value?.armorIsWillpowerEndurance
+      ? getTotalAttribute('willpower') + getTotalSkill('endurance')
+      : getTotalAttribute('body') + getTotalSkill('endurance'),
+    damage: eddySoulRules.value?.damageIsBodyFeatsOfStrength
+      ? getTotalAttribute('body') + getTotalSkill('featsOfStrength')
+      : getTotalAttribute('body') + getTotalSkill('fight'),
     maxInspiration: Math.max(1, getTotalAttribute('willpower')),
   }
 })
@@ -548,7 +554,7 @@ const dodgeDicePool = computed(() => {
   } else if (targetParticipant.type === 'tamer') {
     const targetTamer = allTamers.value.find((t) => t.id === targetParticipant.entityId)
     if (targetTamer) {
-      const derived = calcTamerStats(targetTamer)
+      const derived = calcTamerStats(targetTamer, eddySoulRules.value)
       pool = derived.dodgePool || 3
     }
   }
@@ -1440,7 +1446,7 @@ function showAttackResult(
     } else if (targetParticipant.type === 'tamer') {
       const targetTamer = allTamers.value.find((t) => t.id === targetParticipant.entityId)
       if (targetTamer) {
-        const derived = calcTamerStats(targetTamer)
+        const derived = calcTamerStats(targetTamer, eddySoulRules.value)
         targetArmor = derived.armor || 0
       }
     }

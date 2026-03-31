@@ -1,4 +1,4 @@
-import type { Campaign, CampaignLevel, TormentRequirements, CampaignRulesSettings, SkillRenames } from '../types'
+import type { Campaign, CampaignLevel, TormentRequirements, CampaignRulesSettings, SkillRenames, EddySoulRules } from '../types'
 
 export function useCampaignContext() {
   const route = useRoute()
@@ -20,6 +20,11 @@ export function useCampaignContext() {
     return rules?.skillRenames
   })
 
+  const eddySoulRules = computed<EddySoulRules | undefined>(() => {
+    const rules = campaign.value?.rulesSettings as CampaignRulesSettings | undefined
+    return rules?.eddySoulRules
+  })
+
   async function loadCampaign() {
     const id = campaignId.value
     if (!id) return
@@ -33,6 +38,7 @@ export function useCampaignContext() {
     campaignLevel,
     campaignRules,
     skillRenames,
+    eddySoulRules,
     loadCampaign,
   }
 }

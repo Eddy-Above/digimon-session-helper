@@ -26,6 +26,11 @@ const form = reactive({
     terrible: 0,
   },
   skillRenames: {} as Record<string, string>,
+  eddySoulRules: {
+    accuracyIsAgilityAthletics: false,
+    damageIsBodyFeatsOfStrength: false,
+    armorIsWillpowerEndurance: false,
+  },
 })
 
 const changePassword = ref(false)
@@ -53,6 +58,14 @@ onMounted(async () => {
     const renames = campaign.value.rulesSettings?.skillRenames
     if (renames) {
       form.skillRenames = { ...renames }
+    }
+
+    // Load EddySoul rules
+    const eddySoul = campaign.value.rulesSettings?.eddySoulRules
+    if (eddySoul) {
+      form.eddySoulRules.accuracyIsAgilityAthletics = eddySoul.accuracyIsAgilityAthletics ?? false
+      form.eddySoulRules.damageIsBodyFeatsOfStrength = eddySoul.damageIsBodyFeatsOfStrength ?? false
+      form.eddySoulRules.armorIsWillpowerEndurance = eddySoul.armorIsWillpowerEndurance ?? false
     }
   }
   loading.value = false
@@ -93,6 +106,13 @@ async function handleSave() {
     },
     ...(Object.keys(activeRenames).length > 0 && {
       skillRenames: activeRenames,
+    }),
+    ...((form.eddySoulRules.accuracyIsAgilityAthletics || form.eddySoulRules.damageIsBodyFeatsOfStrength || form.eddySoulRules.armorIsWillpowerEndurance) && {
+      eddySoulRules: {
+        ...(form.eddySoulRules.accuracyIsAgilityAthletics && { accuracyIsAgilityAthletics: true }),
+        ...(form.eddySoulRules.damageIsBodyFeatsOfStrength && { damageIsBodyFeatsOfStrength: true }),
+        ...(form.eddySoulRules.armorIsWillpowerEndurance && { armorIsWillpowerEndurance: true }),
+      },
     }),
   }
 
@@ -277,6 +297,52 @@ async function handleSave() {
               New tamers must meet ALL specified minimums. Leave at 0 to allow none of that severity.
             </p>
           </div>
+        </div>
+      </div>
+
+      <!-- EddySoul Rules -->
+      <div class="bg-digimon-dark-800 rounded-xl p-6 border border-digimon-dark-700">
+        <h3 class="font-semibold text-white mb-2">EddySoul Rules</h3>
+        <p class="text-sm text-digimon-dark-400 mb-4">
+          Optional rule overrides for human (tamer) combat stats. Each can be toggled independently.
+        </p>
+
+        <div class="space-y-3">
+          <label class="flex items-start gap-3 cursor-pointer">
+            <input
+              v-model="form.eddySoulRules.accuracyIsAgilityAthletics"
+              type="checkbox"
+              class="w-4 h-4 rounded mt-1"
+            />
+            <div>
+              <span class="text-digimon-dark-300">Tamer Accuracy = Agility + Athletics</span>
+              <p class="text-xs text-digimon-dark-500">Default: Agility + Fight</p>
+            </div>
+          </label>
+
+          <label class="flex items-start gap-3 cursor-pointer">
+            <input
+              v-model="form.eddySoulRules.damageIsBodyFeatsOfStrength"
+              type="checkbox"
+              class="w-4 h-4 rounded mt-1"
+            />
+            <div>
+              <span class="text-digimon-dark-300">Tamer Damage = Body + Feats of Strength</span>
+              <p class="text-xs text-digimon-dark-500">Default: Body + Fight</p>
+            </div>
+          </label>
+
+          <label class="flex items-start gap-3 cursor-pointer">
+            <input
+              v-model="form.eddySoulRules.armorIsWillpowerEndurance"
+              type="checkbox"
+              class="w-4 h-4 rounded mt-1"
+            />
+            <div>
+              <span class="text-digimon-dark-300">Tamer Armour = Willpower + Endurance</span>
+              <p class="text-xs text-digimon-dark-500">Default: Body + Endurance</p>
+            </div>
+          </label>
         </div>
       </div>
 

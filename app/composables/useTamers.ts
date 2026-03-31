@@ -1,4 +1,5 @@
 import type { Tamer } from '../server/db/schema'
+import type { EddySoulRules } from '../types'
 
 export interface CreateTamerData {
   name: string
@@ -124,15 +125,21 @@ export function useTamers() {
   }
 
   // Derived stat calculations
-  function calculateDerivedStats(tamer: Tamer) {
+  function calculateDerivedStats(tamer: Tamer, eddySoulRules?: EddySoulRules) {
     const { attributes, skills } = tamer
     return {
       woundBoxes: Math.max(2, attributes.body + skills.endurance),
       speed: attributes.agility + skills.survival,
-      accuracyPool: attributes.agility + skills.fight,
+      accuracyPool: eddySoulRules?.accuracyIsAgilityAthletics
+        ? attributes.agility + skills.athletics
+        : attributes.agility + skills.fight,
       dodgePool: attributes.agility + skills.dodge,
-      armor: attributes.body + skills.endurance,
-      damage: attributes.body + skills.fight,
+      armor: eddySoulRules?.armorIsWillpowerEndurance
+        ? attributes.willpower + skills.endurance
+        : attributes.body + skills.endurance,
+      damage: eddySoulRules?.damageIsBodyFeatsOfStrength
+        ? attributes.body + skills.featsOfStrength
+        : attributes.body + skills.fight,
       maxInspiration: Math.max(1, attributes.willpower),
     }
   }
