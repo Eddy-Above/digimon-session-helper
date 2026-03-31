@@ -12,7 +12,7 @@ definePageMeta({
 
 const route = useRoute()
 const router = useRouter()
-const { campaignId, campaignLevel } = useCampaignContext()
+const { campaignId, campaignLevel, eddySoulRules } = useCampaignContext()
 
 const {
   currentEncounter,
@@ -238,7 +238,7 @@ function getEntityDetails(participant: CombatParticipant) {
   } else {
     const tamer = tamerMap.value.get(participant.entityId)
     if (!tamer) return null
-    const derived = calcTamerStats(tamer)
+    const derived = calcTamerStats(tamer, eddySoulRules.value)
     return {
       name: tamer.name,
       species: 'Tamer',
@@ -534,7 +534,7 @@ function getDodgePool(participant: CombatParticipant): number {
   } else if (participant.type === 'tamer') {
     const tamer = tamerMap.value.get(participant.entityId)
     if (tamer) {
-      const derived = calcTamerStats(tamer)
+      const derived = calcTamerStats(tamer, eddySoulRules.value)
       pool = derived.dodgePool || 3
     }
   }
@@ -1037,7 +1037,7 @@ async function processResponse(response: any) {
         }
 
         const digimonDerived = calcDigimonStats(digimon)
-        const tamerDerived = calcTamerStats(tamer)
+        const tamerDerived = calcTamerStats(tamer, eddySoulRules.value)
 
         // Look up evolution line for this partner digimon
         const matchingEvoLine = evolutionLines.value.find((line) => {
@@ -1104,7 +1104,7 @@ async function processResponse(response: any) {
           let participant = participants.find((p: any) => p.entityId === tamer.id && p.type === 'tamer')
 
           if (!participant) {
-            const derived = calcTamerStats(tamer)
+            const derived = calcTamerStats(tamer, eddySoulRules.value)
             participant = createParticipant('tamer', tamer.id, response.response.initiative, response.response.initiativeRoll, derived.woundBoxes)
             const result = await addParticipant(currentEncounter.value.id, participant, digimonMap.value)
             if (result) {

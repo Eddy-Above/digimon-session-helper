@@ -3,7 +3,7 @@ definePageMeta({
   title: 'Tamers',
 })
 
-const { campaignId } = useCampaignContext()
+const { campaignId, eddySoulRules } = useCampaignContext()
 const { tamers, loading, error, fetchTamers, deleteTamer, calculateDerivedStats } = useTamers()
 
 onMounted(() => {
@@ -97,8 +97,8 @@ async function handleDelete(id: string, name: string) {
             </div>
 
             <div class="flex gap-4 mt-4 text-sm text-digimon-dark-400">
-              <span>Wounds: {{ calculateDerivedStats(tamer).woundBoxes }}</span>
-              <span>Speed: {{ calculateDerivedStats(tamer).speed }}</span>
+              <span>Wounds: {{ calculateDerivedStats(tamer, eddySoulRules.value).woundBoxes }}</span>
+              <span>Speed: {{ calculateDerivedStats(tamer, eddySoulRules.value).speed }}</span>
               <span>Inspiration: {{ tamer.inspiration }}</span>
             </div>
           </div>

@@ -6,7 +6,7 @@ definePageMeta({
 })
 
 const router = useRouter()
-const { campaignId, campaignLevel, campaignRules, skillRenames, loadCampaign } = useCampaignContext()
+const { campaignId, campaignLevel, campaignRules, skillRenames, eddySoulRules, loadCampaign } = useCampaignContext()
 const { createTamer, loading, error } = useTamers()
 
 onMounted(async () => {
@@ -58,7 +58,7 @@ const {
   canAffordTormentBox,
   unlockedSpecialOrders,
   tormentMarkingLimits,
-} = useTamerForm(undefined, campaignLevel, campaignRules, skillRenames)
+} = useTamerForm(undefined, campaignLevel, campaignRules, skillRenames, eddySoulRules)
 
 // Page-specific state
 const majorAspect = reactive({ name: '', description: '' })

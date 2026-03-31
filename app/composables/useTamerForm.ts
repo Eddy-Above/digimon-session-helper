@@ -5,7 +5,7 @@
  */
 
 import type { CreateTamerData } from './useTamers'
-import { getTormentBoxCount, type TormentSeverity, type CampaignLevel, type TormentRequirements, type SkillRenames } from '../types'
+import { getTormentBoxCount, type TormentSeverity, type CampaignLevel, type TormentRequirements, type SkillRenames, type EddySoulRules } from '../types'
 import { skillsByAttribute, skillLabels, getResolvedSkillLabels } from '../constants/tamer-skills'
 import { specialOrderThresholds, specialOrdersData } from '../data/special-orders'
 import { validateTorments } from '../utils/torment-validation'
@@ -20,7 +20,7 @@ export interface TormentEntry {
   cpMarkedBoxes: number
 }
 
-export function useTamerForm(initialData?: Partial<CreateTamerData>, campaignLevelOverride?: Ref<CampaignLevel> | CampaignLevel, tormentRulesOverride?: Ref<TormentRequirements | undefined> | TormentRequirements, skillRenamesOverride?: Ref<SkillRenames | undefined> | SkillRenames) {
+export function useTamerForm(initialData?: Partial<CreateTamerData>, campaignLevelOverride?: Ref<CampaignLevel> | CampaignLevel, tormentRulesOverride?: Ref<TormentRequirements | undefined> | TormentRequirements, skillRenamesOverride?: Ref<SkillRenames | undefined> | SkillRenames, eddySoulRulesOverride?: Ref<EddySoulRules | undefined> | EddySoulRules) {
   // Campaign level from parameter (defaults to 'standard')
   const campaignLevel = computed<CampaignLevel>(() => {
     if (!campaignLevelOverride) return 'standard'
@@ -31,6 +31,12 @@ export function useTamerForm(initialData?: Partial<CreateTamerData>, campaignLev
   const tormentRules = computed<TormentRequirements | undefined>(() => {
     if (!tormentRulesOverride) return undefined
     return isRef(tormentRulesOverride) ? tormentRulesOverride.value : tormentRulesOverride
+  })
+
+  // EddySoul rules from parameter (defaults to undefined)
+  const eddySoulRules = computed<EddySoulRules | undefined>(() => {
+    if (!eddySoulRulesOverride) return undefined
+    return isRef(eddySoulRulesOverride) ? eddySoulRulesOverride.value : eddySoulRulesOverride
   })
 
   // Skill renames from parameter (defaults to undefined)
@@ -395,10 +401,16 @@ export function useTamerForm(initialData?: Partial<CreateTamerData>, campaignLev
   const derivedStats = computed(() => ({
     woundBoxes: Math.max(2, getTotalAttribute('body') + getTotalSkill('endurance')),
     speed: getTotalAttribute('agility') + getTotalSkill('survival'),
-    accuracyPool: getTotalAttribute('agility') + getTotalSkill('fight'),
+    accuracyPool: eddySoulRules.value?.accuracyIsAgilityAthletics
+      ? getTotalAttribute('agility') + getTotalSkill('athletics')
+      : getTotalAttribute('agility') + getTotalSkill('fight'),
     dodgePool: getTotalAttribute('agility') + getTotalSkill('dodge'),
-    armor: getTotalAttribute('body') + getTotalSkill('endurance'),
-    damage: getTotalAttribute('body') + getTotalSkill('fight'),
+    armor: eddySoulRules.value?.armorIsWillpowerEndurance
+      ? getTotalAttribute('willpower') + getTotalSkill('endurance')
+      : getTotalAttribute('body') + getTotalSkill('endurance'),
+    damage: eddySoulRules.value?.damageIsBodyFeatsOfStrength
+      ? getTotalAttribute('body') + getTotalSkill('featsOfStrength')
+      : getTotalAttribute('body') + getTotalSkill('fight'),
   }))
 
   // ========================

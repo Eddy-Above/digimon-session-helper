@@ -69,9 +69,16 @@ export interface TormentRequirements {
 
 export type SkillRenames = Partial<Record<string, string>>
 
+export interface EddySoulRules {
+  accuracyIsAgilityAthletics?: boolean
+  damageIsBodyFeatsOfStrength?: boolean
+  armorIsWillpowerEndurance?: boolean
+}
+
 export interface CampaignRulesSettings {
   tormentRequirements?: TormentRequirements
   skillRenames?: SkillRenames
+  eddySoulRules?: EddySoulRules
 }
 
 export type CampaignLevel = 'standard' | 'enhanced' | 'extreme'
@@ -348,15 +355,22 @@ export interface Campaign {
 
 export function calculateTamerDerivedStats(
   attributes: TamerAttributes,
-  skills: TamerSkills
+  skills: TamerSkills,
+  eddySoulRules?: EddySoulRules
 ): TamerDerivedStats {
   return {
     woundBoxes: Math.max(2, attributes.body + skills.endurance),
     speed: attributes.agility + skills.survival,
-    accuracyPool: attributes.agility + skills.fight,
+    accuracyPool: eddySoulRules?.accuracyIsAgilityAthletics
+      ? attributes.agility + skills.athletics
+      : attributes.agility + skills.fight,
     dodgePool: attributes.agility + skills.dodge,
-    armor: attributes.body + skills.endurance,
-    damage: attributes.body + skills.fight,
+    armor: eddySoulRules?.armorIsWillpowerEndurance
+      ? attributes.willpower + skills.endurance
+      : attributes.body + skills.endurance,
+    damage: eddySoulRules?.damageIsBodyFeatsOfStrength
+      ? attributes.body + skills.featsOfStrength
+      : attributes.body + skills.fight,
   }
 }
 
