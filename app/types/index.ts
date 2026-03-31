@@ -58,6 +58,19 @@ export type ActionType = 'simple' | 'complex'
 
 export type TormentSeverity = 'minor' | 'major' | 'terrible'
 
+export interface TormentRequirements {
+  mode: 'default' | 'custom'
+  minCounts?: {
+    minor?: number
+    major?: number
+    terrible?: number
+  }
+}
+
+export interface CampaignRulesSettings {
+  tormentRequirements?: TormentRequirements
+}
+
 export type CampaignLevel = 'standard' | 'enhanced' | 'extreme'
 
 export const DIGIVOLVE_WILLPOWER_DC: Record<CampaignLevel, number> = {
@@ -323,7 +336,7 @@ export interface Campaign {
   level: CampaignLevel
   hasPassword: boolean
   hasDmPassword: boolean
-  rulesSettings: Record<string, any>
+  rulesSettings: CampaignRulesSettings
   createdAt: Date
   updatedAt: Date
 }

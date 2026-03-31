@@ -17,6 +17,12 @@ const form = reactive({
   level: 'standard' as 'standard' | 'enhanced' | 'extreme',
   password: '' as string,
   dmPassword: '' as string,
+  tormentMode: 'default' as 'default' | 'custom',
+  tormentMinimums: {
+    minor: 0,
+    major: 0,
+    terrible: 0,
+  },
 })
 
 const changePassword = ref(false)
@@ -28,6 +34,17 @@ onMounted(async () => {
     form.name = campaign.value.name
     form.description = campaign.value.description
     form.level = campaign.value.level
+
+    // Load torment rules
+    const rules = campaign.value.rulesSettings?.tormentRequirements
+    if (rules) {
+      form.tormentMode = rules.mode
+      if (rules.minCounts) {
+        form.tormentMinimums.minor = rules.minCounts.minor ?? 0
+        form.tormentMinimums.major = rules.minCounts.major ?? 0
+        form.tormentMinimums.terrible = rules.minCounts.terrible ?? 0
+      }
+    }
   }
   loading.value = false
 })
@@ -47,6 +64,20 @@ async function handleSave() {
   }
   if (changeDmPassword.value) {
     data.dmPassword = form.dmPassword || null
+  }
+
+  // Add torment rules to rulesSettings
+  data.rulesSettings = {
+    tormentRequirements: {
+      mode: form.tormentMode,
+      ...(form.tormentMode === 'custom' && {
+        minCounts: {
+          minor: form.tormentMinimums.minor,
+          major: form.tormentMinimums.major,
+          terrible: form.tormentMinimums.terrible,
+        },
+      }),
+    },
   }
 
   await updateCampaign(campaignId.value, data)
@@ -158,12 +189,79 @@ async function handleSave() {
         </div>
       </div>
 
-      <!-- Rules Settings (Placeholder) -->
+      <!-- Torment Rules Settings -->
       <div class="bg-digimon-dark-800 rounded-xl p-6 border border-digimon-dark-700">
-        <h3 class="font-semibold text-white mb-2">Campaign Rules</h3>
-        <p class="text-digimon-dark-400 text-sm">
-          Rules customization coming soon. This section will allow you to select additional or alternative rules for this campaign.
-        </p>
+        <h3 class="font-semibold text-white mb-4">Torment Requirements</h3>
+
+        <div class="space-y-4">
+          <!-- Mode Toggle -->
+          <div>
+            <label class="block text-sm font-medium text-digimon-dark-300 mb-3">Torment Minimums</label>
+            <div class="space-y-2">
+              <label class="flex items-center gap-3 cursor-pointer">
+                <input
+                  v-model="form.tormentMode"
+                  type="radio"
+                  value="default"
+                  class="w-4 h-4 rounded"
+                />
+                <span class="text-digimon-dark-300">
+                  Default (2 Minor OR 1 Major/Terrible)
+                </span>
+              </label>
+              <label class="flex items-center gap-3 cursor-pointer">
+                <input
+                  v-model="form.tormentMode"
+                  type="radio"
+                  value="custom"
+                  class="w-4 h-4 rounded"
+                />
+                <span class="text-digimon-dark-300">
+                  Custom minimums
+                </span>
+              </label>
+            </div>
+          </div>
+
+          <!-- Custom Minimums (shown when custom mode is selected) -->
+          <div v-if="form.tormentMode === 'custom'" class="space-y-3 pt-2 border-t border-digimon-dark-600">
+            <div class="grid grid-cols-3 gap-3">
+              <div>
+                <label class="block text-xs font-medium text-digimon-dark-300 mb-1">Minor Torments</label>
+                <input
+                  v-model.number="form.tormentMinimums.minor"
+                  type="number"
+                  min="0"
+                  class="w-full bg-digimon-dark-900 border border-digimon-dark-600 rounded-lg px-3 py-2 text-white text-sm
+                         focus:border-digimon-orange-500 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-digimon-dark-300 mb-1">Major Torments</label>
+                <input
+                  v-model.number="form.tormentMinimums.major"
+                  type="number"
+                  min="0"
+                  class="w-full bg-digimon-dark-900 border border-digimon-dark-600 rounded-lg px-3 py-2 text-white text-sm
+                         focus:border-digimon-orange-500 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-digimon-dark-300 mb-1">Terrible Torments</label>
+                <input
+                  v-model.number="form.tormentMinimums.terrible"
+                  type="number"
+                  min="0"
+                  class="w-full bg-digimon-dark-900 border border-digimon-dark-600 rounded-lg px-3 py-2 text-white text-sm
+                         focus:border-digimon-orange-500 focus:outline-none"
+                />
+              </div>
+            </div>
+            <p class="text-xs text-digimon-dark-400 pt-2">
+              New tamers must meet ALL specified minimums. Leave at 0 to allow none of that severity.
+            </p>
+          </div>
+        </div>
       </div>
 
       <!-- Submit -->

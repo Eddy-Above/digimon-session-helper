@@ -7,7 +7,7 @@ definePageMeta({
 })
 
 const router = useRouter()
-const { campaignId, campaignLevel } = useCampaignContext()
+const { campaignId, campaignLevel, campaignRules } = useCampaignContext()
 const { createTamer, loading, error } = useTamers()
 const selectedTamerId = useCookie<string | null>(`player-tamer-id-${campaignId.value}`, { default: () => null })
 
@@ -56,7 +56,7 @@ const {
   canAffordTormentBox,
   unlockedSpecialOrders,
   tormentMarkingLimits,
-} = useTamerForm(undefined, campaignLevel)
+} = useTamerForm(undefined, campaignLevel, campaignRules)
 
 // Page-specific state
 const majorAspect = reactive({ name: '', description: '' })
