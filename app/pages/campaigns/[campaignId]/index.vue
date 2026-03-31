@@ -33,7 +33,9 @@ const stats = computed(() => [
   { label: 'Encounters', value: encounters.value.length, color: 'text-green-400' },
 ])
 
-function openDmSection() {
+async function openDmSection() {
+  if (!campaign.value) await loadCampaign()
+
   if (campaign.value?.hasDmPassword) {
     const cookie = useCookie(`campaign-dm-${campaignId.value}`)
     if (cookie.value) {
