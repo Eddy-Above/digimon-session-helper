@@ -1,4 +1,4 @@
-import type { Campaign, CampaignLevel } from '../types'
+import type { Campaign, CampaignLevel, TormentRequirements, CampaignRulesSettings } from '../types'
 
 export function useCampaignContext() {
   const route = useRoute()
@@ -9,6 +9,11 @@ export function useCampaignContext() {
   const campaignId = computed(() => route.params.campaignId as string)
 
   const campaignLevel = computed<CampaignLevel>(() => campaign.value?.level || 'standard')
+
+  const campaignRules = computed<TormentRequirements | undefined>(() => {
+    const rules = campaign.value?.rulesSettings as CampaignRulesSettings | undefined
+    return rules?.tormentRequirements
+  })
 
   async function loadCampaign() {
     const id = campaignId.value
@@ -21,6 +26,7 @@ export function useCampaignContext() {
     campaignId,
     campaign,
     campaignLevel,
+    campaignRules,
     loadCampaign,
   }
 }

@@ -5,9 +5,10 @@
  */
 
 import type { CreateTamerData } from './useTamers'
-import { getTormentBoxCount, type TormentSeverity, type CampaignLevel } from '../types'
+import { getTormentBoxCount, type TormentSeverity, type CampaignLevel, type TormentRequirements } from '../types'
 import { skillsByAttribute, skillLabels } from '../constants/tamer-skills'
 import { specialOrderThresholds, specialOrdersData } from '../data/special-orders'
+import { validateTorments } from '../utils/torment-validation'
 
 export interface TormentEntry {
   id: string
@@ -19,11 +20,17 @@ export interface TormentEntry {
   cpMarkedBoxes: number
 }
 
-export function useTamerForm(initialData?: Partial<CreateTamerData>, campaignLevelOverride?: Ref<CampaignLevel> | CampaignLevel) {
+export function useTamerForm(initialData?: Partial<CreateTamerData>, campaignLevelOverride?: Ref<CampaignLevel> | CampaignLevel, tormentRulesOverride?: Ref<TormentRequirements | undefined> | TormentRequirements) {
   // Campaign level from parameter (defaults to 'standard')
   const campaignLevel = computed<CampaignLevel>(() => {
     if (!campaignLevelOverride) return 'standard'
     return isRef(campaignLevelOverride) ? campaignLevelOverride.value : campaignLevelOverride
+  })
+
+  // Torment rules from parameter (defaults to undefined)
+  const tormentRules = computed<TormentRequirements | undefined>(() => {
+    if (!tormentRulesOverride) return undefined
+    return isRef(tormentRulesOverride) ? tormentRulesOverride.value : tormentRulesOverride
   })
 
   // ========================
@@ -316,24 +323,63 @@ export function useTamerForm(initialData?: Partial<CreateTamerData>, campaignLev
   })
 
   const tormentValidation = computed(() => {
-    const minorCount = torments.value.filter(t => t.severity === 'minor').length
-    const majorCount = torments.value.filter(t => t.severity === 'major').length
-    const terribleCount = torments.value.filter(t => t.severity === 'terrible').length
-
-    const isValid = minorCount >= 2 || majorCount >= 1 || terribleCount >= 1
-
-    let message = ''
-    if (!isValid) {
-      message = 'You need at least 2 Minor Torments OR 1 Major/Terrible Torment'
-    }
-
-    const allNamed = torments.value.every(t => t.name.trim() !== '')
-    if (!allNamed && torments.value.length > 0) {
-      message = 'All torments must have a name'
-    }
-
-    return { isValid: isValid && allNamed, message }
+    return validateTorments(torments.value, tormentRules.value)
   })
+
+  // ========================
+  // Torment Auto-Population
+  // ========================
+  const populateDefaultTormentsFromRules = (rules?: TormentRequirements) => {
+    if (!rules || rules.mode !== 'custom' || !rules.minCounts || torments.value.length > 0) {
+      return
+    }
+
+    const { minor = 0, major = 0, terrible = 0 } = rules.minCounts
+    for (let i = 0; i < minor; i++) {
+      torments.value.push({
+        id: crypto.randomUUID(),
+        name: '',
+        description: '',
+        severity: 'minor',
+        totalBoxes: getTormentBoxCount('minor'),
+        markedBoxes: 0,
+        cpMarkedBoxes: 0,
+      })
+    }
+    for (let i = 0; i < major; i++) {
+      torments.value.push({
+        id: crypto.randomUUID(),
+        name: '',
+        description: '',
+        severity: 'major',
+        totalBoxes: getTormentBoxCount('major'),
+        markedBoxes: 0,
+        cpMarkedBoxes: 0,
+      })
+    }
+    for (let i = 0; i < terrible; i++) {
+      torments.value.push({
+        id: crypto.randomUUID(),
+        name: '',
+        description: '',
+        severity: 'terrible',
+        totalBoxes: getTormentBoxCount('terrible'),
+        markedBoxes: 0,
+        cpMarkedBoxes: 0,
+      })
+    }
+  }
+
+  // Watch for torment rules changes and auto-populate for new tamers
+  if (!initialData) {
+    watch(
+      () => tormentRules.value,
+      (rules) => {
+        populateDefaultTormentsFromRules(rules)
+      },
+      { immediate: true }
+    )
+  }
 
   // ========================
   // Derived Stats
@@ -443,6 +489,7 @@ export function useTamerForm(initialData?: Partial<CreateTamerData>, campaignLev
     addTorment,
     removeTorment,
     updateTormentSeverity,
+    populateDefaultTormentsFromRules,
 
     // Computed values
     campaignLevel,

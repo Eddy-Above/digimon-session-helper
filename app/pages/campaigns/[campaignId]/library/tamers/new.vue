@@ -6,7 +6,7 @@ definePageMeta({
 })
 
 const router = useRouter()
-const { campaignId, campaignLevel } = useCampaignContext()
+const { campaignId, campaignLevel, campaignRules } = useCampaignContext()
 const { createTamer, loading, error } = useTamers()
 
 // Use the composable for all form logic
@@ -54,7 +54,7 @@ const {
   canAffordTormentBox,
   unlockedSpecialOrders,
   tormentMarkingLimits,
-} = useTamerForm(undefined, campaignLevel)
+} = useTamerForm(undefined, campaignLevel, campaignRules)
 
 // Page-specific state
 const majorAspect = reactive({ name: '', description: '' })
