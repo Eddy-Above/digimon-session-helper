@@ -25,10 +25,10 @@ export function useCampaignContext() {
     return rules?.eddySoulRules
   })
 
-  async function loadCampaign() {
+  async function loadCampaign(force?: boolean) {
     const id = campaignId.value
     if (!id) return
-    if (campaign.value?.id === id) return
+    if (!force && campaign.value?.id === id) return
     campaign.value = await fetchCampaign(id)
   }
 

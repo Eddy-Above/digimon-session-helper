@@ -123,7 +123,7 @@ async function handleSave() {
   }
 
   await updateCampaign(campaignId.value, data)
-  await loadCampaign()
+  await loadCampaign(true)
   saving.value = false
   saved.value = true
   setTimeout(() => { saved.value = false }, 2000)
