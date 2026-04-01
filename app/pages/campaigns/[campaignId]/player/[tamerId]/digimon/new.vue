@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import type { CreateDigimonData } from '~/composables/useDigimon'
 import type { Digimon } from '~/server/db/schema'
-import { STAGE_CONFIG, SIZE_CONFIG, type DigimonStage, type DigimonSize, type DigimonFamily } from '~/types'
+import { STAGE_CONFIG, SIZE_CONFIG, BASE_STAT_RANGES, type DigimonStage, type DigimonSize, type DigimonFamily } from '~/types'
 import { QUALITY_DATABASE, getMaxRanksAtStage, getEffectiveDPCost } from '~/data/qualities'
 import { isEffectValidForType } from '~/data/attackConstants'
+import { useBaseStatRanges } from '~/composables/useBaseStatRanges'
 
 definePageMeta({
   layout: 'player',
@@ -12,7 +13,7 @@ definePageMeta({
 
 const route = useRoute()
 const router = useRouter()
-const { campaignId } = useCampaignContext()
+const { campaignId, eddySoulRules } = useCampaignContext()
 const tamerId = computed(() => route.params.tamerId as string)
 
 const { createDigimon, fetchDigimonById, loading, error, getPreviousStages, getNextStages } = useDigimon()
@@ -57,6 +58,22 @@ const form = reactive<CreateDigimonData & {
   spriteUrl: '',
   evolvesFromId: null,
   evolutionPathIds: [],
+})
+
+// Base stat range constraints (EddySoul rule)
+const { statMin, statMax, isRangeActive } = useBaseStatRanges(
+  () => form.stage,
+  () => eddySoulRules.value
+)
+
+watch([() => form.stage, () => eddySoulRules.value?.baseStatRangesEnabled], () => {
+  if (!eddySoulRules.value?.baseStatRangesEnabled) return
+  const range = BASE_STAT_RANGES[form.stage]
+  if (!range) return
+  for (const key of ['accuracy', 'damage', 'dodge', 'armor', 'health'] as const) {
+    if (form.baseStats[key] < range.min) form.baseStats[key] = range.min
+    if (form.baseStats[key] > range.max) form.baseStats[key] = range.max
+  }
 })
 
 // Linked Digimon data for Evolution Chain Preview
@@ -982,13 +999,17 @@ function handleCancel() {
               </span>
             </div>
           </div>
+          <p v-if="isRangeActive" class="text-xs text-digimon-dark-400 mb-2">
+            Per-stat range: {{ statMin }} - {{ statMax }}
+          </p>
           <div class="grid grid-cols-5 gap-4">
             <div class="text-center">
               <label class="block text-sm text-digimon-dark-400 mb-2">Accuracy</label>
               <input
                 v-model.number="form.baseStats.accuracy"
                 type="number"
-                min="1"
+                :min="statMin"
+                :max="statMax"
                 class="w-full bg-digimon-dark-700 border border-digimon-dark-600 rounded-lg px-2 py-2
                        text-white text-center focus:border-digimon-orange-500 focus:outline-none"
               />
@@ -998,7 +1019,8 @@ function handleCancel() {
               <input
                 v-model.number="form.baseStats.damage"
                 type="number"
-                min="1"
+                :min="statMin"
+                :max="statMax"
                 class="w-full bg-digimon-dark-700 border border-digimon-dark-600 rounded-lg px-2 py-2
                        text-white text-center focus:border-digimon-orange-500 focus:outline-none"
               />
@@ -1008,7 +1030,8 @@ function handleCancel() {
               <input
                 v-model.number="form.baseStats.dodge"
                 type="number"
-                min="1"
+                :min="statMin"
+                :max="statMax"
                 class="w-full bg-digimon-dark-700 border border-digimon-dark-600 rounded-lg px-2 py-2
                        text-white text-center focus:border-digimon-orange-500 focus:outline-none"
               />
@@ -1018,7 +1041,8 @@ function handleCancel() {
               <input
                 v-model.number="form.baseStats.armor"
                 type="number"
-                min="1"
+                :min="statMin"
+                :max="statMax"
                 class="w-full bg-digimon-dark-700 border border-digimon-dark-600 rounded-lg px-2 py-2
                        text-white text-center focus:border-digimon-orange-500 focus:outline-none"
               />
@@ -1028,7 +1052,8 @@ function handleCancel() {
               <input
                 v-model.number="form.baseStats.health"
                 type="number"
-                min="1"
+                :min="statMin"
+                :max="statMax"
                 class="w-full bg-digimon-dark-700 border border-digimon-dark-600 rounded-lg px-2 py-2
                        text-white text-center focus:border-digimon-orange-500 focus:outline-none"
               />

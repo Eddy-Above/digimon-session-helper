@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import type { Digimon } from '~/server/db/schema'
 import { useDigimonForm } from '~/composables/useDigimonForm'
+import { useBaseStatRanges } from '~/composables/useBaseStatRanges'
+import { BASE_STAT_RANGES } from '~/types'
 
 definePageMeta({
   title: 'Edit Digimon',
@@ -9,7 +11,7 @@ definePageMeta({
 
 const route = useRoute()
 const router = useRouter()
-const { campaignId } = useCampaignContext()
+const { campaignId, eddySoulRules } = useCampaignContext()
 const { digimonList, fetchDigimonById, updateDigimon, copyDigimon, loading, error, getPreviousStages, getNextStages, getEvolutionChain } = useDigimon()
 const { tamers, fetchTamers } = useTamers()
 
@@ -72,6 +74,22 @@ const {
   spriteError,
   handleSpriteError,
 } = useDigimonForm()
+
+// Base stat range constraints (EddySoul rule)
+const { statMin, statMax, isRangeActive } = useBaseStatRanges(
+  () => form.stage,
+  () => eddySoulRules.value
+)
+
+watch([() => form.stage, () => eddySoulRules.value?.baseStatRangesEnabled], () => {
+  if (!eddySoulRules.value?.baseStatRangesEnabled) return
+  const range = BASE_STAT_RANGES[form.stage]
+  if (!range) return
+  for (const key of ['accuracy', 'damage', 'dodge', 'armor', 'health'] as const) {
+    if (form.baseStats[key] < range.min) form.baseStats[key] = range.min
+    if (form.baseStats[key] > range.max) form.baseStats[key] = range.max
+  }
+})
 
 // Compute missing values
 const totalDP = computed(() => baseDP.value)
@@ -424,13 +442,17 @@ async function handleCopy() {
         </button>
 
         <div v-show="baseStatsExpanded" class="px-6 pb-6">
+        <p v-if="isRangeActive" class="text-xs text-digimon-dark-400 mb-2">
+          Per-stat range: {{ statMin }} - {{ statMax }}
+        </p>
         <div class="grid grid-cols-5 gap-4">
           <div class="text-center">
             <label class="block text-sm text-digimon-dark-400 mb-2">Accuracy</label>
             <input
               v-model.number="form.baseStats.accuracy"
               type="number"
-              min="1"
+              :min="statMin"
+              :max="statMax"
               class="w-full bg-digimon-dark-700 border border-digimon-dark-600 rounded-lg px-2 py-2
                      text-white text-center focus:border-digimon-orange-500 focus:outline-none"
             />
@@ -440,7 +462,8 @@ async function handleCopy() {
             <input
               v-model.number="form.baseStats.damage"
               type="number"
-              min="1"
+              :min="statMin"
+              :max="statMax"
               class="w-full bg-digimon-dark-700 border border-digimon-dark-600 rounded-lg px-2 py-2
                      text-white text-center focus:border-digimon-orange-500 focus:outline-none"
             />
@@ -450,7 +473,8 @@ async function handleCopy() {
             <input
               v-model.number="form.baseStats.dodge"
               type="number"
-              min="1"
+              :min="statMin"
+              :max="statMax"
               class="w-full bg-digimon-dark-700 border border-digimon-dark-600 rounded-lg px-2 py-2
                      text-white text-center focus:border-digimon-orange-500 focus:outline-none"
             />
@@ -460,7 +484,8 @@ async function handleCopy() {
             <input
               v-model.number="form.baseStats.armor"
               type="number"
-              min="1"
+              :min="statMin"
+              :max="statMax"
               class="w-full bg-digimon-dark-700 border border-digimon-dark-600 rounded-lg px-2 py-2
                      text-white text-center focus:border-digimon-orange-500 focus:outline-none"
             />
@@ -470,7 +495,8 @@ async function handleCopy() {
             <input
               v-model.number="form.baseStats.health"
               type="number"
-              min="1"
+              :min="statMin"
+              :max="statMax"
               class="w-full bg-digimon-dark-700 border border-digimon-dark-600 rounded-lg px-2 py-2
                      text-white text-center focus:border-digimon-orange-500 focus:outline-none"
             />

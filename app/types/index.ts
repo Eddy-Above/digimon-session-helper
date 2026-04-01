@@ -73,6 +73,7 @@ export interface EddySoulRules {
   accuracyIsAgilityAthletics?: boolean
   damageIsBodyFeatsOfStrength?: boolean
   armorIsWillpowerEndurance?: boolean
+  baseStatRangesEnabled?: boolean
 }
 
 export interface CampaignRulesSettings {
@@ -109,6 +110,14 @@ export const STAGE_CONFIG: Record<DigimonStage, StageConfig> = {
   'ultimate': { stage: 'ultimate', dp: 55, movement: 10, woundBonus: 7, brainsBonus: 7, attacks: 4, stageBonus: 3 },
   'mega': { stage: 'mega', dp: 70, movement: 12, woundBonus: 10, brainsBonus: 10, attacks: 5, stageBonus: 4 },
   'ultra': { stage: 'ultra', dp: 85, movement: 14, woundBonus: 12, brainsBonus: 12, attacks: 6, stageBonus: 5 },
+}
+
+export const BASE_STAT_RANGES: Partial<Record<DigimonStage, { min: number; max: number }>> = {
+  'in-training': { min: 2, max: 4 },
+  'rookie':      { min: 3, max: 7 },
+  'champion':    { min: 4, max: 9 },
+  'ultimate':    { min: 5, max: 11 },
+  'mega':        { min: 6, max: 13 },
 }
 
 // === Tamer Types ===
