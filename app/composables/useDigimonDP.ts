@@ -7,12 +7,18 @@
 import { computed, isRef } from 'vue'
 import type { Ref } from 'vue'
 import { STAGE_CONFIG } from '../types/index'
+import type { EddySoulRules } from '../types/index'
 import { QUALITY_DATABASE, getEffectiveDPCost } from '../data/qualities'
 import type { DigimonFormData } from './useDigimonForm'
 
-export function useDigimonDP(form: Ref<DigimonFormData> | DigimonFormData) {
+export function useDigimonDP(form: Ref<DigimonFormData> | DigimonFormData, eddySoulRules?: Ref<EddySoulRules | undefined> | (() => EddySoulRules | undefined)) {
   // Handle both Ref and reactive objects
   const formValue = computed(() => isRef(form) ? form.value : form)
+  const rulesValue = computed(() => {
+    if (!eddySoulRules) return undefined
+    if (typeof eddySoulRules === 'function') return eddySoulRules()
+    return isRef(eddySoulRules) ? eddySoulRules.value : undefined
+  })
 
   // Stage configuration
   const currentStageConfig = computed(() => {
@@ -42,7 +48,7 @@ export function useDigimonDP(form: Ref<DigimonFormData> | DigimonFormData) {
       const template = QUALITY_DATABASE.find((t) => t.id === q.id)
       const baseCost = (q.dpCost || 0) as number
       if (!template) return total + baseCost * (q.ranks || 1)
-      const cost = getEffectiveDPCost(template, q.ranks || 1, baseCost, formValue.value.stage, true)
+      const cost = getEffectiveDPCost(template, q.ranks || 1, baseCost, formValue.value.stage, true, rulesValue.value)
       return total + cost
     }, 0)
   })

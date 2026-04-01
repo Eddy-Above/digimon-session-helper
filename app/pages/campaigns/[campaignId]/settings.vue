@@ -31,6 +31,7 @@ const form = reactive({
     damageIsBodyFeatsOfStrength: false,
     armorIsWillpowerEndurance: false,
     baseStatRangesEnabled: false,
+    chargeAttackCosts3DP: false,
   },
 })
 
@@ -68,6 +69,7 @@ onMounted(async () => {
       form.eddySoulRules.damageIsBodyFeatsOfStrength = eddySoul.damageIsBodyFeatsOfStrength ?? false
       form.eddySoulRules.armorIsWillpowerEndurance = eddySoul.armorIsWillpowerEndurance ?? false
       form.eddySoulRules.baseStatRangesEnabled = eddySoul.baseStatRangesEnabled ?? false
+      form.eddySoulRules.chargeAttackCosts3DP = eddySoul.chargeAttackCosts3DP ?? false
     }
   }
   loading.value = false
@@ -109,12 +111,13 @@ async function handleSave() {
     ...(Object.keys(activeRenames).length > 0 && {
       skillRenames: activeRenames,
     }),
-    ...((form.eddySoulRules.accuracyIsAgilityAthletics || form.eddySoulRules.damageIsBodyFeatsOfStrength || form.eddySoulRules.armorIsWillpowerEndurance || form.eddySoulRules.baseStatRangesEnabled) && {
+    ...((form.eddySoulRules.accuracyIsAgilityAthletics || form.eddySoulRules.damageIsBodyFeatsOfStrength || form.eddySoulRules.armorIsWillpowerEndurance || form.eddySoulRules.baseStatRangesEnabled || form.eddySoulRules.chargeAttackCosts3DP) && {
       eddySoulRules: {
         ...(form.eddySoulRules.accuracyIsAgilityAthletics && { accuracyIsAgilityAthletics: true }),
         ...(form.eddySoulRules.damageIsBodyFeatsOfStrength && { damageIsBodyFeatsOfStrength: true }),
         ...(form.eddySoulRules.armorIsWillpowerEndurance && { armorIsWillpowerEndurance: true }),
         ...(form.eddySoulRules.baseStatRangesEnabled && { baseStatRangesEnabled: true }),
+        ...(form.eddySoulRules.chargeAttackCosts3DP && { chargeAttackCosts3DP: true }),
       },
     }),
   }
@@ -315,7 +318,7 @@ async function handleSave() {
             <input
               v-model="form.eddySoulRules.accuracyIsAgilityAthletics"
               type="checkbox"
-              class="w-4 h-4 rounded mt-1"
+              class="w-4 h-4 rounded mt-1 shrink-0"
             />
             <div>
               <span class="text-digimon-dark-300">Tamer Accuracy = Agility + Athletics</span>
@@ -327,7 +330,7 @@ async function handleSave() {
             <input
               v-model="form.eddySoulRules.damageIsBodyFeatsOfStrength"
               type="checkbox"
-              class="w-4 h-4 rounded mt-1"
+              class="w-4 h-4 rounded mt-1 shrink-0"
             />
             <div>
               <span class="text-digimon-dark-300">Tamer Damage = Body + Feats of Strength</span>
@@ -339,7 +342,7 @@ async function handleSave() {
             <input
               v-model="form.eddySoulRules.armorIsWillpowerEndurance"
               type="checkbox"
-              class="w-4 h-4 rounded mt-1"
+              class="w-4 h-4 rounded mt-1 shrink-0"
             />
             <div>
               <span class="text-digimon-dark-300">Tamer Armour = Willpower + Endurance</span>
@@ -351,7 +354,7 @@ async function handleSave() {
             <input
               v-model="form.eddySoulRules.baseStatRangesEnabled"
               type="checkbox"
-              class="w-4 h-4 rounded mt-1"
+              class="w-4 h-4 rounded mt-1 shrink-0"
             />
             <div>
               <span class="text-digimon-dark-300">Enforce per-stat Base DP ranges</span>
@@ -360,6 +363,18 @@ async function handleSave() {
                 In-Training 2-4, Rookie 3-7, Champion 4-9, Ultimate 5-11, Mega 6-13.
                 Does not apply to Fresh or Ultra.
               </p>
+            </div>
+          </label>
+
+          <label class="flex items-start gap-3 cursor-pointer">
+            <input
+              v-model="form.eddySoulRules.chargeAttackCosts3DP"
+              type="checkbox"
+              class="w-4 h-4 rounded mt-1 shrink-0"
+            />
+            <div>
+              <span class="text-digimon-dark-300">Charge Attack costs 3 DP</span>
+              <p class="text-xs text-digimon-dark-500">Default: 1 DP</p>
             </div>
           </label>
         </div>

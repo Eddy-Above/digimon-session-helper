@@ -19,7 +19,7 @@ import {
   type QualityType,
   type QualityCategory,
 } from '../data/qualities'
-import type { DigimonStage } from '../types'
+import type { DigimonStage, EddySoulRules } from '../types'
 
 interface Quality {
   id: string
@@ -39,6 +39,7 @@ interface Props {
   canAdd?: boolean // Whether adding new qualities is allowed (has DP remaining)
   availableDP?: number // How much DP is available for qualities (to grey out expensive ones)
   speedyMaxRanks?: number // Effective max ranks for Speedy based on base movement modifiers
+  eddySoulRules?: EddySoulRules
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -95,7 +96,7 @@ const currentPurchasableDP = computed(() => {
     const isFirstOfType = !seenIds.has(q.id)
     seenIds.add(q.id)
 
-    return sum + getEffectiveDPCost(template, q.ranks || 1, q.dpCost, props.stage, isFirstOfType)
+    return sum + getEffectiveDPCost(template, q.ranks || 1, q.dpCost, props.stage, isFirstOfType, props.eddySoulRules)
   }, 0)
 })
 
@@ -371,7 +372,7 @@ function getDisplayCost(quality: Quality, index?: number): string {
     ? props.currentQualities.findIndex((q) => q.id === quality.id) === index
     : true
 
-  const total = getEffectiveDPCost(template, quality.ranks || 1, quality.dpCost, props.stage, isFirstOfType)
+  const total = getEffectiveDPCost(template, quality.ranks || 1, quality.dpCost, props.stage, isFirstOfType, props.eddySoulRules)
   if (total === 0) return 'Free'
   return `+${total} DP`
 }

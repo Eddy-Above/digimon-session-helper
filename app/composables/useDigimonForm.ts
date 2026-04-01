@@ -5,8 +5,9 @@
  */
 
 import { computed, ref, reactive, watch } from 'vue'
+import type { Ref } from 'vue'
 import type { Digimon } from '../server/db/schema'
-import { STAGE_CONFIG, SIZE_CONFIG, type DigimonStage, type DigimonSize } from '../types/index'
+import { STAGE_CONFIG, SIZE_CONFIG, type DigimonStage, type DigimonSize, type EddySoulRules } from '../types/index'
 import { QUALITY_DATABASE, getMaxRanksAtStage } from '../data/qualities'
 import type { Attack } from './useAttackTags'
 import { useDigimonStats } from './useDigimonStats'
@@ -66,7 +67,7 @@ function getSpeedyMaxRanks(
   return hasAdvancedMovement ? Math.ceil(effectiveBase / 2) : Math.floor(effectiveBase / 2)
 }
 
-export function useDigimonForm(initialData?: Partial<DigimonFormData>) {
+export function useDigimonForm(initialData?: Partial<DigimonFormData>, eddySoulRules?: Ref<EddySoulRules | undefined>) {
   // ========================
   // Form State (Basic Info)
   // ========================
@@ -125,7 +126,7 @@ export function useDigimonForm(initialData?: Partial<DigimonFormData>) {
   const attacksComposable = useDigimonAttacks(form)
 
   // 2. Create stats composable (no dependencies - dpUsedOnQualities comes from useDigimonDP internally)
-  const statsComposable = useDigimonStats(form)
+  const statsComposable = useDigimonStats(form, eddySoulRules)
 
   // 3. Create qualities composable (with stats outputs + attack callback)
   const qualitiesComposable = useDigimonQualities({
@@ -133,6 +134,7 @@ export function useDigimonForm(initialData?: Partial<DigimonFormData>) {
     availableDPForQualities: statsComposable.availableDPForQualities,
     dpUsedOnStats: statsComposable.dpUsedOnStats,
     baseDP: statsComposable.baseDP,
+    eddySoulRules,
     onRemoveAttacksForQuality: attacksComposable.removeAttacksForQuality,
   })
 

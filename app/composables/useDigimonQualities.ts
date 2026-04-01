@@ -5,6 +5,7 @@
 
 import { computed, type Ref, isRef } from 'vue'
 import type { DigimonFormData } from './useDigimonForm'
+import type { EddySoulRules } from '../types/index'
 import { QUALITY_DATABASE, getEffectiveDPCost } from '../data/qualities'
 
 export interface UseDigimonQualitiesOptions {
@@ -12,6 +13,7 @@ export interface UseDigimonQualitiesOptions {
   availableDPForQualities: Ref<number> | number
   dpUsedOnStats: Ref<number> | number
   baseDP: Ref<number> | number
+  eddySoulRules?: Ref<EddySoulRules | undefined>
   onRemoveAttacksForQuality?: (qualityId: string, qualityName: string) => void
 }
 
@@ -37,7 +39,7 @@ export function useDigimonQualities(options: UseDigimonQualitiesOptions) {
       const template = QUALITY_DATABASE.find((t) => t.id === q.id)
       const baseCost = (q.dpCost || 0) as number
       if (!template) return total + baseCost * (q.ranks || 1)
-      const cost = getEffectiveDPCost(template, q.ranks || 1, baseCost, f.stage, true)
+      const cost = getEffectiveDPCost(template, q.ranks || 1, baseCost, f.stage, true, options.eddySoulRules?.value)
       return total + cost
     }, 0)
   })
@@ -51,7 +53,7 @@ export function useDigimonQualities(options: UseDigimonQualitiesOptions) {
     const baseCost = (quality.dpCost || 0) as number
     let qualityCost: number
     if (template) {
-      qualityCost = getEffectiveDPCost(template, quality.ranks || 1, baseCost, formRef.value.stage, true)
+      qualityCost = getEffectiveDPCost(template, quality.ranks || 1, baseCost, formRef.value.stage, true, options.eddySoulRules?.value)
     } else {
       qualityCost = baseCost * (quality.ranks || 1)
     }

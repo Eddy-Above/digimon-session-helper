@@ -1,7 +1,7 @@
 // Digimon Qualities Database - DDA 1.4
 // Free Qualities (0 DP), Negative Qualities (negative DP), and Purchasable Qualities (positive DP)
 
-import type { DigimonStage } from '../types'
+import type { DigimonStage, EddySoulRules } from '../types'
 
 export type QualityTypeTag = 'static' | 'trigger' | 'attack' // [S], [T], [A]
 
@@ -2221,9 +2221,15 @@ export function getEffectiveDPCost(
   ranks: number,
   choiceDpCost?: number,
   stage?: DigimonStage,
-  isFirstOfType?: boolean
+  isFirstOfType?: boolean,
+  eddySoulRules?: EddySoulRules
 ): number {
-  const baseCost = choiceDpCost ?? quality.dpCost
+  let baseCost = choiceDpCost ?? quality.dpCost
+
+  // EddySoul rule: Charge Attack costs 3 DP instead of 1
+  if (eddySoulRules?.chargeAttackCosts3DP && quality.id === 'charge-attack') {
+    baseCost = 3
+  }
 
   if (quality.freeFirstRank) {
     // First rank is free, subsequent ranks cost dpCost each

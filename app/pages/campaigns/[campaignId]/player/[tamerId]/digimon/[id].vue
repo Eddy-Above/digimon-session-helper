@@ -73,7 +73,7 @@ const {
   editAttack,
   spriteError,
   handleSpriteError,
-} = useDigimonForm()
+} = useDigimonForm(undefined, eddySoulRules)
 
 // Base stat range constraints (EddySoul rule)
 const { statMin, statMax, isRangeActive } = useBaseStatRanges(
@@ -871,6 +871,7 @@ const hasLinkedEvolutions = computed(() => {
           :can-add="canAddQualities"
           :available-d-p="availableDPForQualities"
           :speedy-max-ranks="currentSpeedyMaxRanks"
+          :eddy-soul-rules="eddySoulRules"
           @add="handleAddQuality"
           @remove="removeQuality"
           @update-ranks="handleUpdateQualityRanks"

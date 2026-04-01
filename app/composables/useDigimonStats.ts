@@ -4,7 +4,7 @@
  */
 
 import { computed, type Ref, isRef, watch, reactive } from 'vue'
-import type { DigimonStage, DigimonSize, DigimonFamily } from '../types/index'
+import type { DigimonStage, DigimonSize, DigimonFamily, EddySoulRules } from '../types/index'
 import { STAGE_CONFIG, SIZE_CONFIG } from '../types/index'
 import { QUALITY_DATABASE, getMaxRanksAtStage } from '../data/qualities'
 import { useDigimonDP } from './useDigimonDP'
@@ -54,7 +54,7 @@ function getSpeedyMaxRanks(
   return hasAdvancedMovement ? Math.ceil(effectiveBase / 2) : Math.floor(effectiveBase / 2)
 }
 
-export function useDigimonStats(form: Ref<any> | any) {
+export function useDigimonStats(form: Ref<any> | any, eddySoulRules?: Ref<EddySoulRules | undefined>) {
   // Handle both Ref and raw values
   const formRef = isRef(form) ? form : computed(() => form)
 
@@ -122,7 +122,7 @@ export function useDigimonStats(form: Ref<any> | any) {
     minBonusDPForQualities,
     maxBonusDPForQualities,
     bonusStatsOverspent,
-  } = useDigimonDP(formRef as any)
+  } = useDigimonDP(formRef as any, eddySoulRules)
 
   // ========================
   // Derived Stats
