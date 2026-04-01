@@ -126,7 +126,7 @@ const dpUsedOnQualities = computed(() => {
     const template = QUALITY_DATABASE.find((t) => t.id === q.id)
     const baseCost = (q.dpCost || 0) as number
     if (!template) return total + baseCost * (q.ranks || 1)
-    const cost = getEffectiveDPCost(template, q.ranks || 1, baseCost, form.stage, true)
+    const cost = getEffectiveDPCost(template, q.ranks || 1, baseCost, form.stage, true, eddySoulRules.value)
     return total + cost
   }, 0)
 })
