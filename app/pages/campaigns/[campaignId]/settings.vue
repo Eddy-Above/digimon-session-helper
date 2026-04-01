@@ -30,6 +30,7 @@ const form = reactive({
     accuracyIsAgilityAthletics: false,
     damageIsBodyFeatsOfStrength: false,
     armorIsWillpowerEndurance: false,
+    baseStatRangesEnabled: false,
   },
 })
 
@@ -66,6 +67,7 @@ onMounted(async () => {
       form.eddySoulRules.accuracyIsAgilityAthletics = eddySoul.accuracyIsAgilityAthletics ?? false
       form.eddySoulRules.damageIsBodyFeatsOfStrength = eddySoul.damageIsBodyFeatsOfStrength ?? false
       form.eddySoulRules.armorIsWillpowerEndurance = eddySoul.armorIsWillpowerEndurance ?? false
+      form.eddySoulRules.baseStatRangesEnabled = eddySoul.baseStatRangesEnabled ?? false
     }
   }
   loading.value = false
@@ -107,11 +109,12 @@ async function handleSave() {
     ...(Object.keys(activeRenames).length > 0 && {
       skillRenames: activeRenames,
     }),
-    ...((form.eddySoulRules.accuracyIsAgilityAthletics || form.eddySoulRules.damageIsBodyFeatsOfStrength || form.eddySoulRules.armorIsWillpowerEndurance) && {
+    ...((form.eddySoulRules.accuracyIsAgilityAthletics || form.eddySoulRules.damageIsBodyFeatsOfStrength || form.eddySoulRules.armorIsWillpowerEndurance || form.eddySoulRules.baseStatRangesEnabled) && {
       eddySoulRules: {
         ...(form.eddySoulRules.accuracyIsAgilityAthletics && { accuracyIsAgilityAthletics: true }),
         ...(form.eddySoulRules.damageIsBodyFeatsOfStrength && { damageIsBodyFeatsOfStrength: true }),
         ...(form.eddySoulRules.armorIsWillpowerEndurance && { armorIsWillpowerEndurance: true }),
+        ...(form.eddySoulRules.baseStatRangesEnabled && { baseStatRangesEnabled: true }),
       },
     }),
   }
@@ -341,6 +344,22 @@ async function handleSave() {
             <div>
               <span class="text-digimon-dark-300">Tamer Armour = Willpower + Endurance</span>
               <p class="text-xs text-digimon-dark-500">Default: Body + Endurance</p>
+            </div>
+          </label>
+
+          <label class="flex items-start gap-3 cursor-pointer">
+            <input
+              v-model="form.eddySoulRules.baseStatRangesEnabled"
+              type="checkbox"
+              class="w-4 h-4 rounded mt-1"
+            />
+            <div>
+              <span class="text-digimon-dark-300">Enforce per-stat Base DP ranges</span>
+              <p class="text-xs text-digimon-dark-500">
+                Each base stat must fall within a min-max range per stage:
+                In-Training 2-4, Rookie 3-7, Champion 4-9, Ultimate 5-11, Mega 6-13.
+                Does not apply to Fresh or Ultra.
+              </p>
             </div>
           </label>
         </div>
