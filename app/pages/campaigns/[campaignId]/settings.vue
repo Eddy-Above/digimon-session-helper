@@ -403,8 +403,8 @@ async function handleSave() {
               class="w-4 h-4 rounded mt-1 shrink-0"
             />
             <div>
-              <span class="text-digimon-dark-300">Huge/Gigantic size requires Mega+</span>
-              <p class="text-xs text-digimon-dark-500">Default: No size restriction by stage</p>
+              <span class="text-digimon-dark-300">Restrict large sizes by stage</span>
+              <p class="text-xs text-digimon-dark-500">Default: No restriction</p>
             </div>
           </label>
         </div>
