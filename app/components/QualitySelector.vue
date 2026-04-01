@@ -163,7 +163,12 @@ function getFullQualityStatus(template: QualityTemplate): { canSelect: boolean; 
   if (!template.choices || template.choices.length === 0) {
     const existing = props.currentQualities.find((cq) => cq.id === template.id)
     if (existing) {
-      const maxRanks = getMaxRanksAtStage(template, props.stage)
+      let maxRanks = getMaxRanksAtStage(template, props.stage)
+      // EddySoul: Huge Power Rank 2 requires Ultimate+
+      if (props.eddySoulRules?.hugePowerOncePerTurn && template.id === 'huge-power') {
+        const isUltimatePlus = compareStages(props.stage, 'ultimate') >= 0
+        if (!isUltimatePlus) maxRanks = Math.min(maxRanks, 1)
+      }
       if ((existing.ranks || 1) >= maxRanks) {
         reasons.push(`Already at max ranks (${maxRanks})`)
       }
@@ -398,7 +403,13 @@ function getQualityMaxRanks(quality: Quality): number {
   }
   const template = getCurrentQualityTemplate(quality)
   if (!template) return 1
-  return getMaxRanksAtStage(template, props.stage)
+  let maxRanks = getMaxRanksAtStage(template, props.stage)
+  // EddySoul: Huge Power Rank 2 requires Ultimate+
+  if (props.eddySoulRules?.hugePowerOncePerTurn && quality.id === 'huge-power') {
+    const isUltimatePlus = compareStages(props.stage, 'ultimate') >= 0
+    if (!isUltimatePlus) maxRanks = Math.min(maxRanks, 1)
+  }
+  return maxRanks
 }
 
 function qualityHasSingleRankPerChoice(quality: Quality): boolean {

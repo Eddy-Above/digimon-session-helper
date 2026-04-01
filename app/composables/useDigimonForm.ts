@@ -8,7 +8,7 @@ import { computed, ref, reactive, watch } from 'vue'
 import type { Ref } from 'vue'
 import type { Digimon } from '../server/db/schema'
 import { STAGE_CONFIG, SIZE_CONFIG, type DigimonStage, type DigimonSize, type EddySoulRules } from '../types/index'
-import { QUALITY_DATABASE, getMaxRanksAtStage } from '../data/qualities'
+import { QUALITY_DATABASE, getMaxRanksAtStage, compareStages } from '../data/qualities'
 import type { Attack } from './useAttackTags'
 import { useDigimonStats } from './useDigimonStats'
 import { useDigimonQualities } from './useDigimonQualities'
@@ -208,6 +208,12 @@ export function useDigimonForm(initialData?: Partial<DigimonFormData>, eddySoulR
           maxRanks = getSpeedyMaxRanks(effectiveBase, hasAdvMovement)
         } else {
           maxRanks = getMaxRanksAtStage(template, newStage)
+        }
+
+        // EddySoul: Huge Power Rank 2 requires Ultimate+
+        if (eddySoulRules?.value?.hugePowerOncePerTurn && quality.id === 'huge-power') {
+          const isUltimatePlus = compareStages(newStage, 'ultimate') >= 0
+          if (!isUltimatePlus) maxRanks = Math.min(maxRanks, 1)
         }
 
         if ((quality.ranks || 1) > maxRanks) {

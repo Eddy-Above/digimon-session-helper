@@ -74,9 +74,16 @@ export default defineEventHandler(async (event) => {
             updated.lastBitCpuBolsterRound = encounter.round
           }
         }
-        // Track Huge Power usage for ranged attacks (once per round)
-        if (body.hugePowerUsed && body.hugePowerAttackRange === 'ranged') {
-          updated.lastHugePowerRound = encounter.round
+        // Track Huge Power usage
+        if (body.hugePowerUsed) {
+          // Track ranged usage OR EddySoul once-per-turn (any attack)
+          if (body.hugePowerAttackRange === 'ranged' || body.hugePowerTrackAll) {
+            updated.lastHugePowerRound = encounter.round
+          }
+          // Track Rank 2 usage (once per round, any attack type)
+          if (body.hugePowerRank === 2) {
+            updated.lastHugePowerRank2Round = encounter.round
+          }
         }
         return updated
       }

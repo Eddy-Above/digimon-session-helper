@@ -710,10 +710,10 @@ Rank 2 (requires Avoidance): After Agility and Avoidance trigger, must reroll al
     category: 'offensive',
     qualityType: ['trigger', 'attack'],
     dpCost: 2,
-    maxRanks: 1,
+    maxRanks: 2,
     prerequisites: [],
-    description: 'Reroll 1s on Accuracy.',
-    effect: `Reroll 1s on Accuracy. Once per round for [Ranged], unlimited for [Melee].`,
+    description: 'Reroll low dice on Accuracy.',
+    effect: `Rank 1: Reroll 1s on Accuracy. Once per round for [Ranged], unlimited for [Melee]. Rank 2: Also reroll 2s. Once per round (any attack type). Rank 1 still triggers when using Rank 2.`,
   },
   {
     id: 'overkill',

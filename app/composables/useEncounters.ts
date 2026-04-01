@@ -34,6 +34,7 @@ export interface CombatParticipant {
   digimonBolsterCount?: number
   lastBitCpuBolsterRound?: number
   lastHugePowerRound?: number
+  lastHugePowerRank2Round?: number
   isEnemy?: boolean
 }
 
@@ -535,6 +536,8 @@ export function useEncounters() {
     hugePowerData?: {
       hugePowerUsed: boolean
       attackRange: 'melee' | 'ranged'
+      hugePowerRank?: number
+      hugePowerTrackAll?: boolean
     }
   ): Promise<Encounter | null> {
     loading.value = true
@@ -554,6 +557,8 @@ export function useEncounters() {
           bolsterType: bolsterData?.bolsterType,
           hugePowerUsed: hugePowerData?.hugePowerUsed || false,
           hugePowerAttackRange: hugePowerData?.attackRange,
+          hugePowerRank: hugePowerData?.hugePowerRank,
+          hugePowerTrackAll: hugePowerData?.hugePowerTrackAll,
         },
       })
       // Update local state

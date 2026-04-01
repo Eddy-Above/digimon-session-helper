@@ -77,6 +77,7 @@ export interface EddySoulRules {
   chargeAttackCosts3DP?: boolean
   instinctBoostsDodgeArmorSpeed?: boolean
   hugeSizeRequiresMega?: boolean
+  hugePowerOncePerTurn?: boolean
 }
 
 export interface CampaignRulesSettings {
