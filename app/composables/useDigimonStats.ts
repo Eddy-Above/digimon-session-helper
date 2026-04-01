@@ -109,15 +109,15 @@ export function useDigimonStats(form: Ref<any> | any, eddySoulRules?: Ref<EddySo
   const availableSizes = computed(() => {
     if (!eddySoulRules?.value?.hugeSizeRequiresMega) return sizes
     const stage = formRef.value.stage
-    // Gigantic requires Mega+
-    if (!['mega', 'ultra'].includes(stage)) {
-      return sizes.filter(s => s !== 'gigantic')
-    }
-    // Huge requires Ultimate+, so filter at stages below that too
-    if (!['ultimate', 'mega', 'ultra'].includes(stage)) {
-      return sizes.filter(s => s !== 'huge' && s !== 'gigantic')
-    }
-    return sizes
+    const isUltimatePlus = ['ultimate', 'mega', 'ultra'].includes(stage)
+    const isMegaPlus = ['mega', 'ultra'].includes(stage)
+
+    // Huge requires Ultimate+, Gigantic requires Mega+
+    return sizes.filter(s => {
+      if (s === 'gigantic') return isMegaPlus
+      if (s === 'huge') return isUltimatePlus
+      return true
+    })
   })
 
   // Auto-reset size if it becomes unavailable
