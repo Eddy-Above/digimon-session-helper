@@ -2,7 +2,7 @@
 import type { CreateDigimonData } from '~/composables/useDigimon'
 import type { Digimon } from '~/server/db/schema'
 import { STAGE_CONFIG, SIZE_CONFIG, BASE_STAT_RANGES, type DigimonStage, type DigimonSize, type DigimonFamily } from '~/types'
-import { QUALITY_DATABASE, getMaxRanksAtStage, getEffectiveDPCost } from '~/data/qualities'
+import { QUALITY_DATABASE, getMaxRanksAtStage, getEffectiveDPCost, compareStages } from '~/data/qualities'
 import { isEffectValidForType } from '~/data/attackConstants'
 import { useBaseStatRanges } from '~/composables/useBaseStatRanges'
 
@@ -777,7 +777,12 @@ watch(() => form.stage, (newStage) => {
     const template = QUALITY_DATABASE.find(t => t.id === quality.id)
     if (!template) return quality
 
-    const maxRanks = getMaxRanksAtStage(template, newStage)
+    let maxRanks = getMaxRanksAtStage(template, newStage)
+    // EddySoul: Huge Power Rank 2 requires Ultimate+
+    if (eddySoulRules.value?.hugePowerOncePerTurn && quality.id === 'huge-power') {
+      const isUltimatePlus = compareStages(newStage, 'ultimate') >= 0
+      if (!isUltimatePlus) maxRanks = Math.min(maxRanks, 1)
+    }
     if ((quality.ranks || 1) > maxRanks) {
       return { ...quality, ranks: maxRanks }
     }
