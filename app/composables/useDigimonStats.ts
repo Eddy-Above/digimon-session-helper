@@ -105,12 +105,12 @@ export function useDigimonStats(form: Ref<any> | any, eddySoulRules?: Ref<EddySo
     return config
   })
 
-  // Filtered sizes: when hugeSizeRequiresMega is enabled, hide huge/gigantic for non-Mega+ stages
-  const megaPlusStages: DigimonStage[] = ['mega', 'ultra']
+  // Filtered sizes: when hugeSizeRequiresMega is enabled, hide gigantic for non-Mega+ stages (huge ok at Ultimate+)
+  const megaPlusStages: DigimonStage[] = ['ultimate', 'mega', 'ultra']
   const availableSizes = computed(() => {
     if (!eddySoulRules?.value?.hugeSizeRequiresMega) return sizes
     if (megaPlusStages.includes(formRef.value.stage)) return sizes
-    return sizes.filter(s => s !== 'huge' && s !== 'gigantic')
+    return sizes.filter(s => s !== 'gigantic')
   })
 
   // Auto-reset size if it becomes unavailable
