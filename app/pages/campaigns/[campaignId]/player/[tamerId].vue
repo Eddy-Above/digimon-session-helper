@@ -2161,6 +2161,8 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
     { type: 'Jump', speed: hasJumper ? (hasAdvJumper ? baseMove + ramBonus : baseMove) : halfMove },
     // Swim: half movement by default, full with Swimmer quality
     { type: 'Swim', speed: hasSwimmer ? (hasAdvSwimmer ? baseMove + ramBonus : baseMove) : halfMove },
+    // Climb: half movement by default, full with Wallclimber quality
+    { type: 'Climb', speed: hasWallclimber ? (hasAdvWallclimber ? baseMove + ramBonus : baseMove) : halfMove },
   ]
 
   // Add special movement types from qualities
@@ -2169,9 +2171,6 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
   }
   if (hasFlight) {
     movements.push({ type: 'Fly', speed: hasAdvFlight ? baseMove + ramBonus : baseMove })
-  }
-  if (hasWallclimber) {
-    movements.push({ type: 'Climb', speed: hasAdvWallclimber ? baseMove + ramBonus : baseMove })
   }
 
   return movements
