@@ -79,6 +79,7 @@ export interface EddySoulRules {
   hugeSizeRequiresMega?: boolean
   hugePowerOncePerTurn?: boolean
   agilityRank2RequiresUltimate?: boolean
+  combatMonsterAreaAttackRequiresComplex?: boolean
 }
 
 export interface CampaignRulesSettings {

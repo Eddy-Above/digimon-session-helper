@@ -509,7 +509,14 @@ function getAttackStats(participant: CombatParticipant, attack: any) {
 
 // Check if participant can use an attack (requires 1 simple action)
 function canUseAttack(participant: CombatParticipant, attack: any): boolean {
-  const requiredActions = 1
+  let requiredActions = 1
+  if (eddySoulRules.value?.combatMonsterAreaAttackRequiresComplex) {
+    const combatMonsterBonus = (participant as any).combatMonsterBonus ?? 0
+    const isAreaAttack = attack.tags?.some((t: string) => t.startsWith('Area Attack'))
+    if (combatMonsterBonus > 0 && isAreaAttack) {
+      requiredActions = 2
+    }
+  }
   return (participant.actionsRemaining?.simple || 0) >= requiredActions
 }
 

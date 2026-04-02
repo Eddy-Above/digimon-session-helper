@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm'
-import { db, encounters, digimon, tamers } from '../../../../db'
+import { db, encounters, digimon, tamers, campaigns } from '../../../../db'
 import { resolveParticipantName } from '../../../../utils/participantName'
 
 interface AttackActionBody {
@@ -45,6 +45,9 @@ export default defineEventHandler(async (event) => {
       message: `Encounter with ID ${encounterId} not found`,
     })
   }
+
+  // Fetch campaign to read EddySoul rules
+  const [campaign] = await db.select().from(campaigns).where(eq(campaigns.id, encounter.campaignId!))
 
   // Parse JSON fields
   const parseJsonField = (field: any) => {
@@ -151,7 +154,25 @@ export default defineEventHandler(async (event) => {
   }
 
   // Attacks cost 1 simple action, or 2 if bolstered
-  const actionCostSimple = body.bolstered ? 2 : 1
+  let actionCostSimple = body.bolstered ? 2 : 1
+
+  // EddySoul: Combat Monster + Area Attack requires a Complex Action (unless no bonus)
+  const campaignRulesSettings = typeof campaign?.rulesSettings === 'string' ? JSON.parse(campaign.rulesSettings) : (campaign?.rulesSettings || {})
+  const eddySoulRules = campaignRulesSettings?.eddySoulRules
+  if (!body.bolstered && eddySoulRules?.combatMonsterAreaAttackRequiresComplex) {
+    const combatMonsterBonus = (actor as any).combatMonsterBonus ?? 0
+    if (combatMonsterBonus > 0 && actor.type === 'digimon') {
+      const [actorDigimon] = await db.select().from(digimon).where(eq(digimon.id, actor.entityId))
+      if (actorDigimon?.attacks) {
+        const attacks = typeof actorDigimon.attacks === 'string'
+          ? JSON.parse(actorDigimon.attacks) : actorDigimon.attacks
+        const attackDef = attacks?.find((a: any) => a.id === body.attackId)
+        if (attackDef?.tags?.some((t: string) => t.startsWith('Area Attack'))) {
+          actionCostSimple = 2
+        }
+      }
+    }
+  }
 
   // Validate participant has enough actions
   if ((actor.actionsRemaining?.simple || 0) < actionCostSimple) {
