@@ -873,33 +873,16 @@ function getAttackStats(participant: CombatParticipant, attack: any) {
 
   // === WEAPON-TAGGED ATTACK BONUSES (Digizoid Weapons) ===
   if (hasWeaponTag) {
-    if (hasQuality('digizoid-weapon-chrome')) {
-      accuracyBonus += 2
-      damageBonus += 1
-    }
-    if (hasQuality('digizoid-weapon-black')) {
-      accuracyBonus += 2
-      notes.push('+random (d6)')
-    }
-    if (hasQuality('digizoid-weapon-brown')) {
-      damageBonus += 2
-    }
-    if (hasQuality('digizoid-weapon-blue')) {
-      accuracyBonus += 2
-      damageBonus += 2
-      notes.push('+1 auto success')
-    }
-    if (hasQuality('digizoid-weapon-gold')) {
-      accuracyBonus += 4
-      damageBonus += 1
-    }
-    if (hasQuality('digizoid-weapon-obsidian')) {
-      accuracyBonus += 2
-      damageBonus += 2
-      notes.push('+1 Armor Piercing')
-    }
-    if (hasQuality('digizoid-weapon-red')) {
-      damageBonus += 6
+    const digizoidWeapon = digimon.qualities?.find((q: any) => q.id === 'digizoid-weapon')
+    if (digizoidWeapon) {
+      const cid = digizoidWeapon.choiceId
+      if (cid === 'chrome') { accuracyBonus += 2; damageBonus += 1 }
+      if (cid === 'black') { accuracyBonus += 2; notes.push('+random (d6)') }
+      if (cid === 'brown') { damageBonus += 2 }
+      if (cid === 'blue') { accuracyBonus += 2; damageBonus += 2; notes.push('+1 auto success') }
+      if (cid === 'gold') { accuracyBonus += 4; damageBonus += 1 }
+      if (cid === 'obsidian') { accuracyBonus += 2; damageBonus += 2; notes.push('+1 Armor Piercing') }
+      if (cid === 'red') { damageBonus += 6 }
     }
   }
 
@@ -2065,13 +2048,17 @@ function getAttackBonuses(
   // Digizoid Weapon bonuses (only for [Weapon] tagged attacks)
   const hasWeaponTag = hasTag(tags, 'weapon')
   if (hasWeaponTag) {
-    if (hasQuality('digizoid-weapon-chrome')) { accuracy += 2; damage += 1 }
-    if (hasQuality('digizoid-weapon-black')) { accuracy += 2 }
-    if (hasQuality('digizoid-weapon-brown')) { damage += 2 }
-    if (hasQuality('digizoid-weapon-blue')) { accuracy += 2; damage += 2 }
-    if (hasQuality('digizoid-weapon-gold')) { accuracy += 4; damage += 1 }
-    if (hasQuality('digizoid-weapon-obsidian')) { accuracy += 2; damage += 2 }
-    if (hasQuality('digizoid-weapon-red')) { damage += 6 }
+    const digizoidWeapon = qualities.find(q => q.id === 'digizoid-weapon')
+    if (digizoidWeapon) {
+      const cid = digizoidWeapon.choiceId
+      if (cid === 'chrome') { accuracy += 2; damage += 1 }
+      if (cid === 'black') { accuracy += 2 }
+      if (cid === 'brown') { damage += 2 }
+      if (cid === 'blue') { accuracy += 2; damage += 2 }
+      if (cid === 'gold') { accuracy += 4; damage += 1 }
+      if (cid === 'obsidian') { accuracy += 2; damage += 2 }
+      if (cid === 'red') { damage += 6 }
+    }
   }
 
   return { accuracy, damage }
