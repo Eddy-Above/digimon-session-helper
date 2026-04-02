@@ -36,6 +36,7 @@ const form = reactive({
     hugeSizeRequiresMega: false,
     hugePowerOncePerTurn: false,
     agilityRank2RequiresUltimate: false,
+    combatMonsterAreaAttackRequiresComplex: false,
   },
 })
 
@@ -78,6 +79,7 @@ onMounted(async () => {
       form.eddySoulRules.hugeSizeRequiresMega = eddySoul.hugeSizeRequiresMega ?? false
       form.eddySoulRules.hugePowerOncePerTurn = eddySoul.hugePowerOncePerTurn ?? false
       form.eddySoulRules.agilityRank2RequiresUltimate = eddySoul.agilityRank2RequiresUltimate ?? false
+      form.eddySoulRules.combatMonsterAreaAttackRequiresComplex = eddySoul.combatMonsterAreaAttackRequiresComplex ?? false
     }
   }
   loading.value = false
@@ -119,7 +121,7 @@ async function handleSave() {
     ...(Object.keys(activeRenames).length > 0 && {
       skillRenames: activeRenames,
     }),
-    ...((form.eddySoulRules.accuracyIsAgilityAthletics || form.eddySoulRules.damageIsBodyFeatsOfStrength || form.eddySoulRules.armorIsWillpowerEndurance || form.eddySoulRules.baseStatRangesEnabled || form.eddySoulRules.chargeAttackCosts3DP || form.eddySoulRules.instinctBoostsDodgeArmorSpeed || form.eddySoulRules.hugeSizeRequiresMega || form.eddySoulRules.hugePowerOncePerTurn || form.eddySoulRules.agilityRank2RequiresUltimate) && {
+    ...((form.eddySoulRules.accuracyIsAgilityAthletics || form.eddySoulRules.damageIsBodyFeatsOfStrength || form.eddySoulRules.armorIsWillpowerEndurance || form.eddySoulRules.baseStatRangesEnabled || form.eddySoulRules.chargeAttackCosts3DP || form.eddySoulRules.instinctBoostsDodgeArmorSpeed || form.eddySoulRules.hugeSizeRequiresMega || form.eddySoulRules.hugePowerOncePerTurn || form.eddySoulRules.agilityRank2RequiresUltimate || form.eddySoulRules.combatMonsterAreaAttackRequiresComplex) && {
       eddySoulRules: {
         ...(form.eddySoulRules.accuracyIsAgilityAthletics && { accuracyIsAgilityAthletics: true }),
         ...(form.eddySoulRules.damageIsBodyFeatsOfStrength && { damageIsBodyFeatsOfStrength: true }),
@@ -130,6 +132,7 @@ async function handleSave() {
         ...(form.eddySoulRules.hugeSizeRequiresMega && { hugeSizeRequiresMega: true }),
         ...(form.eddySoulRules.hugePowerOncePerTurn && { hugePowerOncePerTurn: true }),
         ...(form.eddySoulRules.agilityRank2RequiresUltimate && { agilityRank2RequiresUltimate: true }),
+        ...(form.eddySoulRules.combatMonsterAreaAttackRequiresComplex && { combatMonsterAreaAttackRequiresComplex: true }),
       },
     }),
   }
@@ -434,6 +437,17 @@ async function handleSave() {
             <div>
               <span class="text-digimon-dark-300">Agility Rank 2 requires Ultimate+</span>
               <p class="text-xs text-digimon-dark-500">Default: Rank 2 available at any stage</p>
+            </div>
+          </label>
+          <label class="flex items-start gap-3 cursor-pointer">
+            <input
+              v-model="form.eddySoulRules.combatMonsterAreaAttackRequiresComplex"
+              type="checkbox"
+              class="w-4 h-4 rounded mt-1 shrink-0"
+            />
+            <div>
+              <span class="text-digimon-dark-300">Combat Monster + Area Attack requires a Complex Action</span>
+              <p class="text-xs text-digimon-dark-500">Default: Area attacks always cost 1 Simple Action. With rule: costs 2 (Complex) if Combat Monster bonus is non-zero</p>
             </div>
           </label>
         </div>
