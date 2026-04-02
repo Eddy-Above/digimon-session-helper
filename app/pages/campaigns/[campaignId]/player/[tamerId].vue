@@ -1349,6 +1349,9 @@ async function confirmAttack(target: CombatParticipant) {
 
     const accuracySuccesses = accuracyDiceResults.filter(d => d >= 5).length
 
+    // Capture battle log length before attack so we only check NEW entries for immediate resolution
+    const preBattleLogLength = (activeEncounter.value?.battleLog as any[])?.length || 0
+
     // Submit attack to server
     const result = await performAttack(
       activeEncounter.value.id,
@@ -1397,8 +1400,10 @@ async function confirmAttack(target: CombatParticipant) {
         showAttackResultModal.value = true
       } else {
         // Check if the attack was immediately resolved (NPC auto-resolve, no interceptors)
+        // Only search NEW entries (added during this request) to avoid matching previous attacks
         const returnedBattleLog = (result.battleLog as any[]) || []
-        const resolvedLogEntry = [...returnedBattleLog].reverse().find(
+        const newEntries = returnedBattleLog.slice(preBattleLogLength)
+        const resolvedLogEntry = [...newEntries].reverse().find(
           (entry: any) =>
             (entry.action === 'Dodge' || entry.effects?.includes('Intercede')) &&
             entry.attackerParticipantId === participant.id &&
