@@ -466,6 +466,27 @@ const availableAttackTags = computed(() => {
         tags.push({ id: 'area-line', name: 'Area Attack: Line', description: 'Pillar from user', disabled: alreadyUsed, disabledReason: alreadyUsed ? 'Already used on another attack' : undefined })
       }
     }
+
+    // Chrome Digizoid tag - only available when rule is enabled, Chrome is chosen, and no Weapon quality
+    if (
+      eddySoulRules.value?.chromeWeaponNoWeaponRankRequired &&
+      quality.id === 'digizoid-weapon' &&
+      quality.choiceId === 'chrome'
+    ) {
+      const hasWeapon = (form.qualities || []).some((q) => q.id === 'weapon')
+      if (!hasWeapon) {
+        const chromeDigizoidUsed = (form.attacks || [])
+          .filter((_, i) => i !== editingAttackIndex.value)
+          .some((attack) => attack.tags?.includes('Chrome Digizoid'))
+        tags.push({
+          id: 'chrome-digizoid',
+          name: 'Chrome Digizoid',
+          description: '+2 Accuracy, +1 Damage (one attack only)',
+          disabled: chromeDigizoidUsed,
+          disabledReason: chromeDigizoidUsed ? 'Already applied to another attack' : undefined,
+        })
+      }
+    }
   }
 
   return tags
@@ -524,6 +545,14 @@ const availableEffectTags = computed(() => {
 function addTagToAttack(tagName: string) {
   if (!newAttack.tags.includes(tagName)) {
     newAttack.tags = [...newAttack.tags, tagName]
+    // If adding Chrome Digizoid tag, remove it from all other attacks
+    if (tagName === 'Chrome Digizoid') {
+      form.attacks = (form.attacks || []).map((attack, i) =>
+        i === editingAttackIndex.value
+          ? attack
+          : { ...attack, tags: attack.tags?.filter((t) => t !== 'Chrome Digizoid') || [] }
+      )
+    }
   }
 }
 
@@ -1449,6 +1478,7 @@ function handleCancel() {
             :data-optimization="form.dataOptimization"
             :digimon-range="derivedStats.range"
             :effective-limit="derivedStats.effectiveLimit"
+            :eddy-soul-rules="eddySoulRules"
             @add="handleAddAttack"
             @remove="removeAttack"
             @edit="editAttack"

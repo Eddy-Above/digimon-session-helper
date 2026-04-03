@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ATTACK_DATABASE, getAttacksForStage, type AttackTemplate } from '../data/attacks'
-import type { DigimonStage } from '../types'
+import type { DigimonStage, EddySoulRules } from '../types'
 
 // DDA 1.4 Attack structure
 interface Attack {
@@ -38,6 +38,7 @@ interface Props {
   dataOptimization?: string
   digimonRange?: number
   effectiveLimit?: number
+  eddySoulRules?: EddySoulRules
 }
 
 const props = defineProps<Props>()
@@ -288,7 +289,16 @@ function getAttackStats(attack: Attack) {
     const digizoidWeapon = props.currentQualities?.find(q => q.id === 'digizoid-weapon')
     if (digizoidWeapon) {
       const cid = digizoidWeapon.choiceId
-      if (cid === 'chrome') { accuracyBonus += 2; damageBonus += 1 }
+
+      // Chrome: Check if rule is active and Chrome applies to this attack
+      if (cid === 'chrome') {
+        const hasWeaponRanks = props.currentQualities?.some(q => q.id === 'weapon')
+        const chromeAppliesToThisAttack =
+          !props.eddySoulRules?.chromeWeaponNoWeaponRankRequired ||
+          hasWeaponRanks ||
+          attack.tags?.includes('Chrome Digizoid')
+        if (chromeAppliesToThisAttack) { accuracyBonus += 2; damageBonus += 1 }
+      }
       if (cid === 'black') { accuracyBonus += 2; notes.push('+random (d6)') }
       if (cid === 'brown') { damageBonus += 2 }
       if (cid === 'blue') { accuracyBonus += 2; damageBonus += 2; notes.push('+1 auto success') }
