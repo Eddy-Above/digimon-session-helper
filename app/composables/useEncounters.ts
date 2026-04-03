@@ -529,6 +529,7 @@ export function useEncounters() {
       diceResults: number[]
     },
     tamerId: string,
+    attackName?: string,
     bolsterData?: {
       bolstered: boolean
       bolsterType?: 'damage-accuracy' | 'bit-cpu'
@@ -553,6 +554,7 @@ export function useEncounters() {
           accuracySuccesses: accuracyData.successes,
           accuracyDiceResults: accuracyData.diceResults,
           tamerId,
+          attackName,
           bolstered: bolsterData?.bolstered || false,
           bolsterType: bolsterData?.bolsterType,
           hugePowerUsed: hugePowerData?.hugePowerUsed || false,

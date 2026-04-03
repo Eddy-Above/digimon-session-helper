@@ -148,6 +148,7 @@ export default defineEventHandler(async (event) => {
           data: {
             attackerName: request.data.attackerName,
             targetName: request.data.targetName,
+            attackName: request.data.attackName || 'Attack',
             accuracySuccesses: request.data.accuracySuccesses,
             accuracyDice: request.data.accuracyDice,
             attackId: request.data.attackId,

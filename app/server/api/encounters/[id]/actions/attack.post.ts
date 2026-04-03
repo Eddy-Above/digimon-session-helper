@@ -10,6 +10,7 @@ interface AttackActionBody {
   accuracySuccesses: number
   accuracyDiceResults: number[]
   tamerId: string
+  attackName?: string
   bolstered?: boolean
   bolsterType?: 'damage-accuracy' | 'bit-cpu'
   hugePowerUsed?: boolean
@@ -318,6 +319,7 @@ export default defineEventHandler(async (event) => {
       accuracySuccesses: body.accuracySuccesses,
       accuracyDice: body.accuracyDiceResults,
       attackId: body.attackId,
+      attackName: body.attackName,
       attackData: {
         dicePool: body.accuracyDicePool,
       },
