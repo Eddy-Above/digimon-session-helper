@@ -425,6 +425,13 @@ function getQualityMaxRanks(quality: Quality): number {
   return maxRanks
 }
 
+function getDisplayDescription(item: { id: string; description: string }): string {
+  if (props.eddySoulRules?.instinctBoostsDodgeArmorSpeed && item.id === 'instinct') {
+    return '+Rank to Armor, Dodge, Base Movement. Ranks limited by stage.'
+  }
+  return item.description
+}
+
 function qualityHasSingleRankPerChoice(quality: Quality): boolean {
   const template = getCurrentQualityTemplate(quality)
   return template?.singleRankPerChoice === true
@@ -623,7 +630,7 @@ function isChoiceEddySoulBlocked(template: QualityTemplate, choice: NonNullable<
               {{ getDisplayCost(quality, index) }}
             </span>
           </div>
-          <p class="text-sm text-digimon-dark-400 mt-1">{{ quality.description }}</p>
+          <p class="text-sm text-digimon-dark-400 mt-1">{{ getDisplayDescription(quality) }}</p>
           <p class="text-xs text-digimon-dark-300 mt-2 whitespace-pre-line">{{ quality.effect }}</p>
         </div>
         <button type="button" class="text-red-400 hover:text-red-300 text-sm ml-2" @click="emit('remove', index)">
@@ -717,7 +724,7 @@ function isChoiceEddySoulBlocked(template: QualityTemplate, choice: NonNullable<
                 GM approval
               </span>
             </div>
-            <p class="text-xs text-digimon-dark-400 mt-1">{{ quality.description }}</p>
+            <p class="text-xs text-digimon-dark-400 mt-1">{{ getDisplayDescription(quality) }}</p>
             <p v-if="quality.prerequisites.length > 0" class="text-xs text-yellow-400/70 mt-1">
               Requires: {{ quality.prerequisites.join(', ') }}
             </p>
@@ -747,7 +754,7 @@ function isChoiceEddySoulBlocked(template: QualityTemplate, choice: NonNullable<
                 ({{ getMaxRanksAtStage(quality, stage) }} ranks max)
               </span>
             </div>
-            <p class="text-xs text-digimon-dark-500 mt-1">{{ quality.description }}</p>
+            <p class="text-xs text-digimon-dark-500 mt-1">{{ getDisplayDescription(quality) }}</p>
             <!-- Show all reasons why unavailable -->
             <div class="mt-1 space-y-0.5">
               <p v-for="reason in getFullQualityStatus(quality).reasons" :key="reason" class="text-xs text-red-400/80">
@@ -772,7 +779,7 @@ function isChoiceEddySoulBlocked(template: QualityTemplate, choice: NonNullable<
           <div class="flex justify-between items-start mb-4">
             <div>
               <h4 class="font-semibold text-white text-lg">{{ pendingQuality.name }}</h4>
-              <p class="text-sm text-digimon-dark-400 mt-1">{{ pendingQuality.description }}</p>
+              <p class="text-sm text-digimon-dark-400 mt-1">{{ getDisplayDescription(pendingQuality) }}</p>
             </div>
             <button
               type="button"
