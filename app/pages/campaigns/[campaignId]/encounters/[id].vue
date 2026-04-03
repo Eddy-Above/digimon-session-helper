@@ -108,7 +108,8 @@ const sortedParticipants = computed(() => {
   // Filter turnOrder to exclude partner digimon (for backward compatibility)
   const filteredTurnOrder = turnOrder.filter(id => {
     const participant = participants.find(p => p.id === id)
-    if (!participant || participant.type !== 'digimon') return true
+    if (!participant || participant.type === 'gm') return false
+    if (participant.type !== 'digimon') return true
     return !hasPartnerTamerInEncounter(participant)
   })
 

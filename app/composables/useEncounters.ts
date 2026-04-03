@@ -210,6 +210,8 @@ export function useEncounters() {
     // Apply hierarchical filter if digimonMap provided (exclude partner digimon from turnOrder)
     if (digimonMap) {
       sortedParticipants = sortedParticipants.filter(p => {
+        // Exclude GM metadata participant
+        if (p.type === 'gm') return false
         // Always include tamers and enemies
         if (p.type === 'tamer' || p.type === 'enemy') return true
         // For digimon, only include if NOT a partner (no partnerId)

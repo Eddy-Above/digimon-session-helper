@@ -1299,7 +1299,7 @@ function getEnemyTargets(): CombatParticipant[] {
   const participants = (activeEncounter.value.participants as CombatParticipant[]) || []
   const myParticipantIds = new Set(myParticipants.value.map((p) => p.id))
 
-  return participants.filter((p) => !myParticipantIds.has(p.id))
+  return participants.filter((p) => !myParticipantIds.has(p.id) && p.type !== 'gm')
 }
 
 async function selectAttackAndShowTargets(participant: CombatParticipant, attack: any) {
