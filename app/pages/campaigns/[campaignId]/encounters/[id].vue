@@ -729,6 +729,7 @@ async function confirmAttack(target: CombatParticipant) {
           accuracySuccesses,
           accuracyDice: accuracyDiceResults,
           attackId: attack.id,
+          attackName: attack.name,
           attackData: {
             dicePool: accuracyPool,
             attackStats: getAttackStats(participant, attack),

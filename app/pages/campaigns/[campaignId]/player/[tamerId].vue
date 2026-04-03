@@ -1356,6 +1356,7 @@ async function confirmAttack(target: CombatParticipant) {
         diceResults: accuracyDiceResults,
       },
       tamer.value.id,
+      attack.name,
       bolsterAttackEnabled.value ? {
         bolstered: true,
         bolsterType: bolsterAttackType.value,

@@ -9,6 +9,7 @@ interface IntercedeOfferBody {
   accuracySuccesses: number
   accuracyDice: number[]
   attackId: string
+  attackName?: string
   attackData: any // Full attack data for later resolution
   bolstered?: boolean
   bolsterType?: 'damage-accuracy' | 'bit-cpu'
@@ -207,6 +208,7 @@ export default defineEventHandler(async (event) => {
         timestamp: new Date().toISOString(),
         data: {
           attackerName, targetName,
+          attackName: body.attackName || 'Attack',
           accuracySuccesses: body.accuracySuccesses,
           accuracyDice: body.accuracyDice,
           attackId: body.attackId, attackData: body.attackData,
@@ -297,6 +299,7 @@ export default defineEventHandler(async (event) => {
         targetId: body.targetId,
         attackerName,
         targetName,
+        attackName: body.attackName || 'Attack',
         accuracySuccesses: body.accuracySuccesses,
         accuracyDice: body.accuracyDice,
         attackId: body.attackId,
@@ -347,6 +350,7 @@ export default defineEventHandler(async (event) => {
       targetId: body.targetId,
       attackerName,
       targetName,
+      attackName: body.attackName || 'Attack',
       accuracySuccesses: body.accuracySuccesses,
       accuracyDice: body.accuracyDice,
       attackId: body.attackId,
@@ -374,6 +378,7 @@ export default defineEventHandler(async (event) => {
         targetId: body.targetId,
         attackerName,
         targetName,
+        attackName: body.attackName || 'Attack',
         accuracySuccesses: body.accuracySuccesses,
         accuracyDice: body.accuracyDice,
         attackId: body.attackId,
