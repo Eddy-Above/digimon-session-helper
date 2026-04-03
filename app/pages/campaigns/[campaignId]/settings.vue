@@ -37,6 +37,8 @@ const form = reactive({
     hugePowerOncePerTurn: false,
     agilityRank2RequiresUltimate: false,
     combatMonsterAreaAttackRequiresComplex: false,
+    chromeWeaponNoWeaponRankRequired: false,
+    digizoidArmourRequiresInstinct: false,
   },
 })
 
@@ -80,6 +82,8 @@ onMounted(async () => {
       form.eddySoulRules.hugePowerOncePerTurn = eddySoul.hugePowerOncePerTurn ?? false
       form.eddySoulRules.agilityRank2RequiresUltimate = eddySoul.agilityRank2RequiresUltimate ?? false
       form.eddySoulRules.combatMonsterAreaAttackRequiresComplex = eddySoul.combatMonsterAreaAttackRequiresComplex ?? false
+      form.eddySoulRules.chromeWeaponNoWeaponRankRequired = eddySoul.chromeWeaponNoWeaponRankRequired ?? false
+      form.eddySoulRules.digizoidArmourRequiresInstinct = eddySoul.digizoidArmourRequiresInstinct ?? false
     }
   }
   loading.value = false
@@ -121,7 +125,7 @@ async function handleSave() {
     ...(Object.keys(activeRenames).length > 0 && {
       skillRenames: activeRenames,
     }),
-    ...((form.eddySoulRules.accuracyIsAgilityAthletics || form.eddySoulRules.damageIsBodyFeatsOfStrength || form.eddySoulRules.armorIsWillpowerEndurance || form.eddySoulRules.baseStatRangesEnabled || form.eddySoulRules.chargeAttackCosts3DP || form.eddySoulRules.instinctBoostsDodgeArmorSpeed || form.eddySoulRules.hugeSizeRequiresMega || form.eddySoulRules.hugePowerOncePerTurn || form.eddySoulRules.agilityRank2RequiresUltimate || form.eddySoulRules.combatMonsterAreaAttackRequiresComplex) && {
+    ...((form.eddySoulRules.accuracyIsAgilityAthletics || form.eddySoulRules.damageIsBodyFeatsOfStrength || form.eddySoulRules.armorIsWillpowerEndurance || form.eddySoulRules.baseStatRangesEnabled || form.eddySoulRules.chargeAttackCosts3DP || form.eddySoulRules.instinctBoostsDodgeArmorSpeed || form.eddySoulRules.hugeSizeRequiresMega || form.eddySoulRules.hugePowerOncePerTurn || form.eddySoulRules.agilityRank2RequiresUltimate || form.eddySoulRules.combatMonsterAreaAttackRequiresComplex || form.eddySoulRules.chromeWeaponNoWeaponRankRequired || form.eddySoulRules.digizoidArmourRequiresInstinct) && {
       eddySoulRules: {
         ...(form.eddySoulRules.accuracyIsAgilityAthletics && { accuracyIsAgilityAthletics: true }),
         ...(form.eddySoulRules.damageIsBodyFeatsOfStrength && { damageIsBodyFeatsOfStrength: true }),
@@ -133,6 +137,8 @@ async function handleSave() {
         ...(form.eddySoulRules.hugePowerOncePerTurn && { hugePowerOncePerTurn: true }),
         ...(form.eddySoulRules.agilityRank2RequiresUltimate && { agilityRank2RequiresUltimate: true }),
         ...(form.eddySoulRules.combatMonsterAreaAttackRequiresComplex && { combatMonsterAreaAttackRequiresComplex: true }),
+        ...(form.eddySoulRules.chromeWeaponNoWeaponRankRequired && { chromeWeaponNoWeaponRankRequired: true }),
+        ...(form.eddySoulRules.digizoidArmourRequiresInstinct && { digizoidArmourRequiresInstinct: true }),
       },
     }),
   }
@@ -448,6 +454,30 @@ async function handleSave() {
             <div>
               <span class="text-digimon-dark-300">Combat Monster + Area Attack requires a Complex Action</span>
               <p class="text-xs text-digimon-dark-500">Default: Area attacks always cost 1 Simple Action. With rule: costs 2 (Complex) if Combat Monster bonus is non-zero</p>
+            </div>
+          </label>
+
+          <label class="flex items-start gap-3 cursor-pointer">
+            <input
+              v-model="form.eddySoulRules.chromeWeaponNoWeaponRankRequired"
+              type="checkbox"
+              class="w-4 h-4 rounded mt-1 shrink-0"
+            />
+            <div>
+              <span class="text-digimon-dark-300">Chrome Weapon available without Weapon Rank 1</span>
+              <p class="text-xs text-digimon-dark-500">Allows Chrome Digizoid Weaponry to be taken without Weapon Rank 1. Without Weapon ranks, bonus applies to one designated attack only.</p>
+            </div>
+          </label>
+
+          <label class="flex items-start gap-3 cursor-pointer">
+            <input
+              v-model="form.eddySoulRules.digizoidArmourRequiresInstinct"
+              type="checkbox"
+              class="w-4 h-4 rounded mt-1 shrink-0"
+            />
+            <div>
+              <span class="text-digimon-dark-300">Non-Chrome Digizoid Armour requires Instinct Rank 1</span>
+              <p class="text-xs text-digimon-dark-500">All non-Chrome Digizoid Armour choices require Instinct Rank 1. Chrome remains freely available.</p>
             </div>
           </label>
         </div>

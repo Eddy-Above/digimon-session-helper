@@ -2,7 +2,7 @@
 import type { Tamer, Digimon, Encounter } from '~/server/db/schema'
 import type { CombatParticipant } from '~/composables/useEncounters'
 import { skillsByAttribute, skillLabels as defaultSkillLabels, getResolvedSkillLabels } from '~/constants/tamer-skills'
-import type { DigimonStage } from '~/types'
+import type { DigimonStage, EddySoulRules } from '~/types'
 import { STAGE_CONFIG, DIGIVOLVE_WILLPOWER_DC } from '~/types'
 import { getStageColor } from '~/utils/displayHelpers'
 import { getUnlockedSpecialOrders, getOrderActionCost, getOrderUsageLimit } from '~/utils/specialOrders'
@@ -876,7 +876,16 @@ function getAttackStats(participant: CombatParticipant, attack: any) {
     const digizoidWeapon = digimon.qualities?.find((q: any) => q.id === 'digizoid-weapon')
     if (digizoidWeapon) {
       const cid = digizoidWeapon.choiceId
-      if (cid === 'chrome') { accuracyBonus += 2; damageBonus += 1 }
+
+      // Chrome: Check if rule is active and Chrome applies to this attack
+      if (cid === 'chrome') {
+        const hasWeaponRanks = digimon.qualities?.some((q: any) => q.id === 'weapon')
+        const chromeAppliesToThisAttack =
+          !eddySoulRules.value?.chromeWeaponNoWeaponRankRequired ||
+          hasWeaponRanks ||
+          attack.tags?.includes('Chrome Digizoid')
+        if (chromeAppliesToThisAttack) { accuracyBonus += 2; damageBonus += 1 }
+      }
       if (cid === 'black') { accuracyBonus += 2; notes.push('+random (d6)') }
       if (cid === 'brown') { damageBonus += 2 }
       if (cid === 'blue') { accuracyBonus += 2; damageBonus += 2; notes.push('+1 auto success') }
@@ -2009,7 +2018,8 @@ function hasTag(tags: string[], pattern: string): boolean {
 // Calculate attack bonuses from tags and qualities
 function getAttackBonuses(
   digimon: Digimon,
-  attack: { range: 'melee' | 'ranged'; tags: string[] }
+  attack: { range: 'melee' | 'ranged'; tags: string[] },
+  eddySoulRulesParam?: EddySoulRules
 ): { accuracy: number; damage: number } {
   let accuracy = 0
   let damage = 0
@@ -2051,7 +2061,16 @@ function getAttackBonuses(
     const digizoidWeapon = qualities.find(q => q.id === 'digizoid-weapon')
     if (digizoidWeapon) {
       const cid = digizoidWeapon.choiceId
-      if (cid === 'chrome') { accuracy += 2; damage += 1 }
+
+      // Chrome: Check if rule is active and Chrome applies to this attack
+      if (cid === 'chrome') {
+        const hasWeaponRanks = qualities.some((q: any) => q.id === 'weapon')
+        const chromeAppliesToThisAttack =
+          !eddySoulRulesParam?.chromeWeaponNoWeaponRankRequired ||
+          hasWeaponRanks ||
+          tags?.includes('Chrome Digizoid')
+        if (chromeAppliesToThisAttack) { accuracy += 2; damage += 1 }
+      }
       if (cid === 'black') { accuracy += 2 }
       if (cid === 'brown') { damage += 2 }
       if (cid === 'blue') { accuracy += 2; damage += 2 }
@@ -2065,9 +2084,9 @@ function getAttackBonuses(
 }
 
 // Calculate attack accuracy pool (base + bonus + tag/quality bonuses)
-function getAttackAccuracy(digimon: Digimon, attack: { range: 'melee' | 'ranged'; tags: string[] }): number {
+function getAttackAccuracy(digimon: Digimon, attack: { range: 'melee' | 'ranged'; tags: string[] }, eddySoulRulesParam?: EddySoulRules): number {
   const bonusStats = (digimon as any).bonusStats || { accuracy: 0 }
-  const bonuses = getAttackBonuses(digimon, attack)
+  const bonuses = getAttackBonuses(digimon, attack, eddySoulRulesParam)
   return digimon.baseStats.accuracy + (bonusStats.accuracy || 0) + bonuses.accuracy
 }
 
@@ -2084,9 +2103,9 @@ function getPerAttackRange(digimon: Digimon, attackRange: 'melee' | 'ranged'): {
 
 // Calculate attack damage pool (base + bonus + tag/quality bonuses)
 // Note: Stage bonus is NOT added to the pool - it's added to final damage after the roll
-function getAttackDamage(digimon: Digimon, attack: { range: 'melee' | 'ranged'; tags: string[] }): number {
+function getAttackDamage(digimon: Digimon, attack: { range: 'melee' | 'ranged'; tags: string[] }, eddySoulRulesParam?: EddySoulRules): number {
   const bonusStats = (digimon as any).bonusStats || { damage: 0 }
-  const bonuses = getAttackBonuses(digimon, attack)
+  const bonuses = getAttackBonuses(digimon, attack, eddySoulRulesParam)
   return digimon.baseStats.damage + (bonusStats.damage || 0) + bonuses.damage
 }
 
@@ -3240,10 +3259,10 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
                       <!-- Attack Stats -->
                       <div class="flex items-center gap-3 text-sm">
                         <span class="text-cyan-400">
-                          ACC: {{ getAttackAccuracy(getCurrentForm(chain.chainId)!, { range: attack.range, tags: attack.tags || [] }) }}d6
+                          ACC: {{ getAttackAccuracy(getCurrentForm(chain.chainId)!, { range: attack.range, tags: attack.tags || [] }, eddySoulRules) }}d6
                         </span>
                         <span v-if="attack.type === 'damage'" class="text-orange-400">
-                          DMG: {{ getAttackDamage(getCurrentForm(chain.chainId)!, { range: attack.range, tags: attack.tags || [] }) }}
+                          DMG: {{ getAttackDamage(getCurrentForm(chain.chainId)!, { range: attack.range, tags: attack.tags || [] }, eddySoulRules) }}
                         </span>
                         <span class="text-digimon-dark-400">
                           Range: {{ getPerAttackRange(getCurrentForm(chain.chainId)!, attack.range).range }}m<template v-if="getPerAttackRange(getCurrentForm(chain.chainId)!, attack.range).effectiveLimit != null"> | Limit: {{ getPerAttackRange(getCurrentForm(chain.chainId)!, attack.range).effectiveLimit }}m</template>

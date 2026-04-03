@@ -214,9 +214,12 @@ function getFullQualityStatus(template: QualityTemplate): { canSelect: boolean; 
   }
 
   // Check prerequisites
-  const prereqCheck = arePrerequisitesMet(template, props.currentQualities)
-  if (!prereqCheck.met) {
-    reasons.push(`Missing: ${prereqCheck.missing.join(', ')}`)
+  const skipWeaponPrereq = props.eddySoulRules?.chromeWeaponNoWeaponRankRequired && template.id === 'digizoid-weapon'
+  if (!skipWeaponPrereq) {
+    const prereqCheck = arePrerequisitesMet(template, props.currentQualities)
+    if (!prereqCheck.met) {
+      reasons.push(`Missing: ${prereqCheck.missing.join(', ')}`)
+    }
   }
 
   // Check exclusive conflicts
@@ -529,6 +532,28 @@ function isChoiceStageAvailable(choice: NonNullable<QualityTemplate['choices']>[
   if (!choice.stageRequirement) return true
   return compareStages(props.stage, choice.stageRequirement) >= 0
 }
+
+// Check if a choice is blocked by EddySoul rules (e.g., Digizoid Armour requires Instinct)
+function isChoiceEddySoulBlocked(template: QualityTemplate, choice: NonNullable<QualityTemplate['choices']>[0]): { blocked: boolean; reason: string } {
+  // EddySoul: Chrome Weapon can be taken without Weapon Rank 1, but all other variants still require it
+  if (
+    props.eddySoulRules?.chromeWeaponNoWeaponRankRequired &&
+    template.id === 'digizoid-weapon' &&
+    choice.id !== 'chrome'
+  ) {
+    const hasWeapon = props.currentQualities.some(q => q.id === 'weapon' && (q.ranks || 1) >= 1)
+    if (!hasWeapon) return { blocked: true, reason: 'Requires Weapon Rank 1' }
+  }
+  if (
+    props.eddySoulRules?.digizoidArmourRequiresInstinct &&
+    template.id === 'digizoid-armor' &&
+    choice.id !== 'chrome'
+  ) {
+    const hasInstinct = props.currentQualities.some(q => q.id === 'instinct' && (q.ranks || 1) >= 1)
+    if (!hasInstinct) return { blocked: true, reason: 'Requires Instinct Rank 1' }
+  }
+  return { blocked: false, reason: '' }
+}
 </script>
 
 <template>
@@ -814,6 +839,24 @@ function isChoiceStageAvailable(choice: NonNullable<QualityTemplate['choices']>[
                   <p class="text-sm text-digimon-dark-500 whitespace-pre-line">{{ choice.effect }}</p>
                   <p class="text-xs text-red-400 mt-2">
                     Requires {{ choice.stageRequirement }} stage
+                  </p>
+                </div>
+              </template>
+              <!-- Check if choice is blocked by EddySoul rules -->
+              <template v-else-if="pendingQuality && isChoiceEddySoulBlocked(pendingQuality, choice).blocked">
+                <div class="w-full text-left bg-digimon-dark-800 border border-digimon-dark-700 rounded-lg p-4 opacity-50">
+                  <div class="flex items-center gap-2 mb-2">
+                    <span class="font-semibold text-digimon-dark-400">{{ choice.name }}</span>
+                    <span
+                      v-if="choice.dpCost !== undefined && choice.dpCost !== pendingQuality?.dpCost"
+                      class="text-xs px-2 py-0.5 rounded bg-digimon-dark-700 text-digimon-dark-500"
+                    >
+                      +{{ choice.dpCost }} DP
+                    </span>
+                  </div>
+                  <p class="text-sm text-digimon-dark-500 whitespace-pre-line">{{ choice.effect }}</p>
+                  <p class="text-xs text-red-400 mt-2">
+                    {{ isChoiceEddySoulBlocked(pendingQuality, choice).reason }}
                   </p>
                 </div>
               </template>

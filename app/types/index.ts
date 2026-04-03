@@ -80,6 +80,8 @@ export interface EddySoulRules {
   hugePowerOncePerTurn?: boolean
   agilityRank2RequiresUltimate?: boolean
   combatMonsterAreaAttackRequiresComplex?: boolean
+  chromeWeaponNoWeaponRankRequired?: boolean
+  digizoidArmourRequiresInstinct?: boolean
 }
 
 export interface CampaignRulesSettings {
