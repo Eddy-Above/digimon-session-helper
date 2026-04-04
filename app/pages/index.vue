@@ -71,7 +71,7 @@ function getLevelColor(level: string) {
     <div class="mb-8 flex items-center justify-between">
       <div>
         <h1 class="font-display text-3xl font-bold text-white mb-2">
-          DDA 1.4 Session Helper
+          DDA Tactics
         </h1>
         <p class="text-digimon-dark-400">
           Select a campaign or create a new one
