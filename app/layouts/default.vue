@@ -31,8 +31,7 @@ const navItems = computed(() => {
               <span class="text-white font-display font-bold text-lg">D</span>
             </div>
             <div class="hidden sm:block">
-              <h1 class="font-display text-lg font-semibold text-white">DDA 1.4</h1>
-              <p class="text-xs text-digimon-dark-400">Session Helper</p>
+              <h1 class="font-display text-lg font-semibold text-white">DDA Tactics</h1>
             </div>
           </NuxtLink>
 
@@ -69,7 +68,7 @@ const navItems = computed(() => {
     <!-- Footer -->
     <footer class="bg-digimon-dark-800 border-t border-digimon-dark-700 py-4">
       <div class="container mx-auto px-4 text-center text-sm text-digimon-dark-400">
-        Digimon Digital Adventure 1.4 Session Helper
+        DDA Tactics
       </div>
     </footer>
   </div>

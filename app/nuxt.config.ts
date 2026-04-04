@@ -30,11 +30,11 @@ export default defineNuxtConfig({
 
   app: {
     head: {
-      title: 'Digimon DDA 1.4 Session Helper',
+      title: 'DDA Tactics',
       meta: [
         { charset: 'utf-8' },
         { name: 'viewport', content: 'width=device-width, initial-scale=1' },
-        { name: 'description', content: 'GM aid application for Digimon Digital Adventure 1.4 TTRPG' },
+        { name: 'description', content: 'Tactical GM aid for Digimon Digital Adventure 1.4 TTRPG' },
       ],
       link: [
         { rel: 'icon', type: 'image/x-icon', href: '/favicon.ico' },
