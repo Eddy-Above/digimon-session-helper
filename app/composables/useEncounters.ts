@@ -431,7 +431,7 @@ export function useEncounters() {
     requestId: string,
     tamerId: string,
     response: {
-      type: 'digimon-selected' | 'initiative-rolled' | 'dodge-rolled'
+      type: 'digimon-selected' | 'initiative-rolled' | 'dodge-rolled' | 'health-rolled'
       digimonId?: string
       initiative?: number
       initiativeRoll?: number
@@ -439,6 +439,9 @@ export function useEncounters() {
       dodgeDicePool?: number
       dodgeSuccesses?: number
       dodgeDiceResults?: number[]
+      healthDicePool?: number
+      healthSuccesses?: number
+      healthDiceResults?: number[]
       timestamp?: string
     }
   ): Promise<Encounter | null> {

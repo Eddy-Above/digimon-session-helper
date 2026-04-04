@@ -162,6 +162,8 @@ export default defineEventHandler(async (event) => {
             bolsterType: request.data.bolsterType || null,
             bolsterDamageBonus: request.data.bolsterDamageBonus || 0,
             bolsterBitCpuBonus: request.data.bolsterBitCpuBonus || 0,
+            // Support attack flag — downstream handlers skip damage
+            isSupportAttack: request.data.isSupportAttack || false,
           },
         }
 

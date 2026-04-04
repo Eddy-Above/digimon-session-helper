@@ -315,6 +315,8 @@ export interface ActiveEffect {
   source: string          // Who applied it
   description: string
   value?: number          // Optional numeric value (used by Directed bonus, etc.)
+  potency?: number        // Effect strength (e.g., Immobilize potency = BIT value of applier)
+  potencyStat?: string    // Which spec stat drives potency ('bit', 'ram', 'cpu')
 }
 
 export interface Encounter {

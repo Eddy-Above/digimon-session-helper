@@ -5,6 +5,7 @@ import type { Digimon } from '~/server/db/schema'
 import type { Tamer } from '~/server/db/schema'
 import { getUnlockedSpecialOrders, getOrderActionCost, getOrderUsageLimit } from '~/utils/specialOrders'
 import { DIGIVOLVE_WILLPOWER_DC } from '~/types'
+import { EFFECT_ALIGNMENT, getEffectStatModifiers } from '~/data/attackConstants'
 
 definePageMeta({
   title: 'Encounter',
@@ -458,6 +459,11 @@ function getAttackStats(participant: CombatParticipant, attack: any) {
     }
   }
 
+  // === ACTIVE EFFECT STAT MODIFIERS ===
+  const effectMods = getEffectStatModifiers(participant.activeEffects || [])
+  accuracyBonus += effectMods.accuracy
+  damageBonus += effectMods.damage
+
   // Directed effect bonus
   const directedEffect = participant.activeEffects?.find(e => e.name === 'Directed')
   if (directedEffect?.value) {
@@ -539,13 +545,17 @@ function getDodgePool(participant: CombatParticipant): number {
   pool = applyStanceToDodge(pool, participant.currentStance)
   pool = Math.max(1, pool - (participant.dodgePenalty ?? 0))
 
+  // Active effect dodge modifiers
+  const dodgeEffectMods = getEffectStatModifiers(participant.activeEffects || [])
+  pool += dodgeEffectMods.dodge
+
   // Add Directed effect bonus to dodge pool
   const directedEffect = participant.activeEffects?.find(e => e.name === 'Directed')
   if (directedEffect?.value) {
     pool += directedEffect.value
   }
 
-  return pool
+  return Math.max(1, pool)
 }
 
 // Get participant name (tamer or digimon) for display
@@ -630,10 +640,52 @@ function closeGmIntercedeResultModal() {
   gmIntercedeResultData.value = null
 }
 
-// Get all valid targets for an attack (exclude the attacker)
-function getAttackTargets(attackerId: string): CombatParticipant[] {
+// Determine if a participant is on the enemy side
+function isEnemyParticipant(participant: CombatParticipant): boolean {
+  if (participant.type === 'tamer') return false
+  if (participant.type === 'digimon') {
+    const digimon = digimonMap.value.get(participant.entityId)
+    return digimon?.isEnemy ?? false
+  }
+  return false
+}
+
+// Get all valid targets for an attack (exclude the attacker, filter by support alignment)
+function getAttackTargets(attackerId: string, attack?: any): CombatParticipant[] {
   if (!currentEncounter.value) return []
   const participants = (currentEncounter.value.participants as CombatParticipant[]) || []
+
+  // Support attacks: filter by effect alignment
+  if (attack?.type === 'support' && attack?.effect) {
+    const alignment = EFFECT_ALIGNMENT[attack.effect]
+    const attackerIsEnemy = isEnemyParticipant(participants.find(p => p.id === attackerId)!)
+
+    if (alignment === 'P') {
+      // Positive: target allies only (same side as attacker)
+      return participants.filter(p => {
+        if (p.type === 'gm') return false
+        if (p.id === attackerId) {
+          // Self-buff: only melee allowed, Shield needs Area Attack
+          if (attack.range !== 'melee') return false
+          if (attack.effect === 'Shield' && !attack.tags?.some((t: string) => t.startsWith('Area Attack'))) return false
+          return true
+        }
+        // Must be on the same side as attacker
+        return isEnemyParticipant(p) === attackerIsEnemy
+      })
+    }
+
+    if (alignment === 'N' || alignment === 'NA') {
+      // Negative: target opponents only
+      return participants.filter(p => {
+        if (p.type === 'gm') return false
+        if (p.id === attackerId) return false
+        return isEnemyParticipant(p) !== attackerIsEnemy
+      })
+    }
+  }
+
+  // Damage attacks & default: target anyone except self and GM
   return participants.filter(p => p.id !== attackerId && p.type !== 'gm')
 }
 
@@ -2278,7 +2330,7 @@ async function handleUpdateHazard(hazard: Hazard) {
                         ]"
                         :title="effect.description"
                       >
-                        {{ effect.name }} ({{ effect.duration }})
+                        {{ effect.name }}{{ effect.potency ? ' ' + effect.potency : '' }} ({{ effect.duration }})
                       </span>
                     </div>
                   </div>
@@ -2453,7 +2505,7 @@ async function handleUpdateHazard(hazard: Hazard) {
                       effect.type === 'status' && 'bg-blue-900/30 text-blue-400',
                     ]"
                   >
-                    {{ effect.name }} ({{ effect.duration }})
+                    {{ effect.name }}{{ effect.potency ? ' ' + effect.potency : '' }} ({{ effect.duration }})
                   </span>
                 </div>
               </div>
@@ -3062,7 +3114,7 @@ async function handleUpdateHazard(hazard: Hazard) {
 
             <div class="space-y-3 mb-6">
               <button
-                v-for="target in getAttackTargets(selectedAttack.participant.id)"
+                v-for="target in getAttackTargets(selectedAttack.participant.id, selectedAttack.attack)"
                 :key="target.id"
                 @click="selectedTargetId = target.id"
                 class="w-full bg-digimon-dark-700 hover:bg-digimon-dark-600 rounded-lg p-4 border border-digimon-dark-600 transition-all text-left"
@@ -3117,7 +3169,7 @@ async function handleUpdateHazard(hazard: Hazard) {
                 </div>
               </button>
 
-              <div v-if="getAttackTargets(selectedAttack.participant.id).length === 0" class="text-center text-digimon-dark-400 py-8">
+              <div v-if="getAttackTargets(selectedAttack.participant.id, selectedAttack.attack).length === 0" class="text-center text-digimon-dark-400 py-8">
                 No valid targets available.
               </div>
             </div>
@@ -3202,7 +3254,7 @@ async function handleUpdateHazard(hazard: Hazard) {
             <!-- Action buttons -->
             <div class="flex gap-3">
               <button
-                @click="confirmAttack(getAttackTargets(selectedAttack.participant.id).find(t => t.id === selectedTargetId))"
+                @click="confirmAttack(getAttackTargets(selectedAttack.participant.id, selectedAttack.attack).find(t => t.id === selectedTargetId))"
                 :disabled="!selectedTargetId"
                 class="flex-1 bg-digimon-orange-600 hover:bg-digimon-orange-700 disabled:bg-digimon-dark-600 disabled:text-digimon-dark-400 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg transition-colors font-medium"
               >

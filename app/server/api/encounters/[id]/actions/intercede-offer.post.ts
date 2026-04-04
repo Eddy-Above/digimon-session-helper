@@ -2,6 +2,8 @@ import { eq } from 'drizzle-orm'
 import { db, encounters, digimon, tamers } from '../../../../db'
 import { resolveNpcAttack } from '~/server/utils/resolveNpcAttack'
 import { resolveParticipantName } from '~/server/utils/participantName'
+import { getEffectResolutionType, EFFECT_ALIGNMENT } from '~/data/attackConstants'
+import { resolvePositiveAuto, resolvePositiveHealth, resolveNegativeSupportNpc } from '~/server/utils/resolveSupportAttack'
 
 interface IntercedeOfferBody {
   attackerId: string
@@ -151,6 +153,92 @@ export default defineEventHandler(async (event) => {
     }
   }
 
+  // === SUPPORT ATTACK ROUTING ===
+  // Look up attack definition to determine if this is a support attack
+  let attackDef: any = null
+  if (attacker.type === 'digimon') {
+    const [attackerDigimon] = await db.select().from(digimon).where(eq(digimon.id, attacker.entityId))
+    if (attackerDigimon?.attacks) {
+      const attacks = typeof attackerDigimon.attacks === 'string'
+        ? JSON.parse(attackerDigimon.attacks) : attackerDigimon.attacks
+      attackDef = attacks?.find((a: any) => a.id === body.attackId)
+    }
+  }
+
+  if (attackDef?.type === 'support') {
+    const resolutionType = getEffectResolutionType(attackDef.effect, attackDef.tags || [], 'support')
+
+    const supportParams = {
+      participants,
+      battleLog,
+      pendingRequests,
+      attackerParticipantId: body.attackerId,
+      targetParticipantId: body.targetId,
+      attackDef,
+      accuracySuccesses: body.accuracySuccesses,
+      accuracyDice: body.accuracyDice,
+      round: encounter.round || 0,
+      attackerName,
+      targetName,
+      encounterId: encounterId!,
+      turnOrder,
+      bolstered: body.bolstered,
+      bolsterType: body.bolsterType,
+    }
+
+    let supportResult: any = null
+
+    if (resolutionType === 'positive-auto') {
+      supportResult = await resolvePositiveAuto(supportParams)
+    } else if (resolutionType === 'positive-health') {
+      supportResult = await resolvePositiveHealth(supportParams)
+    } else if (resolutionType === 'negative') {
+      // Negative support: check if target is NPC (auto-resolve) or player (needs dodge)
+      let isPlayerTarget = false
+      if (target.type === 'tamer') {
+        isPlayerTarget = true
+      } else if (target.type === 'digimon') {
+        const [dig] = await db.select().from(digimon).where(eq(digimon.id, target.entityId))
+        isPlayerTarget = !!dig?.partnerId
+      }
+
+      if (!isPlayerTarget) {
+        // NPC target: auto-resolve negative support (dodge, no damage)
+        supportResult = await resolveNegativeSupportNpc(supportParams)
+      }
+      // Player target: fall through to normal intercede/dodge flow below
+      // but mark as support so downstream handlers skip damage
+    }
+    // resolutionType === 'cleanse', 'instant', 'no-effect' — fall through for now (Phase 8-9)
+
+    if (supportResult?.resolved) {
+      await db.update(encounters).set({
+        participants: JSON.stringify(supportResult.participants),
+        battleLog: JSON.stringify(supportResult.battleLog),
+        pendingRequests: JSON.stringify(supportResult.pendingRequests),
+        ...(supportResult.turnOrder ? { turnOrder: JSON.stringify(supportResult.turnOrder) } : {}),
+        updatedAt: new Date(),
+      }).where(eq(encounters.id, encounterId))
+
+      const [updated] = await db.select().from(encounters).where(eq(encounters.id, encounterId))
+      if (!updated) throw createError({ statusCode: 500, message: 'Failed to retrieve encounter after update' })
+
+      return {
+        ...updated,
+        participants: parseJsonField(updated.participants),
+        turnOrder: parseJsonField(updated.turnOrder),
+        battleLog: parseJsonField(updated.battleLog),
+        pendingRequests: parseJsonField(updated.pendingRequests),
+        requestResponses: parseJsonField(updated.requestResponses),
+        hazards: parseJsonField(updated.hazards),
+      }
+    }
+    // If not resolved (negative support against player), fall through to intercede/dodge flow
+  }
+
+  // Flag for downstream: is this a support attack?
+  const isSupportAttack = attackDef?.type === 'support'
+
   // Find eligible tamers (those with partner digimon in encounter, not opted out)
   const eligibleTamerIds: string[] = []
   for (const p of participants) {
@@ -235,6 +323,8 @@ export default defineEventHandler(async (event) => {
           bolsterType: body.bolsterType || null,
           bolsterDamageBonus: body.bolstered && body.bolsterType === 'damage-accuracy' ? 2 : 0,
           bolsterBitCpuBonus: body.bolstered && body.bolsterType === 'bit-cpu' ? 1 : 0,
+          // Support attack flag — downstream handlers skip damage
+          isSupportAttack: isSupportAttack || false,
         },
       }
 
@@ -323,6 +413,7 @@ export default defineEventHandler(async (event) => {
         bolsterType: body.bolsterType || null,
         bolsterDamageBonus: body.bolstered && body.bolsterType === 'damage-accuracy' ? 2 : 0,
         bolsterBitCpuBonus: body.bolstered && body.bolsterType === 'bit-cpu' ? 1 : 0,
+        isSupportAttack: isSupportAttack || false,
       },
     }
 
@@ -375,6 +466,7 @@ export default defineEventHandler(async (event) => {
       bolsterType: body.bolsterType || null,
       bolsterDamageBonus: body.bolstered && body.bolsterType === 'damage-accuracy' ? 2 : 0,
       bolsterBitCpuBonus: body.bolstered && body.bolsterType === 'bit-cpu' ? 1 : 0,
+      isSupportAttack: isSupportAttack || false,
     },
   }))
 
@@ -398,6 +490,7 @@ export default defineEventHandler(async (event) => {
         attackId: body.attackId,
         attackData: body.attackData,
         eligibleTamerIds,
+        isSupportAttack: isSupportAttack || false,
       },
     })
   }
