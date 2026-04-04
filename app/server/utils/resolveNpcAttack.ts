@@ -1,6 +1,10 @@
 import { eq } from 'drizzle-orm'
 import { db, digimon, tamers } from '../db'
-import { EFFECT_ALIGNMENT } from '../../data/attackConstants'
+import { EFFECT_ALIGNMENT, getEffectStatModifiers } from '../../data/attackConstants'
+import { calculateDigimonDerivedStats } from '../../types'
+import type { DigimonBaseStats, DigimonStage, DigimonSize } from '../../types'
+import { applyEffectToParticipant } from './applyEffect'
+import { getDigimonDerivedStats, calculateEffectPotency } from './resolveSupportAttack'
 import { applyStanceToDodge } from '../../utils/stanceModifiers'
 import { resolveParticipantName } from './participantName'
 
@@ -121,11 +125,17 @@ export async function resolveNpcAttack(params: ResolveNpcAttackParams): Promise<
   dodgePool = applyStanceToDodge(dodgePool, target.currentStance)
   dodgePool = Math.max(1, dodgePool - (target.dodgePenalty ?? 0))
 
+  // Apply active effect dodge modifiers
+  const targetEffectMods = getEffectStatModifiers(target.activeEffects || [])
+  dodgePool += targetEffectMods.dodge
+
   // Apply Directed bonus to dodge pool (for NPC targets that were directed by a tamer)
   const directedEffect = (target.activeEffects || []).find((e: any) => e.name === 'Directed')
   if (directedEffect?.value) {
     dodgePool += directedEffect.value
   }
+
+  dodgePool = Math.max(1, dodgePool)
 
   // Roll dodge
   const dodgeDiceResults: number[] = []
@@ -133,6 +143,68 @@ export async function resolveNpcAttack(params: ResolveNpcAttackParams): Promise<
     dodgeDiceResults.push(Math.floor(Math.random() * 6) + 1)
   }
   const dodgeSuccesses = dodgeDiceResults.filter((d: number) => d >= 5).length
+
+  // --- Support attack: skip damage, apply N effect only ---
+  if (attackDef?.type === 'support') {
+    const netSuccesses = params.accuracySuccesses - dodgeSuccesses
+    const hit = netSuccesses >= 0
+    let appliedEffectName: string | null = null
+
+    // Get derived stats for potency (attacker and target)
+    const attackerDerived = attacker.type === 'digimon' ? await getDigimonDerivedStats(attacker.entityId) : null
+    const targetDerived = target.type === 'digimon' ? await getDigimonDerivedStats(target.entityId) : null
+
+    participants = participants.map((p: any) => {
+      if (p.id === params.targetParticipantId) {
+        const updated = {
+          ...p,
+          dodgePenalty: (p.dodgePenalty ?? 0) + 1,
+          activeEffects: (p.activeEffects || []).filter((e: any) => e.name !== 'Directed'),
+        }
+
+        if (hit && attackDef.effect) {
+          const alignment = EFFECT_ALIGNMENT[attackDef.effect]
+          const effectType = alignment === 'P' ? 'buff' : alignment === 'N' ? 'debuff' : 'status'
+          const { potency, potencyStat } = calculateEffectPotency(attackDef.effect, attackerDerived, targetDerived)
+
+          const effectData = {
+            name: attackDef.effect,
+            type: effectType as 'buff' | 'debuff' | 'status',
+            duration: Math.max(1, netSuccesses),
+            source: params.attackerName,
+            description: '',
+            potency,
+            potencyStat,
+          }
+          updated.activeEffects = applyEffectToParticipant(updated.activeEffects, effectData)
+          appliedEffectName = attackDef.effect
+        }
+
+        return updated
+      }
+      return p
+    })
+
+    const supportDodgeLog = {
+      id: `log-${Date.now()}-dodge`,
+      timestamp: new Date().toISOString(),
+      round: params.round,
+      actorId: params.targetParticipantId,
+      actorName: params.targetName,
+      action: 'Dodge (Support)',
+      target: null,
+      result: `${dodgePool}d6 => [${dodgeDiceResults.join(',')}] = ${dodgeSuccesses} successes - Net: ${netSuccesses} - ${hit ? 'HIT!' : 'MISS!'}`,
+      damage: 0,
+      effects: appliedEffectName ? ['Dodge', `Applied: ${appliedEffectName}`] : ['Dodge'],
+      hit,
+      dodgeDicePool: dodgePool,
+      dodgeDiceResults,
+      dodgeSuccesses,
+    }
+
+    battleLog = [...battleLog, supportDodgeLog]
+    return { participants, battleLog, turnOrder: params.turnOrder }
+  }
 
   // --- Damage calculation ---
   const netSuccesses = params.accuracySuccesses - dodgeSuccesses
@@ -174,10 +246,26 @@ export async function resolveNpcAttack(params: ResolveNpcAttackParams): Promise<
     }
   }
 
+  // Apply active effect modifiers to attacker damage and target armor
+  const attackerEffectMods = getEffectStatModifiers(attacker.activeEffects || [])
+  attackBaseDamage += attackerEffectMods.damage
+  targetArmor += targetEffectMods.armor
+
   let damageDealt = 0
   if (hit) {
     const effectiveArmor = Math.max(0, targetArmor - armorPiercing)
     damageDealt = Math.max(1, attackBaseDamage + netSuccesses - effectiveArmor)
+  }
+
+  // --- Pre-calculate effect potency (async, can't be inside .map()) ---
+  let effectPotency = 0
+  let effectPotencyStat = 'bit'
+  if (hit && attackDef?.effect) {
+    const attackerDerived = attacker.type === 'digimon' ? await getDigimonDerivedStats(attacker.entityId) : null
+    const targetDerived = target.type === 'digimon' ? await getDigimonDerivedStats(target.entityId) : null
+    const result = calculateEffectPotency(attackDef.effect, attackerDerived, targetDerived)
+    effectPotency = result.potency
+    effectPotencyStat = result.potencyStat
   }
 
   // --- Apply damage, effects, dodge penalty ---
@@ -210,17 +298,19 @@ export async function resolveNpcAttack(params: ResolveNpcAttackParams): Promise<
         if (attackDef?.effect) {
           const shouldApply = attackDef.type === 'damage' ? damageDealt >= 2 : true
           if (shouldApply) {
-            const effectDuration = Math.max(1, netSuccesses)
             const alignment = EFFECT_ALIGNMENT[attackDef.effect]
             const effectType = alignment === 'P' ? 'buff' : alignment === 'N' ? 'debuff' : 'status'
-            updated.activeEffects = [...(p.activeEffects || []), {
-              id: `effect-${Date.now()}`,
+
+            const effectData = {
               name: attackDef.effect,
-              type: effectType,
-              duration: effectDuration,
-              source: 'Attack',
+              type: effectType as 'buff' | 'debuff' | 'status',
+              duration: Math.max(1, netSuccesses),
+              source: params.attackerName,
               description: '',
-            }]
+              potency: effectPotency,
+              potencyStat: effectPotencyStat,
+            }
+            updated.activeEffects = applyEffectToParticipant(updated.activeEffects, effectData)
             appliedEffectName = attackDef.effect
           }
         }

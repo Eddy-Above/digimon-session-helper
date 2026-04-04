@@ -1,18 +1,23 @@
 import { eq } from 'drizzle-orm'
 import { db, encounters, digimon, tamers, evolutionLines } from '../../../db'
-import { EFFECT_ALIGNMENT } from '../../../../data/attackConstants'
+import { EFFECT_ALIGNMENT, getEffectStatModifiers } from '../../../../data/attackConstants'
+import { applyEffectToParticipant } from '../../../utils/applyEffect'
+import { getDigimonDerivedStats, calculateEffectPotency } from '../../../utils/resolveSupportAttack'
 
 interface SubmitResponseBody {
   requestId: string
   tamerId: string
   response: {
-    type: 'digimon-selected' | 'initiative-rolled' | 'dodge-rolled'
+    type: 'digimon-selected' | 'initiative-rolled' | 'dodge-rolled' | 'health-rolled'
     digimonId?: string
     initiative?: number
     initiativeRoll?: number
     dodgeDicePool?: number
     dodgeSuccesses?: number
     dodgeDiceResults?: number[]
+    healthDicePool?: number
+    healthSuccesses?: number
+    healthDiceResults?: number[]
   }
 }
 
@@ -120,6 +125,19 @@ export default defineEventHandler(async (event) => {
         message: 'dodgeDicePool, dodgeSuccesses, and dodgeDiceResults are required for dodge-rolled response',
       })
     }
+  } else if (body.response.type === 'health-rolled') {
+    if (request.type !== 'health-roll') {
+      throw createError({
+        statusCode: 400,
+        message: 'Response type does not match request type',
+      })
+    }
+    if (body.response.healthDicePool === undefined || body.response.healthSuccesses === undefined || !body.response.healthDiceResults) {
+      throw createError({
+        statusCode: 400,
+        message: 'healthDicePool, healthSuccesses, and healthDiceResults are required for health-rolled response',
+      })
+    }
   }
 
   // Auto-process digimon-selected: immediately create initiative-roll request
@@ -184,283 +202,447 @@ export default defineEventHandler(async (event) => {
     let participants = parseJsonField(encounter.participants)
     let battleLog = parseJsonField(encounter.battleLog)
 
-    // Calculate damage (same logic as npc-attack.post.ts)
+    // Calculate hit/miss
     const accuracySuccesses = request.data.accuracySuccesses
     const dodgeSuccesses = body.response.dodgeSuccesses
     const netSuccesses = accuracySuccesses - dodgeSuccesses
     const hit = netSuccesses >= 0
 
-    // Get attacker's digimon to calculate base damage
     const attackerParticipant = participants.find((p: any) => p.id === request.data.attackerParticipantId)
-    let attackBaseDamage = 0
-    let armorPiercing = 0
 
-    if (attackerParticipant?.type === 'digimon') {
-      const [attackerDigimon] = await db.select().from(digimon).where(eq(digimon.id, request.data.attackerEntityId))
-
-      if (attackerDigimon) {
-        // Parse baseStats and bonusStats
-        const baseStats = typeof attackerDigimon.baseStats === 'string'
-          ? JSON.parse(attackerDigimon.baseStats)
-          : attackerDigimon.baseStats
-        const bonusStats = typeof (attackerDigimon as any).bonusStats === 'string'
-          ? JSON.parse((attackerDigimon as any).bonusStats)
-          : (attackerDigimon as any).bonusStats
-
-        attackBaseDamage = (baseStats?.damage ?? 0) + (bonusStats?.damage ?? 0)
-
-        // Parse attacks to get tag bonuses
-        if (attackerDigimon.attacks) {
-          const attacks = typeof attackerDigimon.attacks === 'string'
-            ? JSON.parse(attackerDigimon.attacks)
-            : attackerDigimon.attacks
-
-          const attackDef = attacks?.find((a: any) => a.id === request.data.attackId)
-
-          if (attackDef?.tags && Array.isArray(attackDef.tags)) {
-            for (const tag of attackDef.tags) {
-              // Weapon tags add to damage
-              const weaponMatch = tag.match(/^Weapon\s+(\d+|I{1,3}|IV|V)$/i)
-              if (weaponMatch) {
-                const rankStr = weaponMatch[1]
-                const romanMap: Record<string, number> = { 'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5 }
-                const rank = romanMap[rankStr.toUpperCase()] || parseInt(rankStr) || 1
-                attackBaseDamage += rank
-              }
-
-              // Armor Piercing tags
-              const apMatch = tag.match(/^Armor Piercing\s+(\d+|I{1,3}|IV|V|VI|VII|VIII|IX|X)$/i)
-              if (apMatch) {
-                const rankStr = apMatch[1]
-                const romanMap: Record<string, number> = {
-                  'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5,
-                  'VI': 6, 'VII': 7, 'VIII': 8, 'IX': 9, 'X': 10
-                }
-                const rank = romanMap[rankStr.toUpperCase()] || parseInt(rankStr) || 0
-                armorPiercing = rank * 2
-              }
-            }
-          }
-        }
-      }
-    }
-
-    // Combat Monster for attacker
-    let attackerHasCombatMonster = false
-    let attackerHealthStat = 0
-    let attackerCombatMonsterBonus = 0
-    if (attackerParticipant?.type === 'digimon') {
-      const [attackerDigimon] = await db.select().from(digimon).where(eq(digimon.id, request.data.attackerEntityId))
-      if (attackerDigimon) {
-        const baseStats = typeof attackerDigimon.baseStats === 'string'
-          ? JSON.parse(attackerDigimon.baseStats)
-          : attackerDigimon.baseStats
-        const bonusStats = typeof (attackerDigimon as any).bonusStats === 'string'
-          ? JSON.parse((attackerDigimon as any).bonusStats)
-          : (attackerDigimon as any).bonusStats
-        attackerHealthStat = (baseStats?.health ?? 0) + (bonusStats?.health ?? 0)
-
-        const attackerQualities = typeof attackerDigimon.qualities === 'string'
-          ? JSON.parse(attackerDigimon.qualities)
-          : attackerDigimon.qualities
-        attackerHasCombatMonster = (attackerQualities || []).some((q: any) => q.id === 'combat-monster')
-        attackerCombatMonsterBonus = attackerParticipant.combatMonsterBonus ?? 0
-      }
-    }
-
-    // Get target armor
-    let targetArmor = 0
-    const targetParticipant = participants.find((p: any) => p.id === request.targetParticipantId)
-
-    let targetHasCombatMonster = false
-    let targetHealthStat = 0
-    let targetDigimonRef: any = null
-    if (targetParticipant?.type === 'digimon') {
-      const [targetDigimon] = await db.select().from(digimon).where(eq(digimon.id, request.data.targetEntityId))
-      targetDigimonRef = targetDigimon
-      if (targetDigimon) {
-        const targetBaseStats = typeof targetDigimon.baseStats === 'string'
-          ? JSON.parse(targetDigimon.baseStats)
-          : targetDigimon.baseStats
-        const targetBonusStats = typeof (targetDigimon as any).bonusStats === 'string'
-          ? JSON.parse((targetDigimon as any).bonusStats)
-          : (targetDigimon as any).bonusStats
-
-        targetArmor = (targetBaseStats?.armor ?? 0) + (targetBonusStats?.armor ?? 0)
-        targetHealthStat = (targetBaseStats?.health ?? 0) + (targetBonusStats?.health ?? 0)
-
-        // Add Guardian data optimization bonus (+2 armor)
-        const targetQualities = typeof targetDigimon.qualities === 'string'
-          ? JSON.parse(targetDigimon.qualities)
-          : targetDigimon.qualities
-        const targetDataOpt = targetQualities?.find((q: any) => q.id === 'data-optimization')
-        if (targetDataOpt?.choiceId === 'guardian') {
-          targetArmor += 2
-        }
-        targetHasCombatMonster = (targetQualities || []).some((q: any) => q.id === 'combat-monster')
-      }
-    } else if (targetParticipant?.type === 'tamer') {
-      const [targetTamer] = await db.select().from(tamers).where(eq(tamers.id, request.data.targetEntityId))
-      if (targetTamer) {
-        const attrs = typeof targetTamer.attributes === 'string' ? JSON.parse(targetTamer.attributes) : targetTamer.attributes
-        const skills = typeof targetTamer.skills === 'string' ? JSON.parse(targetTamer.skills) : targetTamer.skills
-        targetArmor = (attrs?.body ?? 0) + (skills?.endurance ?? 0)
-      }
-    }
-
-    // Apply bolster damage bonus
-    if (request.data.bolsterDamageBonus) {
-      attackBaseDamage += request.data.bolsterDamageBonus
-    }
-
-    // Apply Combat Monster bonus to attacker's damage on hit
-    if (hit && attackerHasCombatMonster && attackerCombatMonsterBonus > 0) {
-      attackBaseDamage += attackerCombatMonsterBonus
-    }
-
-    // Calculate final damage
-    let damageDealt = 0
-    if (hit) {
-      const effectiveArmor = Math.max(0, targetArmor - armorPiercing)
-      damageDealt = Math.max(1, attackBaseDamage + netSuccesses - effectiveArmor)
-    }
-
-    // Apply damage to target and auto-apply attack effects
-    let appliedEffectName: string | null = null
-
-    // Look up attack definition for effect
+    // Look up attack definition
     let attackDef: any = null
     if (attackerParticipant?.type === 'digimon') {
-      const [attackerDigimonForEffect] = await db.select().from(digimon).where(eq(digimon.id, request.data.attackerEntityId))
-      if (attackerDigimonForEffect?.attacks) {
-        const attacksList = typeof attackerDigimonForEffect.attacks === 'string'
-          ? JSON.parse(attackerDigimonForEffect.attacks)
-          : attackerDigimonForEffect.attacks
+      const [attackerDigimonForDef] = await db.select().from(digimon).where(eq(digimon.id, request.data.attackerEntityId))
+      if (attackerDigimonForDef?.attacks) {
+        const attacksList = typeof attackerDigimonForDef.attacks === 'string'
+          ? JSON.parse(attackerDigimonForDef.attacks) : attackerDigimonForDef.attacks
         attackDef = attacksList?.find((a: any) => a.id === request.data.attackId)
       }
     }
 
-    participants = participants.map((p: any) => {
-      // Handle attacker: reset Combat Monster bonus on hit
-      if (p.id === request.data.attackerParticipantId && hit && attackerHasCombatMonster) {
-        return { ...p, combatMonsterBonus: 0 }
+    const isSupportAttack = request.data?.isSupportAttack || attackDef?.type === 'support'
+
+    if (isSupportAttack) {
+      // === SUPPORT ATTACK: no damage, only debuff on hit ===
+      let appliedEffectName: string | null = null
+
+      // Pre-calculate potency outside map (async not allowed in map callback)
+      let potency = 0
+      let potencyStat = 'bit'
+      if (hit && attackDef?.effect) {
+        const attackerDerived = attackerParticipant?.type === 'digimon'
+          ? await getDigimonDerivedStats(request.data.attackerEntityId) : null
+        const dodgeTargetParticipant = participants.find((p: any) => p.id === request.targetParticipantId)
+        const targetDerived = dodgeTargetParticipant?.type === 'digimon'
+          ? await getDigimonDerivedStats(request.data.targetEntityId) : null
+        const result = calculateEffectPotency(attackDef.effect, attackerDerived, targetDerived)
+        potency = result.potency
+        potencyStat = result.potencyStat
       }
 
-      if (p.id === request.targetParticipantId) {
-        const updated = {
-          ...p,
-          dodgePenalty: (p.dodgePenalty ?? 0) + 1,
-          // Consume Directed effect (bonus was applied client-side to dodge pool)
-          activeEffects: (p.activeEffects || []).filter((e: any) => e.name !== 'Directed'),
-        }
-
-        // Apply damage and effects only if hit
-        if (hit) {
-          updated.currentWounds = Math.min(p.maxWounds, (p.currentWounds || 0) + damageDealt)
-
-          // Accumulate Combat Monster bonus for target
-          if (targetHasCombatMonster) {
-            updated.combatMonsterBonus = Math.min(
-              targetHealthStat,
-              (p.combatMonsterBonus ?? 0) + damageDealt
-            )
+      participants = participants.map((p: any) => {
+        if (p.id === request.targetParticipantId) {
+          const updated = {
+            ...p,
+            dodgePenalty: (p.dodgePenalty ?? 0) + 1,
+            activeEffects: (p.activeEffects || []).filter((e: any) => e.name !== 'Directed'),
           }
 
-          // Auto-apply effect if attack has one and conditions are met
-          if (attackDef?.effect) {
-            const shouldApply = attackDef.type === 'damage' ? damageDealt >= 2 : true
-            if (shouldApply) {
-              const effectDuration = Math.max(1, netSuccesses)
-              const alignment = EFFECT_ALIGNMENT[attackDef.effect]
-              const effectType = alignment === 'P' ? 'buff' : alignment === 'N' ? 'debuff' : 'status'
-              const newEffect = {
-                id: `effect-${Date.now()}`,
-                name: attackDef.effect,
-                type: effectType,
-                duration: effectDuration,
-                source: request.data.attackerName || 'Attack',
-                description: '',
+          if (hit && attackDef?.effect) {
+            const effectDuration = Math.max(1, netSuccesses)
+            const alignment = EFFECT_ALIGNMENT[attackDef.effect]
+            const effectType = alignment === 'P' ? 'buff' : alignment === 'N' ? 'debuff' : 'status'
+
+            const effectData = {
+              name: attackDef.effect,
+              type: effectType as 'buff' | 'debuff' | 'status',
+              duration: effectDuration,
+              source: request.data.attackerName || 'Attack',
+              description: '',
+              potency,
+              potencyStat,
+            }
+            updated.activeEffects = applyEffectToParticipant(updated.activeEffects || [], effectData)
+            appliedEffectName = attackDef.effect
+          }
+
+          return updated
+        }
+        return p
+      })
+
+      const dodgeLogEntry = {
+        id: `log-${Date.now()}-dodge`,
+        timestamp: new Date().toISOString(),
+        round: encounter.round,
+        actorId: request.targetParticipantId,
+        actorName: request.data.targetName,
+        action: 'Dodge (Support)',
+        target: null,
+        result: `${body.response.dodgeDicePool}d6 => [${body.response.dodgeDiceResults.join(',')}] = ${body.response.dodgeSuccesses} successes - Net: ${netSuccesses} - ${hit ? 'HIT!' : 'MISS!'}`,
+        damage: 0,
+        effects: appliedEffectName ? ['Dodge', `Applied: ${appliedEffectName}`] : ['Dodge'],
+        hit,
+        dodgeDicePool: body.response.dodgeDicePool,
+        dodgeDiceResults: body.response.dodgeDiceResults,
+        dodgeSuccesses: body.response.dodgeSuccesses,
+      }
+
+      battleLog = [...battleLog, dodgeLogEntry]
+      updateData.participants = JSON.stringify(participants)
+      updateData.battleLog = JSON.stringify(battleLog)
+
+    } else {
+      // === DAMAGE ATTACK: existing damage calculation flow ===
+      let attackBaseDamage = 0
+      let armorPiercing = 0
+
+      if (attackerParticipant?.type === 'digimon') {
+        const [attackerDigimon] = await db.select().from(digimon).where(eq(digimon.id, request.data.attackerEntityId))
+
+        if (attackerDigimon) {
+          const baseStats = typeof attackerDigimon.baseStats === 'string'
+            ? JSON.parse(attackerDigimon.baseStats)
+            : attackerDigimon.baseStats
+          const bonusStats = typeof (attackerDigimon as any).bonusStats === 'string'
+            ? JSON.parse((attackerDigimon as any).bonusStats)
+            : (attackerDigimon as any).bonusStats
+
+          attackBaseDamage = (baseStats?.damage ?? 0) + (bonusStats?.damage ?? 0)
+
+          if (attackerDigimon.attacks) {
+            const attacks = typeof attackerDigimon.attacks === 'string'
+              ? JSON.parse(attackerDigimon.attacks)
+              : attackerDigimon.attacks
+
+            const aDef = attacks?.find((a: any) => a.id === request.data.attackId)
+
+            if (aDef?.tags && Array.isArray(aDef.tags)) {
+              for (const tag of aDef.tags) {
+                const weaponMatch = tag.match(/^Weapon\s+(\d+|I{1,3}|IV|V)$/i)
+                if (weaponMatch) {
+                  const rankStr = weaponMatch[1]
+                  const romanMap: Record<string, number> = { 'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5 }
+                  const rank = romanMap[rankStr.toUpperCase()] || parseInt(rankStr) || 1
+                  attackBaseDamage += rank
+                }
+
+                const apMatch = tag.match(/^Armor Piercing\s+(\d+|I{1,3}|IV|V|VI|VII|VIII|IX|X)$/i)
+                if (apMatch) {
+                  const rankStr = apMatch[1]
+                  const romanMap: Record<string, number> = {
+                    'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5,
+                    'VI': 6, 'VII': 7, 'VIII': 8, 'IX': 9, 'X': 10
+                  }
+                  const rank = romanMap[rankStr.toUpperCase()] || parseInt(rankStr) || 0
+                  armorPiercing = rank * 2
+                }
               }
-              updated.activeEffects = [...(p.activeEffects || []), newEffect]
-              appliedEffectName = attackDef.effect
             }
           }
         }
-
-        return updated
       }
-      return p
-    })
 
-    // Auto-devolve check: if target is KO'd but has evolution history, devolve instead
-    let autoDevolveLog: any = null
-    const damagedTarget = participants.find((p: any) => p.id === request.targetParticipantId)
-    if (damagedTarget && hit &&
-        damagedTarget.currentWounds >= damagedTarget.maxWounds &&
-        damagedTarget.evolutionLineId &&
-        damagedTarget.woundsHistory?.length > 0) {
-      const previousState = damagedTarget.woundsHistory.pop()
-      if (previousState) {
-        const oldEntityId = damagedTarget.entityId
-        damagedTarget.entityId = previousState.entityId
-        damagedTarget.maxWounds = previousState.maxWounds
-        damagedTarget.currentWounds = previousState.wounds
+      // Combat Monster for attacker
+      let attackerHasCombatMonster = false
+      let attackerHealthStat = 0
+      let attackerCombatMonsterBonus = 0
+      if (attackerParticipant?.type === 'digimon') {
+        const [attackerDigimon] = await db.select().from(digimon).where(eq(digimon.id, request.data.attackerEntityId))
+        if (attackerDigimon) {
+          const baseStats = typeof attackerDigimon.baseStats === 'string'
+            ? JSON.parse(attackerDigimon.baseStats)
+            : attackerDigimon.baseStats
+          const bonusStats = typeof (attackerDigimon as any).bonusStats === 'string'
+            ? JSON.parse((attackerDigimon as any).bonusStats)
+            : (attackerDigimon as any).bonusStats
+          attackerHealthStat = (baseStats?.health ?? 0) + (bonusStats?.health ?? 0)
 
-        // Update evolution line to previous stage
-        await db.update(evolutionLines).set({
-          currentStageIndex: previousState.stageIndex,
-          updatedAt: new Date(),
-        }).where(eq(evolutionLines.id, damagedTarget.evolutionLineId))
-
-        // Get old and new names for log
-        const [oldDigimon] = await db.select().from(digimon).where(eq(digimon.id, oldEntityId))
-        const [newDigimon] = await db.select().from(digimon).where(eq(digimon.id, previousState.entityId))
-
-        autoDevolveLog = {
-          id: `log-${Date.now()}-autodevolve`,
-          timestamp: new Date().toISOString(),
-          round: encounter.round,
-          actorId: damagedTarget.id,
-          actorName: oldDigimon?.name || 'Digimon',
-          action: `was knocked out and devolved to ${newDigimon?.name || 'previous form'}!`,
-          target: null,
-          result: `Wounds restored to ${previousState.wounds}`,
-          damage: null,
-          effects: ['Auto-Devolve'],
+          const attackerQualities = typeof attackerDigimon.qualities === 'string'
+            ? JSON.parse(attackerDigimon.qualities)
+            : attackerDigimon.qualities
+          attackerHasCombatMonster = (attackerQualities || []).some((q: any) => q.id === 'combat-monster')
+          attackerCombatMonsterBonus = attackerParticipant.combatMonsterBonus ?? 0
         }
       }
+
+      // Get target armor
+      let targetArmor = 0
+      const targetParticipant = participants.find((p: any) => p.id === request.targetParticipantId)
+
+      let targetHasCombatMonster = false
+      let targetHealthStat = 0
+      let targetDigimonRef: any = null
+      if (targetParticipant?.type === 'digimon') {
+        const [targetDigimon] = await db.select().from(digimon).where(eq(digimon.id, request.data.targetEntityId))
+        targetDigimonRef = targetDigimon
+        if (targetDigimon) {
+          const targetBaseStats = typeof targetDigimon.baseStats === 'string'
+            ? JSON.parse(targetDigimon.baseStats)
+            : targetDigimon.baseStats
+          const targetBonusStats = typeof (targetDigimon as any).bonusStats === 'string'
+            ? JSON.parse((targetDigimon as any).bonusStats)
+            : (targetDigimon as any).bonusStats
+
+          targetArmor = (targetBaseStats?.armor ?? 0) + (targetBonusStats?.armor ?? 0)
+          targetHealthStat = (targetBaseStats?.health ?? 0) + (targetBonusStats?.health ?? 0)
+
+          const targetQualities = typeof targetDigimon.qualities === 'string'
+            ? JSON.parse(targetDigimon.qualities)
+            : targetDigimon.qualities
+          const targetDataOpt = targetQualities?.find((q: any) => q.id === 'data-optimization')
+          if (targetDataOpt?.choiceId === 'guardian') {
+            targetArmor += 2
+          }
+          targetHasCombatMonster = (targetQualities || []).some((q: any) => q.id === 'combat-monster')
+        }
+      } else if (targetParticipant?.type === 'tamer') {
+        const [targetTamer] = await db.select().from(tamers).where(eq(tamers.id, request.data.targetEntityId))
+        if (targetTamer) {
+          const attrs = typeof targetTamer.attributes === 'string' ? JSON.parse(targetTamer.attributes) : targetTamer.attributes
+          const skills = typeof targetTamer.skills === 'string' ? JSON.parse(targetTamer.skills) : targetTamer.skills
+          targetArmor = (attrs?.body ?? 0) + (skills?.endurance ?? 0)
+        }
+      }
+
+      // Apply bolster damage bonus
+      if (request.data.bolsterDamageBonus) {
+        attackBaseDamage += request.data.bolsterDamageBonus
+      }
+
+      // Apply Combat Monster bonus to attacker's damage on hit
+      if (hit && attackerHasCombatMonster && attackerCombatMonsterBonus > 0) {
+        attackBaseDamage += attackerCombatMonsterBonus
+      }
+
+      // Apply active effect modifiers to attacker damage and target armor
+      const attackerEffectMods = getEffectStatModifiers(attackerParticipant?.activeEffects || [])
+      attackBaseDamage += attackerEffectMods.damage
+      const targetEffectMods = getEffectStatModifiers(targetParticipant?.activeEffects || [])
+      targetArmor += targetEffectMods.armor
+
+      // Calculate final damage
+      let damageDealt = 0
+      if (hit) {
+        const effectiveArmor = Math.max(0, targetArmor - armorPiercing)
+        damageDealt = Math.max(1, attackBaseDamage + netSuccesses - effectiveArmor)
+      }
+
+      // Apply damage to target and auto-apply attack effects
+      let appliedEffectName: string | null = null
+
+      // Pre-calculate effect potency (async, can't be inside .map())
+      let damageEffectPotency = 0
+      let damageEffectPotencyStat = 'bit'
+      if (hit && attackDef?.effect) {
+        const atkDerived = attackerParticipant?.type === 'digimon'
+          ? await getDigimonDerivedStats(request.data.attackerEntityId) : null
+        const tgtDerived = targetParticipant?.type === 'digimon'
+          ? await getDigimonDerivedStats(request.data.targetEntityId) : null
+        const result = calculateEffectPotency(attackDef.effect, atkDerived, tgtDerived)
+        damageEffectPotency = result.potency
+        damageEffectPotencyStat = result.potencyStat
+      }
+
+      participants = participants.map((p: any) => {
+        // Handle attacker: reset Combat Monster bonus on hit
+        if (p.id === request.data.attackerParticipantId && hit && attackerHasCombatMonster) {
+          return { ...p, combatMonsterBonus: 0 }
+        }
+
+        if (p.id === request.targetParticipantId) {
+          const updated = {
+            ...p,
+            dodgePenalty: (p.dodgePenalty ?? 0) + 1,
+            // Consume Directed effect (bonus was applied client-side to dodge pool)
+            activeEffects: (p.activeEffects || []).filter((e: any) => e.name !== 'Directed'),
+          }
+
+          // Apply damage and effects only if hit
+          if (hit) {
+            updated.currentWounds = Math.min(p.maxWounds, (p.currentWounds || 0) + damageDealt)
+
+            // Accumulate Combat Monster bonus for target
+            if (targetHasCombatMonster) {
+              updated.combatMonsterBonus = Math.min(
+                targetHealthStat,
+                (p.combatMonsterBonus ?? 0) + damageDealt
+              )
+            }
+
+            // Auto-apply effect if attack has one and conditions are met
+            if (attackDef?.effect) {
+              const shouldApply = attackDef.type === 'damage' ? damageDealt >= 2 : true
+              if (shouldApply) {
+                const effectDuration = Math.max(1, netSuccesses)
+                const alignment = EFFECT_ALIGNMENT[attackDef.effect]
+                const effectType = alignment === 'P' ? 'buff' : alignment === 'N' ? 'debuff' : 'status'
+                const newEffect = {
+                  name: attackDef.effect,
+                  type: effectType as 'buff' | 'debuff' | 'status',
+                  duration: effectDuration,
+                  source: request.data.attackerName || 'Attack',
+                  description: '',
+                  potency: damageEffectPotency,
+                  potencyStat: damageEffectPotencyStat,
+                }
+                updated.activeEffects = applyEffectToParticipant(updated.activeEffects || [], newEffect)
+                appliedEffectName = attackDef.effect
+              }
+            }
+          }
+
+          return updated
+        }
+        return p
+      })
+
+      // Auto-devolve check: if target is KO'd but has evolution history, devolve instead
+      let autoDevolveLog: any = null
+      const damagedTarget = participants.find((p: any) => p.id === request.targetParticipantId)
+      if (damagedTarget && hit &&
+          damagedTarget.currentWounds >= damagedTarget.maxWounds &&
+          damagedTarget.evolutionLineId &&
+          damagedTarget.woundsHistory?.length > 0) {
+        const previousState = damagedTarget.woundsHistory.pop()
+        if (previousState) {
+          const oldEntityId = damagedTarget.entityId
+          damagedTarget.entityId = previousState.entityId
+          damagedTarget.maxWounds = previousState.maxWounds
+          damagedTarget.currentWounds = previousState.wounds
+
+          await db.update(evolutionLines).set({
+            currentStageIndex: previousState.stageIndex,
+            updatedAt: new Date(),
+          }).where(eq(evolutionLines.id, damagedTarget.evolutionLineId))
+
+          const [oldDigimon] = await db.select().from(digimon).where(eq(digimon.id, oldEntityId))
+          const [newDigimon] = await db.select().from(digimon).where(eq(digimon.id, previousState.entityId))
+
+          autoDevolveLog = {
+            id: `log-${Date.now()}-autodevolve`,
+            timestamp: new Date().toISOString(),
+            round: encounter.round,
+            actorId: damagedTarget.id,
+            actorName: oldDigimon?.name || 'Digimon',
+            action: `was knocked out and devolved to ${newDigimon?.name || 'previous form'}!`,
+            target: null,
+            result: `Wounds restored to ${previousState.wounds}`,
+            damage: null,
+            effects: ['Auto-Devolve'],
+          }
+        }
+      }
+
+      // Add dodge battle log entry with damage breakdown
+      const dodgeLogEntry = {
+        id: `log-${Date.now()}-dodge`,
+        timestamp: new Date().toISOString(),
+        round: encounter.round,
+        actorId: request.targetParticipantId,
+        actorName: request.data.targetName,
+        action: 'Dodge',
+        target: null,
+        result: `${body.response.dodgeDicePool}d6 => [${body.response.dodgeDiceResults.join(',')}] = ${body.response.dodgeSuccesses} successes - Net: ${netSuccesses} - ${hit ? 'HIT!' : 'MISS!'}`,
+        damage: hit ? damageDealt : 0,
+        effects: appliedEffectName ? ['Dodge', `Applied: ${appliedEffectName}`] : ['Dodge'],
+        attackerParticipantId: request.data.attackerParticipantId,
+        baseDamage: attackBaseDamage,
+        netSuccesses: netSuccesses,
+        targetArmor: targetArmor,
+        armorPiercing: armorPiercing,
+        effectiveArmor: hit ? Math.max(0, targetArmor - armorPiercing) : undefined,
+        finalDamage: hit ? damageDealt : 0,
+        hit: hit,
+        dodgeDicePool: body.response.dodgeDicePool,
+        dodgeDiceResults: body.response.dodgeDiceResults,
+        dodgeSuccesses: body.response.dodgeSuccesses,
+      }
+
+      battleLog = [...battleLog, dodgeLogEntry, ...(autoDevolveLog ? [autoDevolveLog] : [])]
+
+      updateData.participants = JSON.stringify(participants)
+      updateData.battleLog = JSON.stringify(battleLog)
+    } // end damage attack branch
+  }
+
+  // === HEALTH-ROLLED: Positive [P] effect duration from Health roll ===
+  if (body.response.type === 'health-rolled' && request.data?.attackId) {
+    let participants = parseJsonField(encounter.participants)
+    let battleLog = parseJsonField(encounter.battleLog)
+
+    const accuracySuccesses = request.data.accuracySuccesses
+    const healthSuccesses = body.response.healthSuccesses!
+    const isAoe = request.data.isAoe || false
+
+    // Calculate duration
+    let duration: number
+    if (isAoe) {
+      duration = healthSuccesses - accuracySuccesses
+    } else {
+      duration = Math.max(1, healthSuccesses - accuracySuccesses + 1)
     }
 
-    // Add dodge battle log entry with damage breakdown
-    const dodgeLogEntry = {
-      id: `log-${Date.now()}-dodge`,
+    const effectName = request.data.effectName
+    let appliedEffectName: string | null = null
+
+    if (duration > 0 && effectName) {
+      const alignment = EFFECT_ALIGNMENT[effectName]
+      const effectType = alignment === 'P' ? 'buff' : alignment === 'N' ? 'debuff' : 'status'
+      // Calculate potency from attacker's derived stats (or target's for target-based effects)
+      let potency = 0
+      let potencyStat = 'bit'
+      if (request.data.attackerEntityId) {
+        const attackerDerived = await getDigimonDerivedStats(request.data.attackerEntityId)
+        const healthTargetParticipant = participants.find((p: any) => p.id === request.targetParticipantId)
+        const targetDerived = healthTargetParticipant?.type === 'digimon' && request.data.targetEntityId
+          ? await getDigimonDerivedStats(request.data.targetEntityId) : null
+        const result = calculateEffectPotency(effectName, attackerDerived, targetDerived)
+        potency = result.potency
+        potencyStat = result.potencyStat
+      }
+
+      const effectData = {
+        name: effectName,
+        type: effectType as 'buff' | 'debuff' | 'status',
+        duration,
+        source: request.data.attackerName || 'Attack',
+        description: '',
+        potency,
+        potencyStat,
+      }
+
+      participants = participants.map((p: any) => {
+        if (p.id === request.targetParticipantId) {
+          return {
+            ...p,
+            activeEffects: applyEffectToParticipant(p.activeEffects || [], effectData),
+          }
+        }
+        return p
+      })
+      appliedEffectName = effectName
+    }
+
+    const healthLogEntry = {
+      id: `log-${Date.now()}-health`,
       timestamp: new Date().toISOString(),
       round: encounter.round,
       actorId: request.targetParticipantId,
       actorName: request.data.targetName,
-      action: 'Dodge',
+      action: 'Health Roll (Support)',
       target: null,
-      result: `${body.response.dodgeDicePool}d6 => [${body.response.dodgeDiceResults.join(',')}] = ${body.response.dodgeSuccesses} successes - Net: ${netSuccesses} - ${hit ? 'HIT!' : 'MISS!'}`,
-      damage: hit ? damageDealt : 0,
-      effects: appliedEffectName ? ['Dodge', `Applied: ${appliedEffectName}`] : ['Dodge'],
-
-      // Damage calculation breakdown (same as NPC attacks)
-      attackerParticipantId: request.data.attackerParticipantId,
-      baseDamage: attackBaseDamage,
-      netSuccesses: netSuccesses,
-      targetArmor: targetArmor,
-      armorPiercing: armorPiercing,
-      effectiveArmor: hit ? Math.max(0, targetArmor - armorPiercing) : undefined,
-      finalDamage: hit ? damageDealt : 0,
-      hit: hit,
-      dodgeDicePool: body.response.dodgeDicePool,
-      dodgeDiceResults: body.response.dodgeDiceResults,
-      dodgeSuccesses: body.response.dodgeSuccesses,
+      result: duration > 0
+        ? `${body.response.healthDicePool}d6 => [${body.response.healthDiceResults!.join(',')}] = ${healthSuccesses} successes — ${effectName} applied for ${duration} rounds`
+        : `${body.response.healthDicePool}d6 => [${body.response.healthDiceResults!.join(',')}] = ${healthSuccesses} successes — Buff failed (needed > ${accuracySuccesses})`,
+      damage: 0,
+      effects: appliedEffectName ? ['Support', `Applied: ${appliedEffectName}`] : ['Support', 'Buff Failed'],
+      hit: duration > 0,
     }
 
-    battleLog = [...battleLog, dodgeLogEntry, ...(autoDevolveLog ? [autoDevolveLog] : [])]
+    battleLog = [...battleLog, healthLogEntry]
 
-    // Update participants and battleLog in the updateData
     updateData.participants = JSON.stringify(participants)
     updateData.battleLog = JSON.stringify(battleLog)
   }

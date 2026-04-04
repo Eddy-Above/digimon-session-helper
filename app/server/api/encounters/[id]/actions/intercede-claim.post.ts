@@ -1,7 +1,8 @@
 import { eq } from 'drizzle-orm'
 import { db, encounters, digimon, tamers } from '../../../../db'
-import { EFFECT_ALIGNMENT } from '../../../../../data/attackConstants'
-// tamers already imported
+import { EFFECT_ALIGNMENT, getEffectStatModifiers } from '~/data/attackConstants'
+import { applyEffectToParticipant } from '../../../../utils/applyEffect'
+import { getDigimonDerivedStats, calculateEffectPotency } from '../../../../utils/resolveSupportAttack'
 
 interface IntercedeClaimBody {
   requestId: string
@@ -156,7 +157,103 @@ export default defineEventHandler(async (event) => {
   // With 0 dodge, net successes = accuracy successes
   const netSuccesses = accuracySuccesses
   const hit = true // 0 dodge = always hit
+  const isSupportAttack = request.data.isSupportAttack || false
 
+  // --- Support attack: no damage, apply N effect only ---
+  if (isSupportAttack) {
+    let appliedEffectName: string | null = null
+
+    // Pre-calculate potency (async, can't be inside .map())
+    let supportPotency = 0
+    let supportPotencyStat = 'bit'
+    if (npcAttackDef?.effect) {
+      const attackerDerived = attacker?.type === 'digimon' ? await getDigimonDerivedStats(attacker.entityId) : null
+      const interceptorDerived = interceptor.type === 'digimon' ? await getDigimonDerivedStats(interceptor.entityId) : null
+      const result = calculateEffectPotency(npcAttackDef.effect, attackerDerived, interceptorDerived)
+      supportPotency = result.potency
+      supportPotencyStat = result.potencyStat
+    }
+
+    participants = participants.map((p: any) => {
+      if (p.id === body.interceptorParticipantId) {
+        const updated = {
+          ...p,
+          // Deduct/defer action (same as damage path)
+          ...(!turnHasGone
+            ? { actionsRemaining: { simple: Math.max(0, (p.actionsRemaining?.simple || 0) - 1) } }
+            : { interceptPenalty: (p.interceptPenalty || 0) + 1 }
+          ),
+        }
+
+        if (npcAttackDef?.effect) {
+          const alignment = EFFECT_ALIGNMENT[npcAttackDef.effect]
+          const effectType = alignment === 'P' ? 'buff' : alignment === 'N' ? 'debuff' : 'status'
+
+          const effectData = {
+            name: npcAttackDef.effect,
+            type: effectType as 'buff' | 'debuff' | 'status',
+            duration: Math.max(1, netSuccesses),
+            source: request.data.attackerName || 'Attack',
+            description: '',
+            potency: supportPotency,
+            potencyStat: supportPotencyStat,
+          }
+          updated.activeEffects = applyEffectToParticipant(p.activeEffects || [], effectData)
+          appliedEffectName = npcAttackDef.effect
+        }
+
+        return updated
+      }
+      // Original target still gets the dodge penalty
+      if (p.id === request.data.targetId) {
+        return { ...p, dodgePenalty: (p.dodgePenalty ?? 0) + 1 }
+      }
+      return p
+    })
+
+    pendingRequests = pendingRequests.filter((r: any) => r.data?.intercedeGroupId !== intercedeGroupId)
+
+    const intercedeLog = {
+      id: `log-${Date.now()}-intercede`,
+      timestamp: new Date().toISOString(),
+      round: encounter.round || 0,
+      actorId: body.interceptorParticipantId,
+      actorName: interceptorName,
+      action: `Interceded for ${targetName}! (Support)`,
+      target: null,
+      result: appliedEffectName
+        ? `Takes debuff with 0 dodge - ${appliedEffectName} applied for ${Math.max(1, netSuccesses)} rounds`
+        : 'Interceded (no effect)',
+      damage: 0,
+      effects: appliedEffectName ? ['Intercede', `Applied: ${appliedEffectName}`] : ['Intercede'],
+      hit: true,
+      dodgeDicePool: 0,
+      dodgeDiceResults: [],
+      dodgeSuccesses: 0,
+    }
+
+    await db.update(encounters).set({
+      participants: JSON.stringify(participants),
+      pendingRequests: JSON.stringify(pendingRequests),
+      battleLog: JSON.stringify([...battleLog, intercedeLog]),
+      updatedAt: new Date(),
+    }).where(eq(encounters.id, encounterId))
+
+    const [updated] = await db.select().from(encounters).where(eq(encounters.id, encounterId))
+    if (!updated) throw createError({ statusCode: 500, message: 'Failed to retrieve encounter after update' })
+
+    return {
+      ...updated,
+      participants: parseJsonField(updated.participants),
+      turnOrder: parseJsonField(updated.turnOrder),
+      battleLog: parseJsonField(updated.battleLog),
+      pendingRequests: parseJsonField(updated.pendingRequests),
+      requestResponses: parseJsonField(updated.requestResponses),
+      hazards: parseJsonField(updated.hazards),
+    }
+  }
+
+  // --- Damage attack: existing flow ---
   // Get interceptor's armor
   let interceptorArmor = 0
   if (interceptor.type === 'digimon') {
@@ -175,8 +272,25 @@ export default defineEventHandler(async (event) => {
     }
   }
 
+  // Apply active effect modifiers to attacker damage and interceptor armor
+  const attackerEffectMods = getEffectStatModifiers(attacker?.activeEffects || [])
+  attackBaseDamage += attackerEffectMods.damage
+  const interceptorEffectMods = getEffectStatModifiers(interceptor.activeEffects || [])
+  interceptorArmor += interceptorEffectMods.armor
+
   const effectiveArmor = Math.max(0, interceptorArmor - armorPiercing)
   const damageDealt = Math.max(1, attackBaseDamage + netSuccesses - effectiveArmor)
+
+  // Pre-calculate effect potency for damage attack (async, can't be inside .map())
+  let dmgPotency = 0
+  let dmgPotencyStat = 'bit'
+  if (npcAttackDef?.effect) {
+    const atkDerived = attacker?.type === 'digimon' ? await getDigimonDerivedStats(attacker.entityId) : null
+    const intDerived = interceptor.type === 'digimon' ? await getDigimonDerivedStats(interceptor.entityId) : null
+    const result = calculateEffectPotency(npcAttackDef.effect, atkDerived, intDerived)
+    dmgPotency = result.potency
+    dmgPotencyStat = result.potencyStat
+  }
 
   // Apply damage to interceptor, deduct/defer actions, and apply effects
   let appliedEffectName: string | null = null
@@ -192,21 +306,23 @@ export default defineEventHandler(async (event) => {
         ),
       }
 
-      // Auto-apply effect
+      // Auto-apply effect (damage attack: requires damage >= 2)
       if (npcAttackDef?.effect) {
         const shouldApply = npcAttackDef.type === 'damage' ? damageDealt >= 2 : true
         if (shouldApply) {
-          const effectDuration = Math.max(1, netSuccesses)
           const alignment = EFFECT_ALIGNMENT[npcAttackDef.effect]
           const effectType = alignment === 'P' ? 'buff' : alignment === 'N' ? 'debuff' : 'status'
-          updated.activeEffects = [...(p.activeEffects || []), {
-            id: `effect-${Date.now()}`,
+
+          const effectData = {
             name: npcAttackDef.effect,
-            type: effectType,
-            duration: effectDuration,
-            source: 'Attack',
+            type: effectType as 'buff' | 'debuff' | 'status',
+            duration: Math.max(1, netSuccesses),
+            source: request.data.attackerName || 'Attack',
             description: '',
-          }]
+            potency: dmgPotency,
+            potencyStat: dmgPotencyStat,
+          }
+          updated.activeEffects = applyEffectToParticipant(p.activeEffects || [], effectData)
           appliedEffectName = npcAttackDef.effect
         }
       }

@@ -6,6 +6,7 @@ import type { DigimonStage, EddySoulRules } from '~/types'
 import { STAGE_CONFIG, DIGIVOLVE_WILLPOWER_DC } from '~/types'
 import { getStageColor } from '~/utils/displayHelpers'
 import { getUnlockedSpecialOrders, getOrderActionCost, getOrderUsageLimit } from '~/utils/specialOrders'
+import { getEffectStatModifiers } from '~/data/attackConstants'
 
 definePageMeta({
   layout: 'player',
@@ -34,8 +35,10 @@ const lastRefresh = ref(new Date())
 const myRequests = ref<any[]>([])
 const initiativeRollResult = ref<{ rolls: number[]; total: number } | null>(null)
 const dodgeRollResult = ref<{ rolls: number[]; successes: number; dicePool: number } | null>(null)
+const healthRollResult = ref<{ rolls: number[]; successes: number; dicePool: number } | null>(null)
 const hasRolledInitiative = ref(false)
 const hasRolledDodge = ref(false)
+const hasRolledHealth = ref(false)
 const selectedAttack = ref<any>(null)
 const showTargetSelector = ref(false)
 const selectedTargetId = ref<string | null>(null)
@@ -506,11 +509,13 @@ const isMyTurn = computed(() => {
 const hasDigimonRequest = computed(() => myRequests.value.some((r) => r.type === 'digimon-selection'))
 const hasInitiativeRequest = computed(() => myRequests.value.some((r) => r.type === 'initiative-roll'))
 const hasDodgeRequest = computed(() => myRequests.value.some((r) => r.type === 'dodge-roll'))
+const hasHealthRequest = computed(() => myRequests.value.some((r) => r.type === 'health-roll'))
 const hasIntercedeRequest = computed(() => myRequests.value.some((r) => r.type === 'intercede-offer'))
 
 const currentDigimonRequest = computed(() => myRequests.value.find((r) => r.type === 'digimon-selection'))
 const currentInitiativeRequest = computed(() => myRequests.value.find((r) => r.type === 'initiative-roll'))
 const currentDodgeRequest = computed(() => myRequests.value.find((r) => r.type === 'dodge-roll'))
+const currentHealthRequest = computed(() => myRequests.value.find((r) => r.type === 'health-roll'))
 const currentIntercedeRequest = computed(() => myRequests.value.find((r) => r.type === 'intercede-offer'))
 
 // Reset roll flags when requests change (new request arrives)
@@ -523,6 +528,11 @@ watch(() => currentInitiativeRequest.value?.id, () => {
 watch(() => currentDodgeRequest.value?.id, () => {
   hasRolledDodge.value = false
   dodgeRollResult.value = null
+})
+
+watch(() => currentHealthRequest.value?.id, () => {
+  hasRolledHealth.value = false
+  healthRollResult.value = null
 })
 
 watch(() => currentDigimonRequest.value?.id, () => {
@@ -594,13 +604,52 @@ const dodgeDicePool = computed(() => {
   const penalty = currentDodgeRequest.value?.data?.dodgePenalty ?? 0
   pool = Math.max(1, pool - penalty)
 
+  // Active effect dodge modifiers
+  const dodgeEffectMods = getEffectStatModifiers(targetParticipant.activeEffects || [])
+  pool += dodgeEffectMods.dodge
+
   // Add Directed effect bonus to dodge pool
   const directedEffect = targetParticipant.activeEffects?.find(e => e.name === 'Directed')
   if (directedEffect?.value) {
     pool += directedEffect.value
   }
 
-  return pool
+  return Math.max(1, pool)
+})
+
+const hasUnrespondedHealthRequest = computed(() => {
+  if (!activeEncounter.value || !tamer.value) return false
+
+  const healthRequest = currentHealthRequest.value
+  if (!healthRequest) return false
+
+  const responses = (activeEncounter.value.requestResponses as any[]) || []
+  const hasResponse = responses.some((r) => r.requestId === healthRequest.id && r.tamerId === tamer.value!.id)
+
+  return !hasResponse
+})
+
+// Health dice pool for the target participant in a health-roll request
+const healthDicePool = computed(() => {
+  if (!currentHealthRequest.value) return 3
+
+  // Use the health pool from the request data (server calculated it)
+  if (currentHealthRequest.value.data?.healthDicePool) {
+    return currentHealthRequest.value.data.healthDicePool
+  }
+
+  // Fallback: calculate from digimon stats
+  if (!activeEncounter.value) return 3
+  const participants = (activeEncounter.value.participants as CombatParticipant[]) || []
+  const targetParticipant = participants.find((p) => p.id === currentHealthRequest.value!.targetParticipantId)
+  if (!targetParticipant || targetParticipant.type !== 'digimon') return 3
+
+  const digi = allDigimon.value.find((d) => d.id === targetParticipant.entityId)
+  if (digi) {
+    const stats = calcDigimonStats(digi)
+    return stats.health || 3
+  }
+  return 3
 })
 
 // Initiative modifiers
@@ -917,6 +966,11 @@ function getAttackStats(participant: CombatParticipant, attack: any) {
       }
     }
   }
+
+  // === ACTIVE EFFECT STAT MODIFIERS ===
+  const effectMods = getEffectStatModifiers(participant.activeEffects || [])
+  accuracyBonus += effectMods.accuracy
+  damageBonus += effectMods.damage
 
   // Directed effect bonus
   const directedEffect = participant.activeEffects?.find(e => e.name === 'Directed')
@@ -1843,6 +1897,45 @@ async function closeDodgeResultModal() {
   dodgeRequestId.value = null
 }
 
+async function submitHealthRoll() {
+  if (!activeEncounter.value || !currentHealthRequest.value || !tamer.value || !healthRollResult.value) return
+
+  const capturedRequest = currentHealthRequest.value
+
+  try {
+    const result = await respondToRequest(
+      activeEncounter.value.id,
+      currentHealthRequest.value.id,
+      tamer.value.id,
+      {
+        type: 'health-rolled',
+        participantId: currentHealthRequest.value.targetParticipantId,
+        healthDicePool: healthRollResult.value.dicePool,
+        healthSuccesses: healthRollResult.value.successes,
+        healthDiceResults: healthRollResult.value.rolls,
+        timestamp: new Date().toISOString(),
+      }
+    )
+
+    if (result) {
+      healthRollResult.value = null
+
+      // Auto-dismiss the request after submission
+      try {
+        await cancelRequest(activeEncounter.value.id, capturedRequest.id)
+      } catch (e) {
+        // Request may already be cleaned up
+      }
+
+      await loadData()
+    } else {
+      console.error('Failed to submit health roll')
+    }
+  } catch (error) {
+    console.error('Error submitting health roll:', error)
+  }
+}
+
 function closeIntercedeResultModal() {
   showIntercedeResultModal.value = false
   intercedeResultData.value = null
@@ -2474,7 +2567,7 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
                     effect.type === 'status' && 'bg-yellow-900/30 text-yellow-400',
                   ]"
                 >
-                  {{ effect.name }}
+                  {{ effect.name }}{{ effect.potency ? ' ' + effect.potency : '' }} ({{ effect.duration }})
                 </span>
               </div>
 
@@ -3594,6 +3687,86 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
           class="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg font-semibold transition-colors"
         >
           Submit Dodge
+        </button>
+      </div>
+    </div>
+  </Teleport>
+
+  <!-- Health Roll Modal (Support Buff) -->
+  <Teleport to="body">
+    <div
+      v-if="hasUnrespondedHealthRequest"
+      class="fixed inset-0 bg-black/80 flex items-center justify-center z-50 animate-pulse"
+    >
+      <div class="bg-digimon-dark-800 rounded-xl p-6 w-full max-w-md border-2 border-teal-500">
+        <h2 class="font-display text-xl font-semibold text-teal-400 mb-4">
+          Receive Buff!
+        </h2>
+
+        <div v-if="currentHealthRequest" class="mb-4 p-3 bg-teal-900/20 rounded-lg">
+          <p class="text-white text-sm">
+            <span class="font-semibold">{{ currentHealthRequest.data?.attackerName }}</span> uses
+            <span class="font-semibold">{{ currentHealthRequest.data?.attackName }}</span>
+            on <span class="font-semibold">{{ currentHealthRequest.data?.targetName }}</span>!
+          </p>
+          <p class="text-teal-300 text-xs mt-1">
+            Effect: {{ currentHealthRequest.data?.effectName }}
+          </p>
+        </div>
+
+        <p class="text-white text-sm mb-4">
+          Roll {{ healthDicePool }}d6 to determine buff duration (5+ = success)
+        </p>
+
+        <!-- Embedded Dice Roller -->
+        <div class="mb-4">
+          <div class="bg-digimon-dark-700 rounded-lg p-4 mb-4">
+            <div class="flex gap-2 items-center justify-center mb-4">
+              <span class="text-white font-semibold">{{ healthDicePool }}d6</span>
+              <span class="text-digimon-dark-400 text-sm">(5+ = success)</span>
+            </div>
+
+            <button
+              :disabled="hasRolledHealth"
+              @click="(() => { const rolls: number[] = []; for (let i = 0; i < healthDicePool; i++) rolls.push(Math.floor(Math.random() * 6) + 1); healthRollResult = { rolls, successes: rolls.filter(d => d >= 5).length, dicePool: healthDicePool }; hasRolledHealth = true; })()"
+              :class="[
+                'w-full text-white px-4 py-2 rounded-lg font-semibold transition-colors',
+                hasRolledHealth ? 'bg-digimon-dark-600 opacity-50 cursor-not-allowed' : 'bg-teal-600 hover:bg-teal-700'
+              ]"
+            >
+              {{ hasRolledHealth ? 'Already Rolled' : 'Roll Health' }}
+            </button>
+          </div>
+
+          <div
+            v-if="healthRollResult"
+            class="bg-digimon-dark-700 rounded-lg p-4 mb-4 text-center"
+          >
+            <div class="text-sm text-digimon-dark-400 mb-2">Your Health Roll</div>
+            <div class="flex justify-center gap-1 mb-2">
+              <span
+                v-for="(die, idx) in healthRollResult.rolls"
+                :key="idx"
+                :class="[
+                  'w-8 h-8 flex items-center justify-center rounded font-bold text-sm',
+                  die >= 5 ? 'bg-green-600 text-white' : 'bg-digimon-dark-600 text-digimon-dark-400'
+                ]"
+              >
+                {{ die }}
+              </span>
+            </div>
+            <div class="text-3xl font-bold text-teal-400">
+              {{ healthRollResult.successes }} <span class="text-sm text-digimon-dark-400">successes</span>
+            </div>
+          </div>
+        </div>
+
+        <button
+          :disabled="!healthRollResult"
+          @click="submitHealthRoll"
+          class="w-full bg-teal-600 hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg font-semibold transition-colors"
+        >
+          Submit Health Roll
         </button>
       </div>
     </div>
