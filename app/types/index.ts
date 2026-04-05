@@ -204,6 +204,7 @@ export interface Tamer {
   torments: Torment[]
   specialOrders: string[] // IDs of unlocked special orders
   inspiration: number
+  grantedInspiration: number
   maxInspiration: number  // = Willpower (min 1)
   xp: number
   equipment: string[]

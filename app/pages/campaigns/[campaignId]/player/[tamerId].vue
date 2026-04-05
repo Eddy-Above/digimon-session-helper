@@ -3002,7 +3002,7 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
                     </span>
                     <span class="text-digimon-dark-300">
                       <span class="text-digimon-dark-400">Inspiration:</span>
-                      {{ tamer.inspiration }}/{{ tamerStats?.maxInspiration }}
+                      {{ (tamer.inspiration || 0) + (tamer.xpBonuses?.inspiration || 0) + (tamer.grantedInspiration || 0) }}/{{ tamerStats?.maxInspiration }}
                     </span>
                   </div>
                 </div>

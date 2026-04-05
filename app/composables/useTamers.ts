@@ -33,6 +33,7 @@ export interface CreateTamerData {
   torments?: Tamer['torments']
   xp?: number
   inspiration?: number
+  grantedInspiration?: number
   notes?: string
   spriteUrl?: string
 }

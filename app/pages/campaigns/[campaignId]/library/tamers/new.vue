@@ -36,6 +36,10 @@ const {
   refundXPFromSkill,
   spendXPOnInspiration,
   refundXPFromInspiration,
+  grantedInspiration,
+  grantInspiration,
+  revokeGrantedInspiration,
+  canGrantInspiration,
   addTorment,
   removeTorment,
   updateTormentSeverity,
@@ -104,6 +108,7 @@ async function handleSubmit() {
     campaignId: campaignId.value,
     aspects,
     torments: tormentData,
+    grantedInspiration: grantedInspiration.value,
     xpBonuses: {
       attributes: { ...xpBonuses.attributes },
       skills: { ...xpBonuses.skills },
@@ -582,6 +587,30 @@ async function handleSubmit() {
               </div>
               <p class="text-xs text-digimon-dark-500 mt-2">
                 Inspiration can be spent to re-roll dice or bolster rolls. Max = Willpower.
+              </p>
+            </div>
+
+            <!-- GM Granted Inspiration -->
+            <div class="bg-digimon-dark-700/50 rounded-lg p-3 border border-purple-500/30">
+              <div class="text-xs text-purple-400 mb-2">GM Granted Inspiration</div>
+              <div class="flex items-center gap-3">
+                <button
+                  type="button"
+                  class="w-6 h-6 rounded bg-digimon-dark-600 hover:bg-digimon-dark-500 text-white text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  :disabled="grantedInspiration <= 0"
+                  @click="revokeGrantedInspiration"
+                >-</button>
+                <span class="text-white">{{ grantedInspiration }}</span>
+                <button
+                  type="button"
+                  class="w-6 h-6 rounded text-white text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  :class="canGrantInspiration ? 'bg-purple-500 hover:bg-purple-600' : 'bg-digimon-dark-600'"
+                  :disabled="!canGrantInspiration"
+                  @click="grantInspiration"
+                >+</button>
+              </div>
+              <p class="text-xs text-digimon-dark-500 mt-2">
+                Granted inspiration counts toward the total but cannot be refunded for XP.
               </p>
             </div>
           </div>
