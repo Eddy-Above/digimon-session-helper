@@ -88,6 +88,14 @@ export interface EddySoulRules {
 export interface HouseRules {
   stunMaxDuration1?: boolean
   maxTempWoundsRule?: boolean
+  signatureMoveBattery?: boolean
+}
+
+export const STAGE_BATTERY_CAPACITY: Partial<Record<DigimonStage, number>> = {
+  'champion': 2,
+  'ultimate': 3,
+  'mega': 4,
+  'ultra': 5,
 }
 
 export interface CampaignRulesSettings {
@@ -313,6 +321,8 @@ export interface CombatParticipant {
   hasAttemptedDigivolve?: boolean  // Has attempted digivolution this turn (evolve only, not devolve)
   npcStageIndex?: number  // NPC-only: tracks current stage independently (allows multiple NPCs to share one evo line)
   combatMonsterBonus?: number  // Combat Monster: cumulative damage bonus for next successful attack
+  battery?: number              // Signature Move Battery: current charge
+  usedSignatureMoveThisTurn?: boolean  // Signature Move Battery: spent this turn
 }
 
 export interface ActiveEffect {

@@ -18,6 +18,8 @@ interface IntercedeOfferBody {
   hugePowerUsed?: boolean
   hugePowerAttackRange?: 'melee' | 'ranged'
   skipActionDeduction?: boolean // When called from attack.post.ts which already deducted actions
+  isSignatureMove?: boolean
+  batteryCount?: number
 }
 
 export default defineEventHandler(async (event) => {
@@ -100,6 +102,11 @@ export default defineEventHandler(async (event) => {
           if (body.hugePowerRank === 2) {
             updated.lastHugePowerRank2Round = encounter.round
           }
+        }
+        // Signature Move Battery: expend all battery on use
+        if (body.isSignatureMove) {
+          updated.battery = 0
+          updated.usedSignatureMoveThisTurn = true
         }
         return updated
       }
@@ -199,6 +206,8 @@ export default defineEventHandler(async (event) => {
       bolsterType: body.bolsterType,
       houseRules,
       eddySoulRules,
+      isSignatureMove: body.isSignatureMove || false,
+      batteryCount: body.batteryCount ?? 0,
     }
 
     let supportResult: any = null
@@ -340,6 +349,9 @@ export default defineEventHandler(async (event) => {
           bolsterBitCpuBonus: body.bolstered && body.bolsterType === 'bit-cpu' ? 1 : 0,
           // Support attack flag — downstream handlers skip damage
           isSupportAttack: isSupportAttack || false,
+          // Signature Move Battery bonus
+          isSignatureMove: body.isSignatureMove || false,
+          batteryCount: body.isSignatureMove ? (body.batteryCount ?? 0) : 0,
         },
       }
 
@@ -430,6 +442,8 @@ export default defineEventHandler(async (event) => {
         bolsterDamageBonus: body.bolstered && body.bolsterType === 'damage-accuracy' ? 2 : 0,
         bolsterBitCpuBonus: body.bolstered && body.bolsterType === 'bit-cpu' ? 1 : 0,
         isSupportAttack: isSupportAttack || false,
+        isSignatureMove: body.isSignatureMove || false,
+        batteryCount: body.isSignatureMove ? (body.batteryCount ?? 0) : 0,
       },
     }
 
@@ -483,6 +497,8 @@ export default defineEventHandler(async (event) => {
       bolsterDamageBonus: body.bolstered && body.bolsterType === 'damage-accuracy' ? 2 : 0,
       bolsterBitCpuBonus: body.bolstered && body.bolsterType === 'bit-cpu' ? 1 : 0,
       isSupportAttack: isSupportAttack || false,
+      isSignatureMove: body.isSignatureMove || false,
+      batteryCount: body.isSignatureMove ? (body.batteryCount ?? 0) : 0,
     },
   }))
 
@@ -507,6 +523,8 @@ export default defineEventHandler(async (event) => {
         attackData: body.attackData,
         eligibleTamerIds,
         isSupportAttack: isSupportAttack || false,
+        isSignatureMove: body.isSignatureMove || false,
+        batteryCount: body.isSignatureMove ? (body.batteryCount ?? 0) : 0,
       },
     })
   }

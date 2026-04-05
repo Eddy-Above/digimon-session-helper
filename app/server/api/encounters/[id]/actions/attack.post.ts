@@ -160,6 +160,7 @@ export default defineEventHandler(async (event) => {
   // EddySoul: Combat Monster + Area Attack requires a Complex Action (unless no bonus)
   const campaignRulesSettings = typeof campaign?.rulesSettings === 'string' ? JSON.parse(campaign.rulesSettings) : (campaign?.rulesSettings || {})
   const eddySoulRules = campaignRulesSettings?.eddySoulRules
+  const houseRules = campaignRulesSettings?.houseRules
   if (eddySoulRules?.combatMonsterAreaAttackRequiresComplex) {
     const combatMonsterBonus = (actor as any).combatMonsterBonus ?? 0
     if (combatMonsterBonus > 0 && actor.type === 'digimon') {
@@ -187,6 +188,22 @@ export default defineEventHandler(async (event) => {
       statusCode: 403,
       message: 'Not enough actions remaining',
     })
+  }
+
+  // Detect Signature Move for Battery rule
+  let isSignatureMove = false
+  let batteryCount = 0
+  if (houseRules?.signatureMoveBattery && actor.type === 'digimon') {
+    const [actorDigimon] = await db.select().from(digimon).where(eq(digimon.id, actor.entityId))
+    if (actorDigimon?.attacks) {
+      const attacks = typeof actorDigimon.attacks === 'string'
+        ? JSON.parse(actorDigimon.attacks) : actorDigimon.attacks
+      const attackDef = attacks?.find((a: any) => a.id === body.attackId)
+      if (attackDef?.tags?.some((t: string) => t.toLowerCase().includes('signature'))) {
+        isSignatureMove = true
+        batteryCount = (actor as any).battery ?? 0
+      }
+    }
   }
 
   // Create new participant with decremented actions and tracked used attack
@@ -219,6 +236,11 @@ export default defineEventHandler(async (event) => {
         if (body.hugePowerRank === 2) {
           updated.lastHugePowerRank2Round = encounter.round
         }
+      }
+      // Spend Battery if Signature Move
+      if (isSignatureMove) {
+        updated.battery = 0
+        updated.usedSignatureMoveThisTurn = true
       }
       return updated
     }
@@ -327,6 +349,8 @@ export default defineEventHandler(async (event) => {
       bolsterType: body.bolsterType,
       hugePowerUsed: body.hugePowerUsed || false,
       hugePowerAttackRange: body.hugePowerAttackRange,
+      isSignatureMove,
+      batteryCount,
       skipActionDeduction: true,
     },
   })

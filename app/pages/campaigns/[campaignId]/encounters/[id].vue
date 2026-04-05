@@ -4,7 +4,7 @@ import type { CombatParticipant, BattleLogEntry, Hazard } from '~/composables/us
 import type { Digimon } from '~/server/db/schema'
 import type { Tamer } from '~/server/db/schema'
 import { getUnlockedSpecialOrders, getOrderActionCost, getOrderUsageLimit } from '~/utils/specialOrders'
-import { DIGIVOLVE_WILLPOWER_DC } from '~/types'
+import { DIGIVOLVE_WILLPOWER_DC, STAGE_BATTERY_CAPACITY } from '~/types'
 import { EFFECT_ALIGNMENT, getEffectStatModifiers } from '~/data/attackConstants'
 
 definePageMeta({
@@ -13,7 +13,7 @@ definePageMeta({
 
 const route = useRoute()
 const router = useRouter()
-const { campaignId, campaignLevel, eddySoulRules, loadCampaign } = useCampaignContext()
+const { campaignId, campaignLevel, eddySoulRules, houseRules, loadCampaign } = useCampaignContext()
 
 const {
   currentEncounter,
@@ -334,7 +334,14 @@ function getParticipantAttacks(participant: CombatParticipant) {
   const attacks = digimon?.attacks || []
   // Filter out attacks already used this turn
   const usedIds = new Set(participant.usedAttackIds || [])
-  return attacks.filter((a: any) => !usedIds.has(a.id))
+  return attacks.filter((a: any) => {
+    if (usedIds.has(a.id)) return false
+    // Signature Move Battery: require at least 1 battery to use
+    if (houseRules.value?.signatureMoveBattery && a.tags?.some((t: string) => t.toLowerCase().includes('signature'))) {
+      if (((participant as any).battery ?? 0) < 1) return false
+    }
+    return true
+  })
 }
 
 // Calculate attack stats based on digimon stats, qualities, and tags (mirrors AttackSelector logic)
@@ -444,8 +451,17 @@ function getAttackStats(participant: CombatParticipant, attack: any) {
   // === SIGNATURE MOVE BONUSES ===
 
   if (hasSignatureTag) {
-    // Signature Move: +Attacks to Accuracy and Damage (round 3+)
-    notes.push('+Attacks ACC/DMG (R3+)')
+    if (houseRules.value?.signatureMoveBattery) {
+      const battery = (participant as any).battery ?? 0
+      const cap = STAGE_BATTERY_CAPACITY[digimon?.stage as keyof typeof STAGE_BATTERY_CAPACITY] ?? 0
+      if (attack.type === 'damage') {
+        accuracyBonus += battery
+        damageBonus += battery
+      }
+      notes.push(`Battery ${battery}/${cap}${battery > 0 ? ` (+${battery})` : ' (no charge)'}`)
+    } else {
+      notes.push('+Attacks ACC/DMG (R3+)')
+    }
   }
 
   // === TAG-BASED BONUSES ===
@@ -803,6 +819,8 @@ async function confirmAttack(target: CombatParticipant) {
           hugePowerAttackRange: hugePowerEnabled.value ? attack.range : undefined,
           hugePowerRank: hugePowerEnabled.value ? (hugePowerRank2Enabled.value ? 2 : 1) : undefined,
           hugePowerTrackAll: hugePowerEnabled.value && !!eddySoulRules.value?.hugePowerOncePerTurn,
+          isSignatureMove: !!(houseRules.value?.signatureMoveBattery && attack.tags?.some((t: string) => t.toLowerCase().includes('signature'))),
+          batteryCount: (houseRules.value?.signatureMoveBattery && attack.tags?.some((t: string) => t.toLowerCase().includes('signature'))) ? ((participant as any).battery ?? 0) : 0,
         },
       })
       // Add attack log entry
@@ -1347,7 +1365,7 @@ async function handleNextTurn() {
   const current = activeParticipant.value
   const entity = current ? getEntityDetails(current) : null
 
-  await nextTurn(currentEncounter.value.id, digimonMap.value)
+  await nextTurn(currentEncounter.value.id, digimonMap.value, houseRules.value)
 
   // Refetch to get updated state
   await fetchEncounter(currentEncounter.value.id)
@@ -2312,6 +2330,12 @@ async function handleUpdateHazard(hazard: Hazard) {
                       </span>
                       <span v-if="item.participant.dodgePenalty" class="text-red-400">Dodge -{{ item.participant.dodgePenalty }}</span>
                       <span v-if="item.participant.combatMonsterBonus" class="text-amber-400">Combat Monster +{{ item.participant.combatMonsterBonus }}</span>
+                      <span
+                        v-if="houseRules?.signatureMoveBattery && item.participant.type === 'digimon' && (digimonMap.get(item.participant.entityId)?.attacks || []).some((a: any) => a.tags?.some((t: string) => t.toLowerCase().includes('signature')))"
+                        :class="(item.participant as any).battery > 0 ? 'text-yellow-400' : 'text-digimon-dark-500'"
+                      >
+                        Battery {{ (item.participant as any).battery ?? 0 }}/{{ STAGE_BATTERY_CAPACITY[digimonMap.get(item.participant.entityId)?.stage as keyof typeof STAGE_BATTERY_CAPACITY] ?? 0 }}
+                      </span>
                     </div>
 
                     <!-- Digivolve/Devolve buttons for non-partner digimon -->
@@ -2513,6 +2537,12 @@ async function handleUpdateHazard(hazard: Hazard) {
                   <!-- Dodge penalty -->
                   <span v-if="item.partnerDigimon.dodgePenalty" class="text-red-400">Dodge -{{ item.partnerDigimon.dodgePenalty }}</span>
                   <span v-if="item.partnerDigimon.combatMonsterBonus" class="text-amber-400">Combat Monster +{{ item.partnerDigimon.combatMonsterBonus }}</span>
+                  <span
+                    v-if="houseRules?.signatureMoveBattery && (digimonMap.get(item.partnerDigimon.entityId)?.attacks || []).some((a: any) => a.tags?.some((t: string) => t.toLowerCase().includes('signature')))"
+                    :class="(item.partnerDigimon as any).battery > 0 ? 'text-yellow-400' : 'text-digimon-dark-500'"
+                  >
+                    Battery {{ (item.partnerDigimon as any).battery ?? 0 }}/{{ STAGE_BATTERY_CAPACITY[digimonMap.get(item.partnerDigimon.entityId)?.stage as keyof typeof STAGE_BATTERY_CAPACITY] ?? 0 }}
+                  </span>
 
                   <button
                     class="text-xs text-digimon-dark-400 hover:text-white flex-shrink-0"

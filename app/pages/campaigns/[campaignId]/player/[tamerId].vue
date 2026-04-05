@@ -3,7 +3,7 @@ import type { Tamer, Digimon, Encounter } from '~/server/db/schema'
 import type { CombatParticipant } from '~/composables/useEncounters'
 import { skillsByAttribute, skillLabels as defaultSkillLabels, getResolvedSkillLabels } from '~/constants/tamer-skills'
 import type { DigimonStage, EddySoulRules } from '~/types'
-import { STAGE_CONFIG, DIGIVOLVE_WILLPOWER_DC } from '~/types'
+import { STAGE_CONFIG, DIGIVOLVE_WILLPOWER_DC, STAGE_BATTERY_CAPACITY } from '~/types'
 import { getStageColor } from '~/utils/displayHelpers'
 import { getUnlockedSpecialOrders, getOrderActionCost, getOrderUsageLimit } from '~/utils/specialOrders'
 import { getEffectStatModifiers } from '~/data/attackConstants'
@@ -14,7 +14,7 @@ definePageMeta({
 })
 
 const route = useRoute()
-const { campaignId, campaignLevel, skillRenames, eddySoulRules, loadCampaign } = useCampaignContext()
+const { campaignId, campaignLevel, skillRenames, eddySoulRules, houseRules, loadCampaign } = useCampaignContext()
 const skillLabels = computed(() => getResolvedSkillLabels(skillRenames.value))
 const tamerId = computed(() => route.params.tamerId as string)
 
@@ -871,9 +871,14 @@ function getParticipantAttacks(participant: CombatParticipant): any[] {
   if (participant.type !== 'digimon') return []
   const digimon = partnerDigimon.value.find((d) => d.id === participant.entityId)
   const attacks = digimon?.attacks || []
-  // Filter out attacks already used this turn
   const usedIds = new Set(participant.usedAttackIds || [])
-  return attacks.filter((a: any) => !usedIds.has(a.id))
+  return attacks.filter((a: any) => {
+    if (usedIds.has(a.id)) return false
+    if (houseRules.value?.signatureMoveBattery && a.tags?.some((t: string) => t.toLowerCase().includes('signature'))) {
+      if (((participant as any).battery ?? 0) < 1) return false
+    }
+    return true
+  })
 }
 
 function getAttackStats(participant: CombatParticipant, attack: any) {
@@ -969,7 +974,17 @@ function getAttackStats(participant: CombatParticipant, attack: any) {
 
   // === SIGNATURE MOVE BONUSES ===
   if (hasSignatureTag) {
-    notes.push('+Attacks ACC/DMG (R3+)')
+    if (houseRules.value?.signatureMoveBattery) {
+      const battery = (participant as any).battery ?? 0
+      const cap = STAGE_BATTERY_CAPACITY[digimon?.stage as keyof typeof STAGE_BATTERY_CAPACITY] ?? 0
+      if (attack.type === 'damage') {
+        accuracyBonus += battery
+        damageBonus += battery
+      }
+      notes.push(`Battery ${battery}/${cap}${battery > 0 ? ` (+${battery})` : ' (no charge)'}`)
+    } else {
+      notes.push('+Attacks ACC/DMG (R3+)')
+    }
   }
 
   // === TAG-BASED BONUSES ===
@@ -2616,6 +2631,17 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
                 </div>
                 <span class="text-digimon-dark-400 ml-1">
                   ({{ participant.actionsRemaining.simple }}/2)
+                </span>
+              </div>
+
+              <!-- Battery (Signature Move) -->
+              <div
+                v-if="houseRules?.signatureMoveBattery && participant.type === 'digimon' && (partnerDigimon.find(d => d.id === participant.entityId)?.attacks || []).some((a: any) => a.tags?.some((t: string) => t.toLowerCase().includes('signature')))"
+                class="flex items-center gap-2 text-xs mt-1"
+              >
+                <span class="text-digimon-dark-400">Battery:</span>
+                <span :class="(participant as any).battery > 0 ? 'text-yellow-400' : 'text-digimon-dark-500'">
+                  {{ (participant as any).battery ?? 0 }}/{{ STAGE_BATTERY_CAPACITY[partnerDigimon.find(d => d.id === participant.entityId)?.stage as keyof typeof STAGE_BATTERY_CAPACITY] ?? 0 }}
                 </span>
               </div>
 

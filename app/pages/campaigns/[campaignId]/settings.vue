@@ -34,6 +34,7 @@ const form = reactive({
   houseRules: {
     stunMaxDuration1: false,
     maxTempWoundsRule: false,
+    signatureMoveBattery: false,
   },
   skillRenames: {} as Record<string, string>,
   eddySoulRules: {
@@ -79,6 +80,7 @@ onMounted(async () => {
     if (houseRules) {
       form.houseRules.stunMaxDuration1 = houseRules.stunMaxDuration1 ?? false
       form.houseRules.maxTempWoundsRule = houseRules.maxTempWoundsRule ?? false
+      form.houseRules.signatureMoveBattery = houseRules.signatureMoveBattery ?? false
     }
 
     // Load skill renames
@@ -131,10 +133,11 @@ async function handleSave() {
   )
 
   data.rulesSettings = {
-    ...((form.houseRules.stunMaxDuration1 || form.houseRules.maxTempWoundsRule) && {
+    ...((form.houseRules.stunMaxDuration1 || form.houseRules.maxTempWoundsRule || form.houseRules.signatureMoveBattery) && {
       houseRules: {
         ...(form.houseRules.stunMaxDuration1 && { stunMaxDuration1: true }),
         ...(form.houseRules.maxTempWoundsRule && { maxTempWoundsRule: true }),
+        ...(form.houseRules.signatureMoveBattery && { signatureMoveBattery: true }),
       },
     }),
     tormentRequirements: {
@@ -340,6 +343,17 @@ async function handleDelete() {
             <div>
               <span class="text-digimon-dark-300">Shield keeps higher temp wound value</span>
               <p class="text-xs text-digimon-dark-500">Default: Shield always overrides temp wounds with new potency value</p>
+            </div>
+          </label>
+          <label class="flex items-start gap-3 cursor-pointer">
+            <input
+              v-model="form.houseRules.signatureMoveBattery"
+              type="checkbox"
+              class="w-4 h-4 rounded mt-1 shrink-0"
+            />
+            <div>
+              <span class="text-digimon-dark-300">Signature Move Battery Rule</span>
+              <p class="text-xs text-digimon-dark-500">Replaces round cooldown with Battery resource. Stage 2+ only. Gain 1 Battery/turn (cap = Stage); spend all on use for +Battery to Accuracy/Damage or SPEC. 0 DP cost.</p>
             </div>
           </label>
         </div>

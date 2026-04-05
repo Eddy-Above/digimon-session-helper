@@ -37,6 +37,8 @@ export interface CombatParticipant {
   lastHugePowerRound?: number
   lastHugePowerRank2Round?: number
   isEnemy?: boolean
+  battery?: number
+  usedSignatureMoveThisTurn?: boolean
 }
 
 export interface BattleLogEntry {
@@ -253,7 +255,7 @@ export function useEncounters() {
     })
   }
 
-  async function nextTurn(encounterId: string, digimonMap?: Map<string, any>): Promise<Encounter | null> {
+  async function nextTurn(encounterId: string, digimonMap?: Map<string, any>, houseRules?: { signatureMoveBattery?: boolean } | null): Promise<Encounter | null> {
     const encounter = encounters.value.find((e) => e.id === encounterId) || currentEncounter.value
     if (!encounter) return null
 
@@ -302,6 +304,22 @@ export function useEncounters() {
     if (currentParticipant) {
       currentParticipant.hasActed = true
       currentParticipant.isActive = false
+
+      // Signature Move Battery: grant +1 Battery at end of turn if rule is active
+      if (houseRules?.signatureMoveBattery && currentParticipant.type === 'digimon' && digimonMap) {
+        const digimon = digimonMap.get(currentParticipant.entityId)
+        const stage = digimon?.stage as string | undefined
+        const stageBatteryCapacity: Record<string, number> = {
+          'champion': 2, 'ultimate': 3, 'mega': 4, 'ultra': 5,
+        }
+        const cap = stage ? (stageBatteryCapacity[stage] ?? 0) : 0
+        if (cap > 0) {
+          if (!currentParticipant.usedSignatureMoveThisTurn) {
+            currentParticipant.battery = Math.min(cap, (currentParticipant.battery ?? 0) + 1)
+          }
+          currentParticipant.usedSignatureMoveThisTurn = false
+        }
+      }
     }
 
     // Mark next participant as active

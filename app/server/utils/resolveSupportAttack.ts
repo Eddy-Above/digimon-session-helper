@@ -32,6 +32,8 @@ interface SupportAttackParams {
   bolsterType?: string
   houseRules?: { stunMaxDuration1?: boolean; maxTempWoundsRule?: boolean }
   eddySoulRules?: EddySoulRules
+  isSignatureMove?: boolean
+  batteryCount?: number
 }
 
 interface SupportAttackResult {
@@ -113,7 +115,7 @@ export function calculateEffectPotency(
 /**
  * Build effect object for application
  */
-function buildEffectData(effectName: string, duration: number, source: string, attackerDerived: any, targetDerived?: any) {
+function buildEffectData(effectName: string, duration: number, source: string, attackerDerived: any, targetDerived?: any, batteryBonus?: number) {
   const alignment = EFFECT_ALIGNMENT[effectName]
   const effectType = alignment === 'P' ? 'buff' : alignment === 'N' ? 'debuff' : 'status'
   const { potency, potencyStat } = calculateEffectPotency(effectName, attackerDerived, targetDerived || null)
@@ -124,7 +126,7 @@ function buildEffectData(effectName: string, duration: number, source: string, a
     duration,
     source,
     description: '',
-    potency,
+    potency: potency + (batteryBonus ?? 0),
     potencyStat,
   }
 }
@@ -145,7 +147,9 @@ export async function resolvePositiveAuto(params: SupportAttackParams): Promise<
     params.attackDef.effect,
     1, // guaranteed duration
     params.attackerName,
-    derivedStats
+    derivedStats,
+    undefined,
+    params.isSignatureMove ? (params.batteryCount ?? 0) : 0
   )
 
   participants = participants.map((p: any) => {
@@ -290,7 +294,9 @@ export async function resolvePositiveHealth(params: SupportAttackParams): Promis
       params.attackDef.effect,
       duration,
       params.attackerName,
-      derivedStats
+      derivedStats,
+      undefined,
+      params.isSignatureMove ? (params.batteryCount ?? 0) : 0
     )
 
     participants = participants.map((p: any) => {
@@ -395,7 +401,8 @@ export async function resolveNegativeSupportNpc(params: SupportAttackParams): Pr
           Math.max(1, netSuccesses),
           params.attackerName,
           attackerDerived,
-          targetDerived
+          targetDerived,
+          params.isSignatureMove ? (params.batteryCount ?? 0) : 0
         )
         updated.activeEffects = applyEffectToParticipant(updated.activeEffects, effectData, params.houseRules)
         appliedEffectName = params.attackDef.effect

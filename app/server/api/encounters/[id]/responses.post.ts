@@ -250,6 +250,10 @@ export default defineEventHandler(async (event) => {
         const result = calculateEffectPotency(attackDef.effect, attackerDerived, targetDerived)
         potency = result.potency
         potencyStat = result.potencyStat
+        // Apply Signature Move Battery SPEC bonus
+        if (request.data.isSignatureMove && request.data.batteryCount) {
+          potency += request.data.batteryCount
+        }
       }
 
       participants = participants.map((p: any) => {
@@ -420,6 +424,11 @@ export default defineEventHandler(async (event) => {
       // Apply bolster damage bonus
       if (request.data.bolsterDamageBonus) {
         attackBaseDamage += request.data.bolsterDamageBonus
+      }
+
+      // Apply Signature Move Battery damage bonus
+      if (request.data.isSignatureMove && request.data.batteryCount) {
+        attackBaseDamage += request.data.batteryCount
       }
 
       // Apply Combat Monster bonus to attacker's damage on hit
