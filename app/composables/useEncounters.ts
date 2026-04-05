@@ -23,6 +23,7 @@ export interface CombatParticipant {
   hasActed: boolean
   currentWounds: number
   maxWounds: number
+  currentTempWounds?: number
   usedAttackIds?: string[]
   dodgePenalty?: number
   evolutionLineId?: string
@@ -283,10 +284,15 @@ export function useEncounters() {
           p.actionsRemaining.simple = Math.max(0, 2 - p.interceptPenalty)
           p.interceptPenalty = 0
         }
-        // Decrement effect durations
+        // Decrement effect durations; clear temp wounds if Shield expires
+        const hadShield = (p.activeEffects || []).some((e) => e.name === 'Shield')
         p.activeEffects = (p.activeEffects || [])
           .map((e) => ({ ...e, duration: e.duration - 1 }))
           .filter((e) => e.duration > 0)
+        const stillHasShield = p.activeEffects.some((e) => e.name === 'Shield')
+        if (hadShield && !stillHasShield) {
+          p.currentTempWounds = 0
+        }
       })
     }
 

@@ -188,7 +188,7 @@ const canStartCombat = computed(() => {
   // Check if there are any unprocessed responses (waiting for GM)
   if (unprocessedResponses.value.length > 0) return false
 
-  // Check if all participants have initiative set
+  // Check if all participants have initiative set (initiative -1 = pending setup)
   const participants = (currentEncounter.value.participants as CombatParticipant[]) || []
   const allHaveInitiative = participants.every(p =>
     typeof p.initiative === 'number' && p.initiative >= 0
@@ -197,6 +197,16 @@ const canStartCombat = computed(() => {
 
   return true
 })
+
+const pendingSetupTamers = computed(() => {
+  if (!currentEncounter.value) return []
+  const participants = (currentEncounter.value.participants as CombatParticipant[]) || []
+  return participants.filter(p => p.type === 'tamer' && p.initiative < 0)
+})
+
+const canEngageCombat = computed(() =>
+  currentEncounter.value?.phase === 'setup' && pendingSetupTamers.value.length > 0
+)
 
 // Get display name with numbering for duplicate digimon
 function getDisplayName(participant: CombatParticipant): string {
@@ -935,13 +945,14 @@ async function handleGmSaveCharacterOptOuts() {
 async function handleAddParticipant() {
   if (!currentEncounter.value || !selectedEntityId.value) return
 
-  // For tamers, create a digimon selection request instead of directly adding
+  // For tamers, add as a placeholder participant (initiative -1 = pending setup)
+  // Digimon selection requests are sent later via "Engage Combat"
   if (selectedEntityType.value === 'tamer') {
-    await createRequest(
-      currentEncounter.value.id,
-      'digimon-selection',
-      selectedEntityId.value
-    )
+    const tamer = tamers.value.find(t => t.id === selectedEntityId.value)
+    const derived = tamer ? calcTamerStats(tamer, eddySoulRules.value) : null
+    const maxWounds = derived?.woundBoxes ?? 5
+    const participant = createParticipant('tamer', selectedEntityId.value, -1, 0, maxWounds)
+    await addParticipant(currentEncounter.value.id, participant, digimonMap.value)
     showAddParticipant.value = false
     selectedEntityId.value = ''
     addQuantity.value = 1
@@ -1168,9 +1179,20 @@ async function processResponse(response: any) {
           tamerDerived.woundBoxes
         )
 
-        // Add both to participants array
+        // Update existing tamer participant (added with initiative=-1) or add if missing
         const participants = (currentEncounter.value.participants as CombatParticipant[]) || []
-        const updatedParticipants = [...participants, digimonParticipant, tamerParticipant]
+        const existingTamerIdx = participants.findIndex(p => p.type === 'tamer' && p.entityId === tamer.id)
+        let updatedParticipants: CombatParticipant[]
+        if (existingTamerIdx >= 0) {
+          // Update the pre-queued tamer participant with real initiative and wound boxes
+          updatedParticipants = participants.map((p, i) => i === existingTamerIdx
+            ? { ...p, initiative: response.response.initiative, initiativeRoll: response.response.initiativeRoll, maxWounds: tamerParticipant.maxWounds }
+            : p
+          )
+          updatedParticipants = [...updatedParticipants, digimonParticipant]
+        } else {
+          updatedParticipants = [...participants, digimonParticipant, tamerParticipant]
+        }
 
         // Create turnOrder with ONLY tamer (not partner digimon)
         // Partner digimon act on their tamer's turn
@@ -1233,7 +1255,17 @@ async function processResponse(response: any) {
               }
               return p
             })
-            const result = await updateEncounter(currentEncounter.value.id, { participants: updated })
+            // Rebuild turnOrder with updated initiative so tamer sorts correctly
+            const updatedTurnOrder = [...updated]
+              .sort((a: any, b: any) => b.initiative - a.initiative)
+              .filter((p: any) => {
+                if (p.type === 'gm') return false
+                if (p.type === 'tamer') return true
+                const d = digimonMap.value.get(p.entityId)
+                return !d?.partnerId
+              })
+              .map((p: any) => p.id)
+            const result = await updateEncounter(currentEncounter.value.id, { participants: updated, turnOrder: updatedTurnOrder })
             if (result) {
               await cancelRequest(currentEncounter.value.id, request.id)
 
@@ -1295,6 +1327,16 @@ async function handleStartCombat() {
       damage: null,
       effects: [],
     })
+  }
+}
+
+// Engage Combat — send digimon-selection requests to all queued (initiative=-1) tamer participants
+async function handleEngageCombat() {
+  if (!currentEncounter.value) return
+  const participants = (currentEncounter.value.participants as CombatParticipant[]) || []
+  const pendingTamers = participants.filter(p => p.type === 'tamer' && p.initiative < 0)
+  for (const pt of pendingTamers) {
+    await createRequest(currentEncounter.value.id, 'digimon-selection', pt.entityId)
   }
 }
 
@@ -2018,6 +2060,14 @@ async function handleUpdateHazard(hazard: Hazard) {
           <div class="bg-digimon-dark-800 rounded-xl p-4 border border-digimon-dark-700">
             <div class="flex gap-3 flex-wrap">
               <button
+                v-if="canEngageCombat"
+                class="bg-yellow-600 hover:bg-yellow-700 text-white px-4 py-2 rounded-lg font-semibold transition-colors"
+                title="Send initiative requests to all queued tamers"
+                @click="handleEngageCombat"
+              >
+                ⚔ Engage Combat
+              </button>
+              <button
                 v-if="currentEncounter.phase === 'setup'"
                 :disabled="!canStartCombat"
                 :class="[
@@ -2058,6 +2108,9 @@ async function handleUpdateHazard(hazard: Hazard) {
             <div v-if="currentEncounter.phase === 'setup' && !canStartCombat" class="text-xs text-digimon-dark-400 mt-3 p-2 bg-digimon-dark-700 rounded">
               <span v-if="sortedParticipants.length < 2">
                 ⚠️ Need at least 2 participants
+              </span>
+              <span v-else-if="pendingSetupTamers.length > 0 && pendingRequests.length === 0 && unprocessedResponses.length === 0">
+                ⚔️ {{ pendingSetupTamers.length }} tamer(s) queued — press Engage Combat to send initiative requests
               </span>
               <span v-else-if="pendingRequests.length > 0">
                 ⏳ Waiting for {{ pendingRequests.length }} player response(s)
@@ -2245,6 +2298,10 @@ async function handleUpdateHazard(hazard: Hazard) {
                         </div>
                         <span class="text-digimon-dark-300">{{ item.participant.maxWounds - item.participant.currentWounds }}/{{ item.participant.maxWounds }}</span>
                       </div>
+                      <div v-if="(item.participant.currentTempWounds ?? 0) > 0" class="flex items-center gap-2 text-xs mt-1">
+                        <span class="text-cyan-400">Shield:</span>
+                        <span class="text-cyan-300 font-medium">{{ item.participant.currentTempWounds }} temp wound{{ item.participant.currentTempWounds !== 1 ? 's' : '' }}</span>
+                      </div>
                     </div>
 
                     <!-- Speed/Movement and Dodge penalty -->
@@ -2417,20 +2474,26 @@ async function handleUpdateHazard(hazard: Hazard) {
                 <!-- Wounds and Actions (Condensed) -->
                 <div class="mt-2 flex items-center gap-4 text-xs">
                   <!-- Wounds -->
-                  <div class="flex items-center gap-2 flex-1">
-                    <span class="text-digimon-dark-400">Wounds:</span>
-                    <div class="flex-1 bg-digimon-dark-700 rounded-full h-2 overflow-hidden">
-                      <div
-                        class="h-full transition-all duration-300"
-                        :class="[
-                          item.partnerDigimon.currentWounds === 0 ? 'bg-green-500' :
-                          item.partnerDigimon.currentWounds < item.partnerDigimon.maxWounds / 2 ? 'bg-yellow-500' :
-                          item.partnerDigimon.currentWounds < item.partnerDigimon.maxWounds ? 'bg-orange-500' : 'bg-red-500'
-                        ]"
-                        :style="{ width: `${((item.partnerDigimon.maxWounds - item.partnerDigimon.currentWounds) / item.partnerDigimon.maxWounds) * 100}%` }"
-                      />
+                  <div class="flex-1">
+                    <div class="flex items-center gap-2">
+                      <span class="text-digimon-dark-400">Wounds:</span>
+                      <div class="flex-1 bg-digimon-dark-700 rounded-full h-2 overflow-hidden">
+                        <div
+                          class="h-full transition-all duration-300"
+                          :class="[
+                            item.partnerDigimon.currentWounds === 0 ? 'bg-green-500' :
+                            item.partnerDigimon.currentWounds < item.partnerDigimon.maxWounds / 2 ? 'bg-yellow-500' :
+                            item.partnerDigimon.currentWounds < item.partnerDigimon.maxWounds ? 'bg-orange-500' : 'bg-red-500'
+                          ]"
+                          :style="{ width: `${((item.partnerDigimon.maxWounds - item.partnerDigimon.currentWounds) / item.partnerDigimon.maxWounds) * 100}%` }"
+                        />
+                      </div>
+                      <span class="text-digimon-dark-300">{{ item.partnerDigimon.maxWounds - item.partnerDigimon.currentWounds }}/{{ item.partnerDigimon.maxWounds }}</span>
                     </div>
-                    <span class="text-digimon-dark-300">{{ item.partnerDigimon.maxWounds - item.partnerDigimon.currentWounds }}/{{ item.partnerDigimon.maxWounds }}</span>
+                    <div v-if="(item.partnerDigimon.currentTempWounds ?? 0) > 0" class="flex items-center gap-1 mt-0.5">
+                      <span class="text-cyan-400">Shield:</span>
+                      <span class="text-cyan-300 font-medium">{{ item.partnerDigimon.currentTempWounds }} temp wound{{ item.partnerDigimon.currentTempWounds !== 1 ? 's' : '' }}</span>
+                    </div>
                   </div>
 
                   <!-- Actions -->
@@ -3005,7 +3068,7 @@ async function handleUpdateHazard(hazard: Hazard) {
                 @click="handleAddParticipant"
               >
                 {{ selectedEntityType === 'tamer'
-                  ? 'Request Digimon Selection'
+                  ? 'Queue Tamer'
                   : `Add ${addQuantity > 1 ? `${addQuantity}x ` : ''}& Roll Initiative` }}
               </button>
               <button
@@ -3057,6 +3120,11 @@ async function handleUpdateHazard(hazard: Hazard) {
                 :name="getEntityDetails(selectedParticipant)?.name || 'Unknown'"
                 @update="(wounds) => updateWounds(selectedParticipant!.id, wounds)"
               />
+              <div v-if="(selectedParticipant.currentTempWounds ?? 0) > 0" class="mt-2 flex items-center gap-2 text-sm">
+                <span class="text-cyan-400">Shield:</span>
+                <span class="text-cyan-300 font-medium">{{ selectedParticipant.currentTempWounds }} temporary wound{{ selectedParticipant.currentTempWounds !== 1 ? 's' : '' }}</span>
+                <span class="text-digimon-dark-400 text-xs">(absorbs incoming damage)</span>
+              </div>
             </div>
 
             <!-- Effect Manager -->

@@ -86,6 +86,7 @@ export interface EddySoulRules {
 
 export interface HouseRules {
   stunMaxDuration1?: boolean
+  maxTempWoundsRule?: boolean
 }
 
 export interface CampaignRulesSettings {

@@ -20,7 +20,7 @@ interface ResolveNpcAttackParams {
   attackerName: string
   targetName: string
   turnOrder?: string[]
-  houseRules?: { stunMaxDuration1?: boolean }
+  houseRules?: { stunMaxDuration1?: boolean; maxTempWoundsRule?: boolean }
 }
 
 /**
@@ -286,13 +286,17 @@ export async function resolveNpcAttack(params: ResolveNpcAttackParams): Promise<
         activeEffects: (p.activeEffects || []).filter((e: any) => e.name !== 'Directed'),
       }
       if (hit) {
-        updated.currentWounds = Math.min(p.maxWounds, (p.currentWounds || 0) + damageDealt)
+        const tempAvailable = p.currentTempWounds ?? 0
+        const tempAbsorb = Math.min(tempAvailable, damageDealt)
+        const remainder = damageDealt - tempAbsorb
+        updated.currentTempWounds = tempAvailable - tempAbsorb
+        updated.currentWounds = Math.min(p.maxWounds, (p.currentWounds || 0) + remainder)
 
-        // Accumulate Combat Monster bonus for target
-        if (targetHasCombatMonster) {
+        // Accumulate Combat Monster bonus for target (only from real wound damage)
+        if (targetHasCombatMonster && remainder > 0) {
           updated.combatMonsterBonus = Math.min(
             targetHealthStat,
-            (p.combatMonsterBonus ?? 0) + damageDealt
+            (p.combatMonsterBonus ?? 0) + remainder
           )
         }
 

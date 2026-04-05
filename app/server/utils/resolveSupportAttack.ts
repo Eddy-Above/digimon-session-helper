@@ -30,7 +30,7 @@ interface SupportAttackParams {
   turnOrder?: string[]
   bolstered?: boolean
   bolsterType?: string
-  houseRules?: { stunMaxDuration1?: boolean }
+  houseRules?: { stunMaxDuration1?: boolean; maxTempWoundsRule?: boolean }
 }
 
 interface SupportAttackResult {
@@ -149,10 +149,19 @@ export async function resolvePositiveAuto(params: SupportAttackParams): Promise<
 
   participants = participants.map((p: any) => {
     if (p.id === params.targetParticipantId) {
-      return {
+      const updated: any = {
         ...p,
         activeEffects: applyEffectToParticipant(p.activeEffects || [], effectData, params.houseRules),
       }
+      if (params.attackDef.effect === 'Shield') {
+        const newTempWounds = effectData.potency ?? 0
+        const currentTemp = p.currentTempWounds ?? 0
+        const shouldOverride = !params.houseRules?.maxTempWoundsRule || newTempWounds >= currentTemp
+        if (shouldOverride) {
+          updated.currentTempWounds = newTempWounds
+        }
+      }
+      return updated
     }
     return p
   })

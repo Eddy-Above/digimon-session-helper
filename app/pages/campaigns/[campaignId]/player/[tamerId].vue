@@ -122,6 +122,16 @@ const intercedeResultData = ref<{
   effectiveArmor: number
 } | null>(null)
 
+// Attribute/Skill roll modal state
+const showAttributeRollModal = ref(false)
+const selectedRollAttr = ref<string | null>(null)
+const attributeRollResult = ref<{ rolls: number[]; modifier: number; label: string; total: number } | null>(null)
+
+// Torment roll modal state
+const showTormentRollModal = ref(false)
+const selectedTorment = ref<any>(null)
+const tormentRollResult = ref<{ rolls: number[]; modifier: number; total: number; passed: boolean } | null>(null)
+
 // Willpower roll modal state for digivolution
 const showWillpowerRollModal = ref(false)
 const willpowerRollResult = ref<{ rolls: number[]; total: number } | null>(null)
@@ -175,18 +185,26 @@ async function loadData() {
       await fetchTamers(campaignId.value)
       allTamers.value = allTamersFromComposable.value
 
-      // Find an active encounter that this tamer is relevant to (participating or has pending requests)
+      // Find an active encounter that this tamer is relevant to.
+      // Only show encounter UI if:
+      // - The encounter is in 'combat' phase (combat has started), OR
+      // - There are pending requests targeting this tamer (e.g. digimon-selection, initiative-roll)
+      // Tamers queued in 'setup' phase (initiative=-1) should NOT see the encounter until Engage Combat is pressed.
       const active = encounters.value.find((e) => {
         if (e.phase !== 'combat' && e.phase !== 'setup' && e.phase !== 'initiative') return false
-        const pts = (e.participants as CombatParticipant[]) || []
         const reqs = (e.pendingRequests as any[]) || []
-        const isParticipating = pts.some(
-          (p) =>
-            (p.type === 'tamer' && p.entityId === fetchedTamer.id) ||
-            (p.type === 'digimon' && partnerDigimon.value.some((d) => d.id === p.entityId))
-        )
         const hasPendingRequests = reqs.some((r) => r.targetTamerId === fetchedTamer.id)
-        return isParticipating || hasPendingRequests
+        if (e.phase === 'combat') {
+          // In combat: show if participating
+          const pts = (e.participants as CombatParticipant[]) || []
+          return pts.some(
+            (p) =>
+              (p.type === 'tamer' && p.entityId === fetchedTamer.id) ||
+              (p.type === 'digimon' && partnerDigimon.value.some((d) => d.id === p.entityId))
+          ) || hasPendingRequests
+        }
+        // Pre-combat (setup/initiative): only show if there's a pending request
+        return hasPendingRequests
       })
       if (active) {
         // Fetch all digimon in the encounter (partner and enemy)
@@ -1287,6 +1305,42 @@ async function handleDigivolve(participant: CombatParticipant, targetChainIndex:
     console.error('Devolve failed:', e)
     alert(e?.data?.message || 'Failed to devolve')
   }
+}
+
+function openAttributeRollModal(attr: string) {
+  selectedRollAttr.value = attr
+  attributeRollResult.value = null
+  showAttributeRollModal.value = true
+}
+
+function performAttributeRoll(attr: string, skillKey: string | null) {
+  if (!tamer.value) return
+  const attrVal = totalAttributes.value[attr as keyof typeof totalAttributes.value] ?? 0
+  const skillVal = skillKey ? (totalSkills.value[skillKey as keyof typeof totalSkills.value] ?? 0) : 0
+  const modifier = attrVal + skillVal
+  const label = skillKey ? skillLabels.value[skillKey] ?? skillKey : attr.charAt(0).toUpperCase() + attr.slice(1)
+  const rolls: number[] = []
+  for (let i = 0; i < 3; i++) rolls.push(Math.floor(Math.random() * 6) + 1)
+  const total = rolls.reduce((a, b) => a + b, 0) + modifier
+  attributeRollResult.value = { rolls, modifier, label, total }
+}
+
+function openTormentRollModal(torment: any) {
+  selectedTorment.value = torment
+  tormentRollResult.value = null
+  showTormentRollModal.value = true
+}
+
+function performTormentRoll() {
+  if (!tamer.value || !selectedTorment.value) return
+  const attrs = typeof tamer.value.attributes === 'string' ? JSON.parse(tamer.value.attributes as any) : tamer.value.attributes
+  const willpower = attrs?.willpower ?? 0
+  const unmarked = selectedTorment.value.totalBoxes - selectedTorment.value.markedBoxes
+  const modifier = willpower - unmarked
+  const rolls: number[] = []
+  for (let i = 0; i < 3; i++) rolls.push(Math.floor(Math.random() * 6) + 1)
+  const total = rolls.reduce((a, b) => a + b, 0) + modifier
+  tormentRollResult.value = { rolls, modifier, total, passed: total >= 12 }
 }
 
 function rollWillpower() {
@@ -2542,6 +2596,10 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
                   </div>
                   <span class="text-digimon-dark-300">{{ participant.maxWounds - participant.currentWounds }}/{{ participant.maxWounds }}</span>
                 </div>
+                <div v-if="(participant.currentTempWounds ?? 0) > 0" class="flex items-center gap-1 mt-1 text-xs">
+                  <span class="text-cyan-400">Shield:</span>
+                  <span class="text-cyan-300 font-medium">{{ participant.currentTempWounds }} temp wound{{ participant.currentTempWounds !== 1 ? 's' : '' }}</span>
+                </div>
               </div>
 
               <!-- Actions -->
@@ -3014,9 +3072,10 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
                   v-for="(value, attr) in tamer.attributes"
                   :key="attr"
                   :class="[
-                    'relative group text-center bg-digimon-dark-700 rounded-lg p-2 cursor-help',
+                    'relative group text-center bg-digimon-dark-700 rounded-lg p-2 cursor-pointer hover:bg-digimon-dark-600 transition-colors',
                     tamer.xpBonuses?.attributes[attr as keyof typeof tamer.xpBonuses.attributes] > 0 && 'ring-2 ring-green-500/50'
                   ]"
+                  @click="openAttributeRollModal(attr)"
                 >
                   <div class="text-xs text-digimon-dark-400 uppercase">{{ attr }}</div>
                   <div class="text-lg font-semibold text-white">{{ totalAttributes[attr as keyof typeof totalAttributes] }}</div>
@@ -3082,7 +3141,8 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
                   <div
                     v-for="torment in tamer.torments"
                     :key="torment.id"
-                    class="bg-digimon-dark-700 rounded-lg p-3"
+                    class="bg-digimon-dark-700 rounded-lg p-3 cursor-pointer hover:bg-digimon-dark-600 transition-colors"
+                    @click="openTormentRollModal(torment)"
                   >
                     <div class="flex items-center justify-between mb-2">
                       <span class="font-medium text-white">{{ torment.name }}</span>
@@ -4386,6 +4446,129 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
             {{ willpowerRollResult && willpowerRollResult.total >= DIGIVOLVE_WILLPOWER_DC[campaignLevel] ? 'Digivolve!' : 'Accept Failure' }}
           </button>
         </div>
+      </div>
+    </div>
+  </Teleport>
+
+  <!-- Attribute / Skill Roll Modal -->
+  <Teleport to="body">
+    <div
+      v-if="showAttributeRollModal && selectedRollAttr && tamer"
+      class="fixed inset-0 bg-black/80 flex items-center justify-center z-50"
+      @click.self="showAttributeRollModal = false; attributeRollResult = null"
+    >
+      <div class="bg-digimon-dark-800 rounded-xl p-6 w-full max-w-sm border-2 border-digimon-orange-500">
+        <h2 class="font-display text-xl font-semibold text-digimon-orange-400 mb-4 capitalize">
+          Roll: {{ selectedRollAttr }}
+        </h2>
+
+        <!-- Roll options -->
+        <div class="space-y-2 mb-4">
+          <!-- Attribute roll -->
+          <button
+            class="w-full text-left px-3 py-2 rounded-lg bg-digimon-dark-700 hover:bg-digimon-dark-600 transition-colors"
+            @click="performAttributeRoll(selectedRollAttr, null)"
+          >
+            <span class="text-white font-medium capitalize">{{ selectedRollAttr }}</span>
+            <span class="text-digimon-dark-400 text-sm ml-2">
+              3d6 + {{ totalAttributes[selectedRollAttr as keyof typeof totalAttributes] }}
+            </span>
+          </button>
+          <!-- Skill rolls -->
+          <button
+            v-for="skill in skillsByAttribute[selectedRollAttr as keyof typeof skillsByAttribute]"
+            :key="skill"
+            class="w-full text-left px-3 py-2 rounded-lg bg-digimon-dark-700 hover:bg-digimon-dark-600 transition-colors"
+            @click="performAttributeRoll(selectedRollAttr, skill)"
+          >
+            <span class="text-white font-medium">{{ skillLabels[skill] }}</span>
+            <span class="text-digimon-dark-400 text-sm ml-2">
+              3d6 + {{ totalAttributes[selectedRollAttr as keyof typeof totalAttributes] }} + {{ totalSkills[skill as keyof typeof totalSkills] }}
+            </span>
+          </button>
+        </div>
+
+        <!-- Roll result -->
+        <div v-if="attributeRollResult" class="bg-digimon-dark-700 rounded-lg p-4 mb-4 text-center">
+          <div class="text-sm text-digimon-dark-400 mb-2">{{ attributeRollResult.label }}</div>
+          <div class="flex justify-center gap-1 mb-2">
+            <span
+              v-for="(die, idx) in attributeRollResult.rolls"
+              :key="idx"
+              class="w-8 h-8 flex items-center justify-center rounded font-bold text-sm bg-digimon-dark-600 text-white"
+            >{{ die }}</span>
+            <span class="w-8 h-8 flex items-center justify-center text-digimon-dark-400 font-bold">+</span>
+            <span class="w-8 h-8 flex items-center justify-center rounded font-bold text-sm bg-digimon-orange-700 text-white">
+              {{ attributeRollResult.modifier }}
+            </span>
+          </div>
+          <div class="text-3xl font-bold text-digimon-orange-400">{{ attributeRollResult.total }}</div>
+        </div>
+
+        <button
+          @click="showAttributeRollModal = false; attributeRollResult = null"
+          class="w-full bg-digimon-dark-600 hover:bg-digimon-dark-500 text-white px-4 py-2 rounded-lg font-semibold transition-colors"
+        >
+          Close
+        </button>
+      </div>
+    </div>
+  </Teleport>
+
+  <!-- Torment Roll Modal -->
+  <Teleport to="body">
+    <div
+      v-if="showTormentRollModal && selectedTorment && tamer"
+      class="fixed inset-0 bg-black/80 flex items-center justify-center z-50"
+      @click.self="showTormentRollModal = false; tormentRollResult = null"
+    >
+      <div class="bg-digimon-dark-800 rounded-xl p-6 w-full max-w-sm border-2 border-red-700">
+        <h2 class="font-display text-xl font-semibold text-red-400 mb-1">
+          Torment Check
+        </h2>
+        <p class="text-white font-medium mb-1">{{ selectedTorment.name }}</p>
+        <p class="text-digimon-dark-400 text-sm mb-4">
+          3d6 + {{ (typeof tamer.attributes === 'string' ? JSON.parse(tamer.attributes as any) : tamer.attributes)?.willpower ?? 0 }} (Willpower)
+          − {{ selectedTorment.totalBoxes - selectedTorment.markedBoxes }} (unmarked) vs TN 12
+        </p>
+
+        <button
+          :disabled="!!tormentRollResult"
+          @click="performTormentRoll"
+          :class="[
+            'w-full text-white px-4 py-2 rounded-lg font-semibold transition-colors mb-4',
+            tormentRollResult ? 'bg-digimon-dark-600 opacity-50 cursor-not-allowed' : 'bg-red-700 hover:bg-red-800'
+          ]"
+        >
+          {{ tormentRollResult ? 'Already Rolled' : 'Roll Torment Check' }}
+        </button>
+
+        <div v-if="tormentRollResult" class="bg-digimon-dark-700 rounded-lg p-4 mb-4 text-center">
+          <div class="flex justify-center gap-1 mb-2">
+            <span
+              v-for="(die, idx) in tormentRollResult.rolls"
+              :key="idx"
+              class="w-8 h-8 flex items-center justify-center rounded font-bold text-sm bg-digimon-dark-600 text-white"
+            >{{ die }}</span>
+            <span class="w-8 h-8 flex items-center justify-center text-digimon-dark-400 font-bold">
+              {{ tormentRollResult.modifier >= 0 ? '+' : '' }}{{ tormentRollResult.modifier }}
+            </span>
+          </div>
+          <div class="text-3xl font-bold mb-1" :class="tormentRollResult.passed ? 'text-green-400' : 'text-red-400'">
+            {{ tormentRollResult.total }}
+          </div>
+          <div class="text-sm font-semibold" :class="tormentRollResult.passed ? 'text-green-400' : 'text-red-400'">
+            {{ tormentRollResult.passed ? 'PASSED' : 'FAILED' }}
+            <span class="text-digimon-dark-400 font-normal ml-1">(vs TN 12)</span>
+          </div>
+        </div>
+
+        <button
+          @click="showTormentRollModal = false; tormentRollResult = null"
+          class="w-full bg-digimon-dark-600 hover:bg-digimon-dark-500 text-white px-4 py-2 rounded-lg font-semibold transition-colors"
+        >
+          Close
+        </button>
       </div>
     </div>
   </Teleport>

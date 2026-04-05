@@ -28,7 +28,7 @@ export default defineEventHandler(async (event) => {
   }
 
   // Fetch campaign house rules
-  let houseRules: { stunMaxDuration1?: boolean } | undefined
+  let houseRules: { stunMaxDuration1?: boolean; maxTempWoundsRule?: boolean } | undefined
   if (encounter.campaignId) {
     const [campaign] = await db.select().from(campaigns).where(eq(campaigns.id, encounter.campaignId))
     if (campaign) {

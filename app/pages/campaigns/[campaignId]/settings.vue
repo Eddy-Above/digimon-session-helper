@@ -33,6 +33,7 @@ const form = reactive({
   },
   houseRules: {
     stunMaxDuration1: false,
+    maxTempWoundsRule: false,
   },
   skillRenames: {} as Record<string, string>,
   eddySoulRules: {
@@ -76,6 +77,7 @@ onMounted(async () => {
     const houseRules = campaign.value.rulesSettings?.houseRules
     if (houseRules) {
       form.houseRules.stunMaxDuration1 = houseRules.stunMaxDuration1 ?? false
+      form.houseRules.maxTempWoundsRule = houseRules.maxTempWoundsRule ?? false
     }
 
     // Load skill renames
@@ -127,9 +129,10 @@ async function handleSave() {
   )
 
   data.rulesSettings = {
-    ...(form.houseRules.stunMaxDuration1 && {
+    ...((form.houseRules.stunMaxDuration1 || form.houseRules.maxTempWoundsRule) && {
       houseRules: {
         ...(form.houseRules.stunMaxDuration1 && { stunMaxDuration1: true }),
+        ...(form.houseRules.maxTempWoundsRule && { maxTempWoundsRule: true }),
       },
     }),
     tormentRequirements: {
@@ -323,6 +326,17 @@ async function handleDelete() {
             <div>
               <span class="text-digimon-dark-300">Stun duration max 1 round</span>
               <p class="text-xs text-digimon-dark-500">Default: Stun duration equals leftover accuracy successes</p>
+            </div>
+          </label>
+          <label class="flex items-start gap-3 cursor-pointer">
+            <input
+              v-model="form.houseRules.maxTempWoundsRule"
+              type="checkbox"
+              class="w-4 h-4 rounded mt-1 shrink-0"
+            />
+            <div>
+              <span class="text-digimon-dark-300">Shield keeps higher temp wound value</span>
+              <p class="text-xs text-digimon-dark-500">Default: Shield always overrides temp wounds with new potency value</p>
             </div>
           </label>
         </div>
