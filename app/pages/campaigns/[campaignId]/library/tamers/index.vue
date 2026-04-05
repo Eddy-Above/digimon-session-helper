@@ -5,6 +5,11 @@ definePageMeta({
 
 const { campaignId, eddySoulRules } = useCampaignContext()
 const { tamers, loading, error, fetchTamers, deleteTamer, calculateDerivedStats } = useTamers()
+const { exportTamers, importTamers } = useLibraryImportExport()
+
+const fileInputRef = ref<HTMLInputElement | null>(null)
+const importLoading = ref(false)
+const importResult = ref<{ show: boolean; successful: number; failed: number; errors: Array<{ index: number; name: string; error: string }> } | null>(null)
 
 onMounted(() => {
   fetchTamers(campaignId.value)
@@ -14,6 +19,22 @@ async function handleDelete(id: string, name: string) {
   if (confirm(`Are you sure you want to delete ${name}?`)) {
     await deleteTamer(id)
   }
+}
+
+function handleImportClick() {
+  fileInputRef.value?.click()
+}
+
+async function handleImportFile(event: Event) {
+  const file = (event.target as HTMLInputElement).files?.[0]
+  if (!file) return
+  importLoading.value = true
+  importResult.value = null
+  const result = await importTamers(file, campaignId.value)
+  importResult.value = { show: true, ...result }
+  await fetchTamers(campaignId.value)
+  importLoading.value = false
+  ;(event.target as HTMLInputElement).value = ''
 }
 </script>
 
@@ -27,13 +48,46 @@ async function handleDelete(id: string, name: string) {
         <h1 class="font-display text-3xl font-bold text-white">Tamers</h1>
         <p class="text-digimon-dark-400">Manage human characters in your campaign</p>
       </div>
-      <NuxtLink
-        :to="`/campaigns/${campaignId}/library/tamers/new`"
-        class="bg-digimon-orange-500 hover:bg-digimon-orange-600 text-white px-4 py-2 rounded-lg
-               font-semibold transition-colors"
-      >
-        + New Tamer
-      </NuxtLink>
+      <div class="flex gap-2">
+        <button
+          :disabled="importLoading"
+          class="bg-digimon-dark-700 hover:bg-digimon-dark-600 disabled:opacity-50 text-white
+                 px-4 py-2 rounded-lg font-semibold transition-colors"
+          @click="handleImportClick"
+        >
+          {{ importLoading ? 'Importing...' : 'Import' }}
+        </button>
+        <NuxtLink
+          :to="`/campaigns/${campaignId}/library/tamers/new`"
+          class="bg-digimon-orange-500 hover:bg-digimon-orange-600 text-white px-4 py-2 rounded-lg
+                 font-semibold transition-colors"
+        >
+          + New Tamer
+        </NuxtLink>
+      </div>
+    </div>
+
+    <input
+      ref="fileInputRef"
+      type="file"
+      accept=".json"
+      class="hidden"
+      @change="handleImportFile"
+    />
+
+    <div
+      v-if="importResult?.show"
+      class="mb-6 rounded-lg p-4"
+      :class="importResult.failed > 0 ? 'bg-yellow-900/30 border border-yellow-500' : 'bg-green-900/30 border border-green-500'"
+    >
+      <p :class="importResult.failed > 0 ? 'text-yellow-400' : 'text-green-400'">
+        Imported {{ importResult.successful }} tamer{{ importResult.successful === 1 ? '' : 's' }}{{ importResult.failed > 0 ? `, ${importResult.failed} failed` : '' }}.
+      </p>
+      <ul v-if="importResult.errors.length" class="mt-2 text-sm text-red-300 space-y-1">
+        <li v-for="(e, i) in importResult.errors" :key="i">
+          &bull; Item {{ e.index + 1 }}{{ e.name ? ` (${e.name})` : '' }}: {{ e.error }}
+        </li>
+      </ul>
     </div>
 
     <div v-if="loading" class="text-center py-12">
@@ -111,6 +165,13 @@ async function handleDelete(id: string, name: string) {
             >
               Edit
             </NuxtLink>
+            <button
+              class="px-3 py-1.5 text-sm bg-digimon-dark-700 hover:bg-digimon-dark-600
+                     text-white rounded transition-colors"
+              @click="exportTamers([tamer])"
+            >
+              Export
+            </button>
             <button
               class="px-3 py-1.5 text-sm bg-red-900/30 hover:bg-red-900/50
                      text-red-400 rounded transition-colors"
