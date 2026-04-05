@@ -157,7 +157,8 @@ function getLinkedDigimon(entry: EvolutionChainEntry): Digimon | null {
 // Handle linking a Digimon to a chain entry
 async function handleLinkDigimon(index: number, digimonId: string | null) {
   if (!evolutionLine.value) return
-  const updated = await linkDigimonToChainEntry(evolutionLine.value.id, index, digimonId)
+  const digimonName = digimonId ? digimonList.value.find((d) => d.id === digimonId)?.name : undefined
+  const updated = await linkDigimonToChainEntry(evolutionLine.value.id, index, digimonId, digimonName)
   if (updated) {
     evolutionLine.value = updated
   }

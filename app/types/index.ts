@@ -277,7 +277,7 @@ export interface Quality {
 export interface Digimon {
   id: string
   name: string
-  species: string         // e.g., "Agumon", "Greymon"
+  nickname: string | null  // optional player-given name
   stage: DigimonStage
   attribute: DigimonAttribute
   family: DigimonFamily

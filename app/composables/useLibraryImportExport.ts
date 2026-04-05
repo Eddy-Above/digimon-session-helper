@@ -55,7 +55,7 @@ function validateDigimonEntry(data: unknown): string | null {
   if (!data || typeof data !== 'object') return 'Not an object'
   const d = data as Record<string, unknown>
   if (!d.name || typeof d.name !== 'string') return 'Missing or invalid "name"'
-  if (!d.species || typeof d.species !== 'string') return 'Missing or invalid "species"'
+
   if (!d.stage || typeof d.stage !== 'string') return 'Missing or invalid "stage"'
   if (!d.attribute || typeof d.attribute !== 'string') return 'Missing or invalid "attribute"'
   if (!d.family || typeof d.family !== 'string') return 'Missing or invalid "family"'
@@ -98,7 +98,7 @@ export function useLibraryImportExport() {
       const raw = (d as unknown) as Record<string, unknown>
       return {
         name: d.name,
-        species: d.species,
+        nickname: d.nickname ?? null,
         stage: d.stage,
         attribute: d.attribute,
         family: d.family,
@@ -208,7 +208,7 @@ export function useLibraryImportExport() {
       try {
         const created = await createDigimon({
           name: entry.name as string,
-          species: entry.species as string,
+          nickname: (entry.nickname as string | null | undefined) ?? undefined,
           stage: entry.stage as Digimon['stage'],
           attribute: entry.attribute as Digimon['attribute'],
           family: entry.family as string as Digimon['family'],

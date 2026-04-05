@@ -97,7 +97,7 @@ export const tamers = pgTable('tamers', {
 export const digimon = pgTable('digimon', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
-  species: text('species').notNull(),
+  nickname: text('nickname'),
 
   stage: text('stage').notNull().$type<
     'fresh' | 'in-training' | 'rookie' | 'champion' | 'ultimate' | 'mega' | 'ultra'

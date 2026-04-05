@@ -232,7 +232,7 @@ async function handleImportFile(event: Event) {
               </div>
 
               <div class="text-sm text-digimon-dark-400 mb-3">
-                {{ digimon.species }}
+                {{ digimon.nickname }}
                 <span v-if="digimon.partnerId && tamerMap.get(digimon.partnerId)" class="ml-2">
                   &bull; Partner of <span class="text-digimon-orange-400">{{ tamerMap.get(digimon.partnerId) }}</span>
                 </span>

@@ -59,8 +59,7 @@ const filteredDigimon = computed(() => {
     const query = searchQuery.value.toLowerCase()
     filtered = filtered.filter(
       (d) =>
-        d.name.toLowerCase().includes(query) ||
-        d.species.toLowerCase().includes(query)
+        d.name.toLowerCase().includes(query)
     )
   }
 
@@ -198,7 +197,7 @@ onUnmounted(() => {
           </div>
           <div class="flex-1 min-w-0">
             <div class="text-white text-sm font-medium truncate">{{ d.name }}</div>
-            <div class="text-xs text-digimon-dark-400 truncate">{{ d.species }} - {{ d.stage }}</div>
+            <div class="text-xs text-digimon-dark-400 truncate">{{ d.stage }}</div>
           </div>
         </button>
       </div>

@@ -242,7 +242,7 @@ function getEntityDetails(participant: CombatParticipant) {
     const derived = calcDigimonStats(digimon)
     return {
       name: getDisplayName(participant),
-      species: digimon.species,
+      species: digimon.nickname ?? '',
       stage: digimon.stage,
       isEnemy: digimon.isEnemy,
       stats: digimon.baseStats,

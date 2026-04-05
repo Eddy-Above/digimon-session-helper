@@ -3287,13 +3287,13 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
                   </div>
                   <div class="flex-1">
                     <div class="flex items-center gap-2">
-                      <h2 class="font-display text-xl font-semibold text-white">{{ getCurrentForm(chain.chainId)!.name }}</h2>
+                      <h2 class="font-display text-xl font-semibold text-white">{{ getCurrentForm(chain.chainId)!.nickname || getCurrentForm(chain.chainId)!.name }}</h2>
                       <span :class="['text-sm capitalize', getStageColor(getCurrentForm(chain.chainId)!.stage as DigimonStage)]">
                         {{ getCurrentForm(chain.chainId)!.stage }}
                       </span>
                     </div>
                     <div class="flex items-center gap-3 text-sm">
-                      <p class="text-digimon-dark-400">{{ getCurrentForm(chain.chainId)!.species }} • {{ getCurrentForm(chain.chainId)!.attribute }}</p>
+                      <p class="text-digimon-dark-400">{{ getCurrentForm(chain.chainId)!.name }} • {{ getCurrentForm(chain.chainId)!.attribute }}</p>
                       <NuxtLink
                         :to="`/campaigns/${campaignId}/player/${tamerId}/digimon/${getCurrentForm(chain.chainId)!.id}`"
                         class="text-digimon-orange-400 hover:text-digimon-orange-300 transition-colors"

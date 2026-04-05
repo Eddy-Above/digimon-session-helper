@@ -14,7 +14,7 @@ export interface EvolutionTreeNode {
 
 export interface CreateDigimonData {
   name: string
-  species: string
+  nickname?: string
   stage: DigimonStage
   attribute: 'vaccine' | 'data' | 'virus' | 'free'
   family: DigimonFamily
@@ -133,7 +133,7 @@ export function useDigimon() {
   async function copyDigimon(digimon: Digimon): Promise<Digimon | null> {
     const copyData: CreateDigimonData = {
       name: `Copy of ${digimon.name}`,
-      species: digimon.species,
+      nickname: digimon.nickname ?? undefined,
       stage: digimon.stage as DigimonStage,
       attribute: digimon.attribute as 'vaccine' | 'data' | 'virus' | 'free',
       family: digimon.family,

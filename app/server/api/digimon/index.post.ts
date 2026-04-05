@@ -11,7 +11,7 @@ import {
 
 interface CreateDigimonBody {
   name: string
-  species: string
+  nickname?: string
   stage: DigimonStage
   attribute: DigimonAttribute
   family: string
@@ -68,10 +68,10 @@ export default defineEventHandler(async (event) => {
   const body = await readBody<CreateDigimonBody>(event)
 
   // Validate required fields (type is optional)
-  if (!body.name || !body.species || !body.stage || !body.attribute || !body.family || !body.baseStats) {
+  if (!body.name || !body.stage || !body.attribute || !body.family || !body.baseStats) {
     throw createError({
       statusCode: 400,
-      message: 'Missing required fields: name, species, stage, attribute, family, baseStats',
+      message: 'Missing required fields: name, stage, attribute, family, baseStats',
     })
   }
 
@@ -90,7 +90,7 @@ export default defineEventHandler(async (event) => {
   const newDigimon: NewDigimon = {
     id,
     name: body.name,
-    species: body.species,
+    nickname: body.nickname ?? null,
     stage: body.stage,
     attribute: body.attribute,
     family: body.family,

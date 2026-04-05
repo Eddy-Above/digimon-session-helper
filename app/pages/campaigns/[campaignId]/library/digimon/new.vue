@@ -162,7 +162,7 @@ async function handleSubmit() {
     evolutionPathIds?: string[]
   } = {
     name: form.name,
-    species: form.species,
+    nickname: form.nickname || undefined,
     stage: form.stage,
     attribute: form.attribute,
     family: form.family,
@@ -245,12 +245,11 @@ async function handleSubmit() {
             />
           </div>
           <div>
-            <label class="block text-sm text-digimon-dark-400 mb-1">Species</label>
+            <label class="block text-sm text-digimon-dark-400 mb-1">Nickname <span class="text-digimon-dark-500">(optional)</span></label>
             <input
-              v-model="form.species"
+              v-model="form.nickname"
               type="text"
-              required
-              placeholder="e.g., Reptile Digimon"
+              placeholder="e.g., Blaze"
               class="w-full bg-digimon-dark-700 border border-digimon-dark-600 rounded-lg px-3 py-2
                      text-white focus:border-digimon-orange-500 focus:outline-none"
             />

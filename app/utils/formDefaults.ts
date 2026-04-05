@@ -42,7 +42,7 @@ export const DEFAULT_BONUS_STATS: BaseStats = {
 export function createDigimonFormDefaults(): DigimonFormData {
   return {
     name: '',
-    species: '',
+    nickname: '',
     stage: 'rookie',
     attribute: 'data',
     family: 'nature-spirits',
@@ -73,7 +73,7 @@ export function createDigimonFormDefaults(): DigimonFormData {
 export function createDigimonFormFromData(digimon: Digimon): DigimonFormData {
   return {
     name: digimon.name,
-    species: digimon.species,
+    nickname: digimon.nickname ?? '',
     stage: digimon.stage as DigimonStage,
     attribute: digimon.attribute as 'vaccine' | 'data' | 'virus' | 'free',
     family: digimon.family as DigimonFamily,

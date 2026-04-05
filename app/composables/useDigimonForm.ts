@@ -73,7 +73,7 @@ export function useDigimonForm(initialData?: Partial<DigimonFormData>, eddySoulR
   // ========================
   const form = reactive<DigimonFormData>({
     name: initialData?.name || '',
-    species: initialData?.species || '',
+    nickname: initialData?.nickname ?? '',
     stage: initialData?.stage || 'rookie',
     attribute: initialData?.attribute || 'data',
     family: initialData?.family || 'nature-spirits',

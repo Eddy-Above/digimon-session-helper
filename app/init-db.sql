@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS "campaigns" (
 CREATE TABLE IF NOT EXISTS "digimon" (
 	"id" text PRIMARY KEY NOT NULL,
 	"name" text NOT NULL,
-	"species" text NOT NULL,
+	"nickname" text,
 	"stage" text NOT NULL,
 	"attribute" text NOT NULL,
 	"family" text NOT NULL,

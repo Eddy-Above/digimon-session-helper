@@ -243,7 +243,8 @@ export function useEvolution() {
   async function linkDigimonToChainEntry(
     evolutionLineId: string,
     chainIndex: number,
-    digimonId: string | null
+    digimonId: string | null,
+    digimonName?: string
   ): Promise<EvolutionLine | null> {
     const line = evolutionLines.value.find((l) => l.id === evolutionLineId)
     if (!line) {
@@ -253,7 +254,7 @@ export function useEvolution() {
       const chainData = typeof fetchedLine.chain === 'string' ? JSON.parse(fetchedLine.chain) : fetchedLine.chain
       const chain = [...(chainData as EvolutionChainEntry[])]
       if (chainIndex < 0 || chainIndex >= chain.length) return null
-      chain[chainIndex] = { ...chain[chainIndex], digimonId }
+      chain[chainIndex] = { ...chain[chainIndex], digimonId, ...(digimonName ? { species: digimonName } : {}) }
       return updateEvolutionLine(evolutionLineId, { chain })
     }
 
@@ -261,7 +262,7 @@ export function useEvolution() {
     const chain = [...(chainData as EvolutionChainEntry[])]
     if (chainIndex < 0 || chainIndex >= chain.length) return null
 
-    chain[chainIndex] = { ...chain[chainIndex], digimonId }
+    chain[chainIndex] = { ...chain[chainIndex], digimonId, ...(digimonName ? { species: digimonName } : {}) }
     return updateEvolutionLine(evolutionLineId, { chain })
   }
 

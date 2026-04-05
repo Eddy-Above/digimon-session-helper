@@ -123,7 +123,7 @@ async function loadDigimon() {
       // Populate form with loaded data
       Object.assign(form, {
         name: data.name,
-        species: data.species,
+        nickname: data.nickname ?? '',
         stage: data.stage,
         attribute: data.attribute,
         family: data.family,
@@ -204,7 +204,7 @@ async function handleSubmit() {
 
   const data = {
     name: form.name,
-    species: form.species,
+    nickname: form.nickname || null,
     stage: form.stage,
     attribute: form.attribute,
     family: form.family,
@@ -297,11 +297,11 @@ async function handleCopy() {
             />
           </div>
           <div>
-            <label class="block text-sm text-digimon-dark-400 mb-1">Species</label>
+            <label class="block text-sm text-digimon-dark-400 mb-1">Nickname <span class="text-digimon-dark-500">(optional)</span></label>
             <input
-              v-model="form.species"
+              v-model="form.nickname"
               type="text"
-              required
+              placeholder="e.g., Blaze"
               class="w-full bg-digimon-dark-700 border border-digimon-dark-600 rounded-lg px-3 py-2
                      text-white focus:border-digimon-orange-500 focus:outline-none"
             />

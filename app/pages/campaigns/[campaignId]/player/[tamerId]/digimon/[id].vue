@@ -108,7 +108,7 @@ async function loadDigimon() {
   // Populate form with loaded data
   Object.assign(form, {
     name: digimon.name,
-    species: digimon.species,
+    nickname: digimon.nickname ?? '',
     stage: digimon.stage,
     attribute: digimon.attribute,
     family: digimon.family,
@@ -229,11 +229,11 @@ const hasLinkedEvolutions = computed(() => {
             />
           </div>
           <div>
-            <label class="block text-sm text-digimon-dark-400 mb-1">Species</label>
+            <label class="block text-sm text-digimon-dark-400 mb-1">Nickname <span class="text-digimon-dark-500">(optional)</span></label>
             <input
-              v-model="form.species"
+              v-model="form.nickname"
               type="text"
-              required
+              placeholder="e.g., Blaze"
               class="w-full bg-digimon-dark-700 border border-digimon-dark-600 rounded-lg px-3 py-2
                      text-white focus:border-digimon-orange-500 focus:outline-none"
             />

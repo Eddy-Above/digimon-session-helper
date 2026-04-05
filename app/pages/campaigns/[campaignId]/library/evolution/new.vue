@@ -76,7 +76,7 @@ function buildForwardChain(
   const currentIndex = chain.length
   chain.push({
     stage: digimon.stage as DigimonStage,
-    species: digimon.species,
+    species: digimon.name,
     digimonId: digimon.id,
     isUnlocked: parentIndex === null, // Root is unlocked, rest locked
     evolvesFromIndex: parentIndex,
@@ -103,7 +103,7 @@ function selectBaseDigimon(digimon: Digimon) {
 
   // Auto-fill name
   if (!form.name) {
-    form.name = `${digimon.species} Line`
+    form.name = `${digimon.name} Line`
   }
 
   // Auto-fill partner if the Digimon has one
@@ -211,7 +211,7 @@ function getLinkedDigimon(digimonId: string): Digimon | null {
           </div>
           <div>
             <h3 class="text-white font-semibold">{{ selectedBaseDigimon.name }}</h3>
-            <p class="text-digimon-dark-400 text-sm">{{ selectedBaseDigimon.species }} ({{ selectedBaseDigimon.stage }})</p>
+            <p class="text-digimon-dark-400 text-sm">{{ selectedBaseDigimon.stage }}</p>
           </div>
           <button
             type="button"
@@ -236,7 +236,7 @@ function getLinkedDigimon(digimonId: string): Digimon | null {
               </span>
               <div>
                 <div class="text-white text-sm font-semibold">{{ digimon.name }}</div>
-                <div class="text-digimon-dark-400 text-xs">{{ digimon.species }}</div>
+                <div class="text-digimon-dark-400 text-xs">{{ digimon.stage }}</div>
               </div>
             </div>
           </button>

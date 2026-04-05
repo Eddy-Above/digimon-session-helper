@@ -74,7 +74,7 @@ export default defineEventHandler(async (event) => {
 
     newChain.push({
       stage: digimon.stage,
-      species: digimon.species,
+      species: digimon.name,
       digimonId: digimon.id,
       isUnlocked: wasUnlocked !== undefined ? wasUnlocked : (parentIndex === null), // Preserve state or unlock root
       evolvesFromIndex: parentIndex,
