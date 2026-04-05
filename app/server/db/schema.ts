@@ -63,6 +63,7 @@ export const tamers = pgTable('tamers', {
   specialOrders: text('special_orders', { mode: 'json' }).notNull().$type<string[]>(),
 
   inspiration: integer('inspiration').notNull().default(1),
+  grantedInspiration: integer('granted_inspiration').notNull().default(0),
   xp: integer('xp').notNull().default(0),
 
   // XP Bonuses - stored separately from base values for reallocation

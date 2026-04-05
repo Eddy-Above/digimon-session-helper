@@ -109,6 +109,8 @@ export function useTamerForm(initialData?: Partial<CreateTamerData>, campaignLev
     inspiration: 0,
   })
 
+  const grantedInspiration = ref(initialData?.grantedInspiration ?? 0)
+
   // Torment management
   const torments = ref<TormentEntry[]>(initialData?.torments?.map(t => ({
     id: t.id,
@@ -201,6 +203,23 @@ export function useTamerForm(initialData?: Partial<CreateTamerData>, campaignLev
   }
 
   // ========================
+  // GM Granted Inspiration
+  // ========================
+  const grantInspiration = () => {
+    if (totalInspiration.value < maxInspiration.value) {
+      grantedInspiration.value++
+    }
+  }
+
+  const revokeGrantedInspiration = () => {
+    if (grantedInspiration.value > 0) {
+      grantedInspiration.value--
+    }
+  }
+
+  const canGrantInspiration = computed(() => totalInspiration.value < maxInspiration.value)
+
+  // ========================
   // Torment Management
   // ========================
   const tormentMarkingLimits: Record<TormentSeverity, number> = {
@@ -288,7 +307,7 @@ export function useTamerForm(initialData?: Partial<CreateTamerData>, campaignLev
   // ========================
   // Inspiration
   // ========================
-  const totalInspiration = computed(() => (form.inspiration ?? 1) + (xpBonuses.inspiration ?? 0))
+  const totalInspiration = computed(() => (form.inspiration ?? 1) + (xpBonuses.inspiration ?? 0) + (grantedInspiration.value ?? 0))
   const maxInspiration = computed(() => Math.max(1, getTotalAttribute('willpower')))
 
   // ========================
@@ -504,6 +523,10 @@ export function useTamerForm(initialData?: Partial<CreateTamerData>, campaignLev
     refundXPFromSkill,
     spendXPOnInspiration,
     refundXPFromInspiration,
+    grantedInspiration,
+    grantInspiration,
+    revokeGrantedInspiration,
+    canGrantInspiration,
 
     // Torment functions
     addTorment,

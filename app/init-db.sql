@@ -77,6 +77,7 @@ CREATE TABLE IF NOT EXISTS "tamers" (
 	"torments" text NOT NULL,
 	"special_orders" text NOT NULL,
 	"inspiration" integer DEFAULT 1 NOT NULL,
+	"granted_inspiration" integer DEFAULT 0 NOT NULL,
 	"xp" integer DEFAULT 0 NOT NULL,
 	"xp_bonuses" text DEFAULT '{"attributes":{"agility":0,"body":0,"charisma":0,"intelligence":0,"willpower":0},"skills":{"dodge":0,"fight":0,"stealth":0,"athletics":0,"endurance":0,"featsOfStrength":0,"manipulate":0,"perform":0,"persuasion":0,"computer":0,"survival":0,"knowledge":0,"perception":0,"decipherIntent":0,"bravery":0},"inspiration":0}' NOT NULL,
 	"equipment" text NOT NULL,

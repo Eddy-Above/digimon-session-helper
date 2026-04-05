@@ -36,6 +36,13 @@
       "when": 1774000000000,
       "tag": "0005_add_campaign_support",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1775500000000,
+      "tag": "0006_add_granted_inspiration",
+      "breakpoints": true
     }
   ]
 }

@@ -48,6 +48,7 @@ const {
   refundXPFromSkill,
   spendXPOnInspiration,
   refundXPFromInspiration,
+  grantedInspiration,
   addTorment,
   removeTorment,
   updateTormentSeverity,
@@ -100,6 +101,7 @@ onMounted(async () => {
     form.spriteUrl = fetched.spriteUrl || ''
     form.xp = fetched.xp || 0
     form.inspiration = fetched.inspiration ?? 1
+    grantedInspiration.value = fetched.grantedInspiration ?? 0
     // Load torments
     if (fetched.torments && fetched.torments.length > 0) {
       torments.value = fetched.torments.map(t => ({
@@ -169,6 +171,7 @@ async function handleSubmit() {
     torments: tormentData,
     xp: form.xp,
     inspiration: form.inspiration,
+    grantedInspiration: grantedInspiration.value,
     xpBonuses: {
       attributes: { ...xpBonuses.attributes },
       skills: { ...xpBonuses.skills },
@@ -769,6 +772,9 @@ async function handleSubmit() {
               </div>
               <p class="text-xs text-digimon-dark-500 mt-2">
                 Inspiration can be spent to re-roll dice or bolster rolls. Max = Willpower.
+              </p>
+              <p v-if="grantedInspiration > 0" class="text-xs text-purple-400 mt-1">
+                (includes {{ grantedInspiration }} granted by GM)
               </p>
             </div>
           </div>

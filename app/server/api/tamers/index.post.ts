@@ -105,6 +105,7 @@ export default defineEventHandler(async (event) => {
     torments: JSON.stringify(body.torments || []),
     specialOrders: JSON.stringify([]),
     inspiration: body.inspiration ?? 1,
+    grantedInspiration: body.grantedInspiration ?? 0,
     xp: body.xp ?? 0,
     equipment: JSON.stringify([]),
     currentWounds: 0,
