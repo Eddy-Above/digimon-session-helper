@@ -997,6 +997,7 @@ async function handleCopy() {
               v-model="form.evolvesFromId"
               :stage="getPreviousStages(form.stage)"
               :exclude-ids="digimon ? [digimon.id] : []"
+              :campaign-id="campaignId"
               label="Evolves From"
               placeholder="Select pre-evolution..."
             />
@@ -1011,6 +1012,7 @@ async function handleCopy() {
               v-model="form.evolutionPathIds"
               :stage="getNextStages(form.stage)"
               :exclude-ids="digimon ? [digimon.id] : []"
+              :campaign-id="campaignId"
               label="Evolves To"
               placeholder="Select evolutions..."
             />

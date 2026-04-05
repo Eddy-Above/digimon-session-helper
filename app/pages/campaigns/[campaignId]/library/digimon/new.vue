@@ -933,6 +933,7 @@ async function handleSubmit() {
               v-model="form.evolvesFromId"
               :stage="getPreviousStages(form.stage)"
               :exclude-ids="[]"
+              :campaign-id="campaignId"
               label="Evolves From"
               placeholder="Select pre-evolution..."
             />
@@ -947,6 +948,7 @@ async function handleSubmit() {
               v-model="form.evolutionPathIds"
               :stage="getNextStages(form.stage)"
               :exclude-ids="[]"
+              :campaign-id="campaignId"
               label="Evolves To"
               placeholder="Select evolutions..."
             />

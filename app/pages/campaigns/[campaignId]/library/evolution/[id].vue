@@ -446,6 +446,7 @@ const treeRoots = computed(() => buildTree(chain.value))
                       <DigimonSelector
                         :model-value="null"
                         :stage="entry.stage"
+                        :campaign-id="campaignId"
                         placeholder="Link Digimon sheet..."
                         @update:model-value="handleLinkDigimon(index, $event)"
                       />

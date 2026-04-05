@@ -902,6 +902,8 @@ const hasLinkedEvolutions = computed(() => {
               v-model="form.evolvesFromId"
               :stage="getPreviousStages(form.stage)"
               :exclude-ids="initialDigimon ? [initialDigimon.id] : []"
+              :campaign-id="campaignId"
+              :exclude-enemies="true"
               label="Evolves From"
               placeholder="Select pre-evolution..."
             />
@@ -916,6 +918,8 @@ const hasLinkedEvolutions = computed(() => {
               v-model="form.evolutionPathIds"
               :stage="getNextStages(form.stage)"
               :exclude-ids="initialDigimon ? [initialDigimon.id] : []"
+              :campaign-id="campaignId"
+              :exclude-enemies="true"
               label="Evolves To"
               placeholder="Select evolutions..."
             />

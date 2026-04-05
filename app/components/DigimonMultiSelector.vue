@@ -8,6 +8,8 @@ interface Props {
   excludeIds?: string[]  // Exclude certain Digimon
   placeholder?: string
   label?: string
+  campaignId?: string
+  excludeEnemies?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -29,7 +31,10 @@ const loading = ref(false)
 onMounted(async () => {
   loading.value = true
   try {
-    allDigimon.value = await $fetch<Digimon[]>('/api/digimon')
+    const query: Record<string, string> = {}
+    if (props.campaignId) query.campaignId = props.campaignId
+    if (props.excludeEnemies) query.isEnemy = 'false'
+    allDigimon.value = await $fetch<Digimon[]>('/api/digimon', { query })
   } catch (e) {
     console.error('Failed to fetch Digimon:', e)
   } finally {

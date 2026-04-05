@@ -1,4 +1,4 @@
-import { eq, or, inArray } from 'drizzle-orm'
+import { eq, or, inArray, and } from 'drizzle-orm'
 import { db, digimon, tamers } from '../../db'
 import { parseDigimonData } from '../../utils/parsers'
 
@@ -13,30 +13,28 @@ export default defineEventHandler(async (event) => {
   const stage = query.stage as DigimonStage | undefined
   const campaignId = query.campaignId as string | undefined
 
-  let queryBuilder = db.select().from(digimon)
+  const conditions = []
 
   if (campaignId) {
     const campaignTamerIds = db.select({ id: tamers.id }).from(tamers).where(eq(tamers.campaignId, campaignId))
-    queryBuilder = queryBuilder.where(
-      or(
-        eq(digimon.campaignId, campaignId),
-        inArray(digimon.partnerId, campaignTamerIds)
-      )
-    ) as typeof queryBuilder
+    conditions.push(or(
+      eq(digimon.campaignId, campaignId),
+      inArray(digimon.partnerId, campaignTamerIds)
+    ))
   }
 
   if (partnerId) {
-    queryBuilder = queryBuilder.where(eq(digimon.partnerId, partnerId)) as typeof queryBuilder
+    conditions.push(eq(digimon.partnerId, partnerId))
   }
 
   if (query.isEnemy !== undefined) {
-    queryBuilder = queryBuilder.where(eq(digimon.isEnemy, isEnemy)) as typeof queryBuilder
+    conditions.push(eq(digimon.isEnemy, isEnemy))
   }
 
   if (stage) {
-    queryBuilder = queryBuilder.where(eq(digimon.stage, stage)) as typeof queryBuilder
+    conditions.push(eq(digimon.stage, stage))
   }
 
-  const allDigimon = await queryBuilder
+  const allDigimon = await db.select().from(digimon).where(and(...conditions))
   return allDigimon.map(parseDigimonData)
 })
