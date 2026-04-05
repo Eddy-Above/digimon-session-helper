@@ -185,9 +185,9 @@ export function useTamerForm(initialData?: Partial<CreateTamerData>, campaignLev
   }
 
   const spendXPOnInspiration = () => {
-    const currentTotal = totalInspiration.value
-    const cost = currentTotal * 2
-    if (form.xp >= cost && currentTotal < maxInspiration.value) {
+    const paidTotal = paidInspiration.value
+    const cost = paidTotal * 2
+    if (form.xp >= cost && totalInspiration.value < maxInspiration.value) {
       form.xp -= cost
       xpBonuses.inspiration++
     }
@@ -195,8 +195,8 @@ export function useTamerForm(initialData?: Partial<CreateTamerData>, campaignLev
 
   const refundXPFromInspiration = () => {
     if (xpBonuses.inspiration > 0) {
-      const currentTotal = totalInspiration.value
-      const refund = (currentTotal - 1) * 2
+      const paidTotal = paidInspiration.value
+      const refund = (paidTotal - 1) * 2
       form.xp += refund
       xpBonuses.inspiration--
     }
@@ -307,7 +307,8 @@ export function useTamerForm(initialData?: Partial<CreateTamerData>, campaignLev
   // ========================
   // Inspiration
   // ========================
-  const totalInspiration = computed(() => (form.inspiration ?? 1) + (xpBonuses.inspiration ?? 0) + (grantedInspiration.value ?? 0))
+  const paidInspiration = computed(() => (form.inspiration ?? 1) + (xpBonuses.inspiration ?? 0))
+  const totalInspiration = computed(() => paidInspiration.value + (grantedInspiration.value ?? 0))
   const maxInspiration = computed(() => Math.max(1, getTotalAttribute('willpower')))
 
   // ========================
@@ -448,9 +449,9 @@ export function useTamerForm(initialData?: Partial<CreateTamerData>, campaignLev
   }
 
   const canAffordInspiration = computed(() => {
-    const currentTotal = totalInspiration.value
-    const cost = currentTotal * 2
-    return form.xp >= cost && currentTotal < maxInspiration.value
+    const paidTotal = paidInspiration.value
+    const cost = paidTotal * 2
+    return form.xp >= cost && totalInspiration.value < maxInspiration.value
   })
 
   const canAffordTormentBox = (torment: TormentEntry): boolean => {
@@ -523,6 +524,7 @@ export function useTamerForm(initialData?: Partial<CreateTamerData>, campaignLev
     refundXPFromSkill,
     spendXPOnInspiration,
     refundXPFromInspiration,
+    paidInspiration,
     grantedInspiration,
     grantInspiration,
     revokeGrantedInspiration,

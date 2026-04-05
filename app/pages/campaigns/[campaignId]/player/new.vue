@@ -38,6 +38,7 @@ const {
   refundXPFromSkill,
   spendXPOnInspiration,
   refundXPFromInspiration,
+  paidInspiration,
   addTorment,
   removeTorment,
   updateTormentSeverity,
@@ -580,7 +581,7 @@ async function handleSubmit() {
                   @click="spendXPOnInspiration()"
                 >+</button>
                 <span v-if="totalInspiration < maxInspiration" class="text-xs" :class="canAffordInspiration ? 'text-digimon-orange-400' : 'text-red-400'">
-                  Next: {{ totalInspiration * 2 }} XP
+                  Next: {{ paidInspiration * 2 }} XP
                 </span>
                 <span v-else class="text-xs text-green-400">Max reached</span>
               </div>

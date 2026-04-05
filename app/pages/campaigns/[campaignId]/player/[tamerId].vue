@@ -2528,7 +2528,7 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
               <!-- Health bar -->
               <div class="mb-2">
                 <div class="flex items-center gap-2 text-xs">
-                  <span class="text-digimon-dark-400">HP:</span>
+                  <span class="text-digimon-dark-400">Wounds:</span>
                   <div class="flex-1 h-2 bg-digimon-dark-600 rounded-full overflow-hidden">
                     <div
                       class="h-full transition-all duration-300"
@@ -2667,7 +2667,7 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
                         @click="handleUseSpecialOrder(participant, 'Enemy Scan', p.id); showPlayerSpecialOrdersModal = false"
                       >
                         {{ getEntityName(p) }}
-                        <span class="text-digimon-dark-400 text-xs ml-2">({{ p.currentWounds }}/{{ p.maxWounds }} wounds)</span>
+                        <span class="text-digimon-dark-400 text-xs ml-2">({{ p.maxWounds - p.currentWounds }}/{{ p.maxWounds }} wounds)</span>
                       </button>
                     </div>
                     <button class="mt-4 text-sm text-digimon-dark-400 hover:text-white" @click="showPlayerSpecialOrdersModal = false">Cancel</button>
@@ -2998,7 +2998,7 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
                   <div class="flex gap-4 mt-2 text-sm">
                     <span class="text-digimon-dark-300">
                       <span class="text-digimon-dark-400">Wounds:</span>
-                      {{ tamer.currentWounds }}/{{ tamerStats?.woundBoxes }}
+                      {{ (tamerStats?.woundBoxes || 0) - tamer.currentWounds }}/{{ tamerStats?.woundBoxes }}
                     </span>
                     <span class="text-digimon-dark-300">
                       <span class="text-digimon-dark-400">Inspiration:</span>
