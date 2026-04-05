@@ -2,7 +2,7 @@
 .claude/
 *.claude-session
 *-audit.json
-CLAUDE.md
+**/CLAUDE.md
 
 # Logs
 logs/
