@@ -48,6 +48,7 @@ const {
   refundXPFromSkill,
   spendXPOnInspiration,
   refundXPFromInspiration,
+  paidInspiration,
   grantedInspiration,
   addTorment,
   removeTorment,
@@ -124,6 +125,36 @@ onMounted(async () => {
   }
   initialLoading.value = false
 })
+
+function toggleTormentBox(torment: any, boxIndex: number) {
+  const isMarking = boxIndex > torment.markedBoxes
+
+  // Only allow marking if you have enough XP, or if unmarking
+  if (isMarking && form.xp < getTormentBoxCost(torment)) {
+    return
+  }
+
+  const newMarkedBoxes = torment.markedBoxes >= boxIndex
+    ? Math.max(boxIndex - 1, torment.originalMarkedBoxes)
+    : boxIndex
+
+  // Deduct XP if marking a new box
+  if (isMarking && newMarkedBoxes > torment.markedBoxes) {
+    form.xp -= getTormentBoxCost(torment)
+  }
+
+  // Refund XP if unmarking boxes
+  if (!isMarking && newMarkedBoxes < torment.markedBoxes) {
+    // Calculate refund for all unmarked boxes (from newMarkedBoxes + 1 to torment.markedBoxes)
+    let refund = 0
+    for (let i = newMarkedBoxes + 1; i <= torment.markedBoxes; i++) {
+      refund += i
+    }
+    form.xp += refund
+  }
+
+  torment.markedBoxes = newMarkedBoxes
+}
 
 async function handleSubmit() {
   if (!tamer.value) return
@@ -311,11 +342,6 @@ async function handleSubmit() {
                 class="w-full bg-digimon-dark-700 border border-digimon-dark-600 rounded-lg px-2 py-2
                        text-white text-center focus:border-digimon-orange-500 focus:outline-none"
               />
-              <span v-if="form.attributes[attr] < campaignConfig.startingCap"
-                    class="text-xs mt-1 block"
-                    :class="canAffordAttributeIncrease(attr) ? 'text-digimon-orange-400' : 'text-red-400'">
-                +1: {{ getNextAttributeCost(form.attributes[attr]) }} XP
-              </span>
             </div>
           </div>
           <p class="text-xs text-digimon-dark-500 mt-2">Max per attribute: {{ campaignConfig.startingCap }} (only 1 can be at max). Cost: new rating × 2 XP</p>
@@ -370,11 +396,6 @@ async function handleSubmit() {
                     class="w-14 bg-digimon-dark-700 border border-digimon-dark-600 rounded px-2 py-1
                            text-white text-center text-sm focus:border-digimon-orange-500 focus:outline-none"
                   />
-                  <span v-if="form.skills[skill as keyof typeof form.skills] < campaignConfig.startingCap"
-                        class="text-xs w-12"
-                        :class="canAffordSkillIncrease(skill as keyof typeof form.skills) ? 'text-digimon-orange-400' : 'text-red-400'">
-                    {{ getNextSkillCost(form.skills[skill as keyof typeof form.skills]) }} XP
-                  </span>
                 </div>
               </div>
             </div>
@@ -599,18 +620,19 @@ async function handleSubmit() {
                     v-for="i in torment.totalBoxes"
                     :key="i"
                     type="button"
+                    :disabled="i > torment.markedBoxes && form.xp < getTormentBoxCost(torment)"
                     :class="[
                       'w-5 h-5 rounded border-2 transition-colors',
                       i <= torment.markedBoxes
                         ? i <= torment.originalMarkedBoxes
                           ? 'bg-green-600 border-green-500 cursor-not-allowed' // Locked (CP-spent)
                           : 'bg-green-500 border-green-400 cursor-pointer'
-                        : 'bg-digimon-dark-600 border-digimon-dark-500 hover:border-digimon-dark-400 cursor-pointer'
+                        : form.xp >= getTormentBoxCost(torment)
+                          ? 'bg-digimon-dark-600 border-digimon-dark-500 hover:border-digimon-dark-400 cursor-pointer'
+                          : 'bg-digimon-dark-700 border-digimon-dark-600 cursor-not-allowed opacity-50'
                     ]"
-                    :title="i <= torment.originalMarkedBoxes ? 'CP-spent box (cannot be removed)' : ''"
-                    @click="torment.markedBoxes = torment.markedBoxes >= i
-                      ? Math.max(i - 1, torment.originalMarkedBoxes)
-                      : i"
+                    :title="i <= torment.originalMarkedBoxes ? 'CP-spent box (cannot be removed)' : i > torment.markedBoxes && form.xp < getTormentBoxCost(torment) ? `Need ${getTormentBoxCost(torment)} XP to mark this box` : ''"
+                    @click="toggleTormentBox(torment, i)"
                   />
                 </div>
                 <span class="text-xs text-digimon-dark-400">
@@ -766,7 +788,7 @@ async function handleSubmit() {
                   @click="spendXPOnInspiration"
                 >+</button>
                 <span v-if="totalInspiration < maxInspiration" class="text-xs" :class="canAffordInspiration ? 'text-digimon-orange-400' : 'text-red-400'">
-                  Next: {{ totalInspiration * 2 }} XP
+                  Next: {{ paidInspiration * 2 }} XP
                 </span>
                 <span v-else class="text-xs text-green-400">Max reached</span>
               </div>

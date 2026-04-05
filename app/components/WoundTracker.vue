@@ -73,11 +73,11 @@ const healthStatus = computed(() => {
         :key="i"
         :class="[
           'w-5 h-5 rounded border-2 transition-colors',
-          i <= wounds
+          i > maxWounds - wounds
             ? 'bg-red-500 border-red-400'
-            : 'bg-digimon-dark-600 border-digimon-dark-500 hover:border-digimon-dark-400',
+            : 'bg-green-600 border-green-500 hover:border-green-400',
         ]"
-        @click="setWounds(i <= wounds ? i - 1 : i)"
+        @click="setWounds(i > maxWounds - wounds ? maxWounds - i : maxWounds - i + 1)"
       />
     </div>
 
@@ -97,7 +97,7 @@ const healthStatus = computed(() => {
           class="flex-1 bg-red-600 hover:bg-red-700 text-white px-2 py-1 rounded text-sm font-medium"
           @click="takeDamage()"
         >
-          +{{ damageAmount }} Wound{{ damageAmount !== 1 ? 's' : '' }}
+          Deal {{ damageAmount }} Damage
         </button>
       </div>
 
@@ -115,13 +115,13 @@ const healthStatus = computed(() => {
           class="flex-1 bg-green-600 hover:bg-green-700 text-white px-2 py-1 rounded text-sm font-medium"
           @click="heal()"
         >
-          -{{ healAmount }} Wound{{ healAmount !== 1 ? 's' : '' }}
+          Heal {{ healAmount }}
         </button>
       </div>
     </div>
 
     <div class="text-center text-xs text-digimon-dark-400 mt-2">
-      {{ wounds }} / {{ maxWounds }} wounds
+      {{ maxWounds - wounds }} / {{ maxWounds }} Wounds
     </div>
   </div>
 </template>

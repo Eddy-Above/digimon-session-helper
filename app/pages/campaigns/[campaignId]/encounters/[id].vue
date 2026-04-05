@@ -2228,7 +2228,7 @@ async function handleUpdateHazard(hazard: Hazard) {
                       </div>
                     </div>
 
-                    <!-- Wounds bar -->
+                    <!-- HP bar -->
                     <div class="mb-2">
                       <div class="flex items-center gap-2 text-xs">
                         <span class="text-digimon-dark-400">Wounds:</span>
@@ -2243,7 +2243,7 @@ async function handleUpdateHazard(hazard: Hazard) {
                             :style="{ width: `${((item.participant.maxWounds - item.participant.currentWounds) / item.participant.maxWounds) * 100}%` }"
                           />
                         </div>
-                        <span class="text-digimon-dark-300">{{ item.participant.currentWounds }}/{{ item.participant.maxWounds }}</span>
+                        <span class="text-digimon-dark-300">{{ item.participant.maxWounds - item.participant.currentWounds }}/{{ item.participant.maxWounds }}</span>
                       </div>
                     </div>
 
@@ -2418,7 +2418,7 @@ async function handleUpdateHazard(hazard: Hazard) {
                 <div class="mt-2 flex items-center gap-4 text-xs">
                   <!-- Wounds -->
                   <div class="flex items-center gap-2 flex-1">
-                    <span class="text-digimon-dark-400">HP:</span>
+                    <span class="text-digimon-dark-400">Wounds:</span>
                     <div class="flex-1 bg-digimon-dark-700 rounded-full h-2 overflow-hidden">
                       <div
                         class="h-full transition-all duration-300"
@@ -2430,7 +2430,7 @@ async function handleUpdateHazard(hazard: Hazard) {
                         :style="{ width: `${((item.partnerDigimon.maxWounds - item.partnerDigimon.currentWounds) / item.partnerDigimon.maxWounds) * 100}%` }"
                       />
                     </div>
-                    <span class="text-digimon-dark-300">{{ item.partnerDigimon.currentWounds }}/{{ item.partnerDigimon.maxWounds }}</span>
+                    <span class="text-digimon-dark-300">{{ item.partnerDigimon.maxWounds - item.partnerDigimon.currentWounds }}/{{ item.partnerDigimon.maxWounds }}</span>
                   </div>
 
                   <!-- Actions -->
@@ -2630,7 +2630,7 @@ async function handleUpdateHazard(hazard: Hazard) {
                     @click="handleUseSpecialOrder(activeParticipant, 'Enemy Scan', p.id)"
                   >
                     {{ getEntityDetails(p)?.name || 'Unknown' }}
-                    <span class="text-digimon-dark-400 text-xs ml-2">({{ p.currentWounds }}/{{ p.maxWounds }} wounds)</span>
+                    <span class="text-digimon-dark-400 text-xs ml-2">({{ p.maxWounds - p.currentWounds }}/{{ p.maxWounds }} wounds)</span>
                   </button>
                 </div>
                 <button class="mt-4 text-sm text-digimon-dark-400 hover:text-white" @click="showSpecialOrdersModal = false">Cancel</button>
