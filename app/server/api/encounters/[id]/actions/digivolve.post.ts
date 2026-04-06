@@ -133,19 +133,28 @@ export default defineEventHandler(async (event) => {
   const isDevolve = currentEntry.evolvesFromIndex === body.targetChainIndex
 
   // Calculate warp evolution (how many stages are being skipped)
+  // Uses BFS to handle branching evolution chains correctly
   let stagesSkipped = 0
   if (!isEvolve && !isDevolve && eddySoulRules?.warpEvolution) {
-    // Walk the chain forward from current to target to count steps
-    let steps = 0
-    let idx = currentStageIndex
-    while (idx !== body.targetChainIndex && steps < chain.length) {
-      const next = chain.findIndex((e: any, i: number) => i !== idx && e.evolvesFromIndex === idx)
-      if (next === -1) break
-      idx = next
-      steps++
+    const visited = new Set<number>()
+    const queue: Array<{ idx: number; steps: number }> = [{ idx: currentStageIndex, steps: 0 }]
+    let foundSteps = -1
+    while (queue.length > 0) {
+      const { idx, steps } = queue.shift()!
+      if (visited.has(idx)) continue
+      visited.add(idx)
+      if (idx === body.targetChainIndex) {
+        foundSteps = steps
+        break
+      }
+      for (let i = 0; i < chain.length; i++) {
+        if (!visited.has(i) && chain[i].evolvesFromIndex === idx) {
+          queue.push({ idx: i, steps: steps + 1 })
+        }
+      }
     }
-    if (idx === body.targetChainIndex && steps >= 2) {
-      stagesSkipped = steps - 1
+    if (foundSteps >= 2) {
+      stagesSkipped = foundSteps - 1
     }
   }
 
