@@ -1385,7 +1385,8 @@ function openTormentRollModal(torment: any) {
 function performTormentRoll() {
   if (!tamer.value || !selectedTorment.value) return
   const attrs = typeof tamer.value.attributes === 'string' ? JSON.parse(tamer.value.attributes as any) : tamer.value.attributes
-  const willpower = attrs?.willpower ?? 0
+  const xpBonuses = typeof tamer.value.xpBonuses === 'string' ? JSON.parse(tamer.value.xpBonuses as any) : tamer.value.xpBonuses
+  const willpower = (attrs?.willpower ?? 0) + (xpBonuses?.attributes?.willpower ?? 0)
   const unmarked = selectedTorment.value.totalBoxes - selectedTorment.value.markedBoxes
   const modifier = willpower - unmarked
   const rolls: number[] = []
@@ -1397,7 +1398,8 @@ function performTormentRoll() {
 function rollWillpower() {
   if (!tamer.value) return
   const attrs = typeof tamer.value.attributes === 'string' ? JSON.parse(tamer.value.attributes as any) : tamer.value.attributes
-  const willpower = attrs?.willpower || 0
+  const xpBonuses = typeof tamer.value.xpBonuses === 'string' ? JSON.parse(tamer.value.xpBonuses as any) : tamer.value.xpBonuses
+  const willpower = (attrs?.willpower || 0) + (xpBonuses?.attributes?.willpower || 0)
   const rolls: number[] = []
   for (let i = 0; i < 3; i++) rolls.push(Math.floor(Math.random() * 6) + 1)
   const total = rolls.reduce((a, b) => a + b, 0) + willpower
@@ -3259,7 +3261,7 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
                   </div>
                 </div>
                 <p class="text-xs text-digimon-dark-500 mt-2">
-                  Roll: 3d6 + Willpower ({{ tamer.attributes.willpower }}) - unmarked boxes vs TN 12
+                  Roll: 3d6 + Willpower ({{ (tamer.attributes.willpower || 0) + ((typeof tamer.xpBonuses === 'string' ? JSON.parse(tamer.xpBonuses as any) : tamer.xpBonuses)?.attributes?.willpower || 0) }}) - unmarked boxes vs TN 12
                 </p>
               </div>
             </div>
@@ -4471,7 +4473,7 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
             <span class="text-digimon-dark-400 ml-1">({{ campaignLevel }})</span>
           </p>
           <p class="text-digimon-dark-300 text-sm mt-1">
-            3d6 + {{ (typeof tamer.attributes === 'string' ? JSON.parse(tamer.attributes as any) : tamer.attributes)?.willpower || 0 }} (Willpower)
+            3d6 + {{ ((typeof tamer.attributes === 'string' ? JSON.parse(tamer.attributes as any) : tamer.attributes)?.willpower || 0) + ((typeof tamer.xpBonuses === 'string' ? JSON.parse(tamer.xpBonuses as any) : tamer.xpBonuses)?.attributes?.willpower || 0) }} (Willpower)
           </p>
         </div>
 
@@ -4509,7 +4511,7 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
               </span>
               <span class="w-8 h-8 flex items-center justify-center text-digimon-dark-400 font-bold">+</span>
               <span class="w-8 h-8 flex items-center justify-center rounded font-bold text-sm bg-purple-700 text-white">
-                {{ (typeof tamer.attributes === 'string' ? JSON.parse(tamer.attributes as any) : tamer.attributes)?.willpower || 0 }}
+                {{ ((typeof tamer.attributes === 'string' ? JSON.parse(tamer.attributes as any) : tamer.attributes)?.willpower || 0) + ((typeof tamer.xpBonuses === 'string' ? JSON.parse(tamer.xpBonuses as any) : tamer.xpBonuses)?.attributes?.willpower || 0) }}
               </span>
             </div>
             <div class="text-3xl font-bold mb-1" :class="willpowerRollResult.total >= DIGIVOLVE_WILLPOWER_DC[campaignLevel] ? 'text-green-400' : 'text-red-400'">
@@ -4645,7 +4647,7 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
         </h2>
         <p class="text-white font-medium mb-1">{{ selectedTorment.name }}</p>
         <p class="text-digimon-dark-400 text-sm mb-4">
-          3d6 + {{ (typeof tamer.attributes === 'string' ? JSON.parse(tamer.attributes as any) : tamer.attributes)?.willpower ?? 0 }} (Willpower)
+          3d6 + {{ ((typeof tamer.attributes === 'string' ? JSON.parse(tamer.attributes as any) : tamer.attributes)?.willpower ?? 0) + ((typeof tamer.xpBonuses === 'string' ? JSON.parse(tamer.xpBonuses as any) : tamer.xpBonuses)?.attributes?.willpower ?? 0) }} (Willpower)
           − {{ selectedTorment.totalBoxes - selectedTorment.markedBoxes }} (unmarked) vs TN 12
         </p>
 

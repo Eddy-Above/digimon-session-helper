@@ -1516,7 +1516,8 @@ function rollWillpowerGM() {
   if (!pendingDigivolve.value) return
   const tamer = pendingDigivolve.value.tamer
   const attrs = typeof tamer.attributes === 'string' ? JSON.parse(tamer.attributes as any) : tamer.attributes
-  const willpower = attrs?.willpower || 0
+  const xpBonuses = typeof tamer.xpBonuses === 'string' ? JSON.parse(tamer.xpBonuses as any) : tamer.xpBonuses
+  const willpower = (attrs?.willpower || 0) + (xpBonuses?.attributes?.willpower || 0)
   const rolls: number[] = []
   for (let i = 0; i < 3; i++) rolls.push(Math.floor(Math.random() * 6) + 1)
   const total = rolls.reduce((a: number, b: number) => a + b, 0) + willpower
@@ -3547,7 +3548,7 @@ async function handleUpdateHazard(hazard: Hazard) {
               <span class="text-digimon-dark-400 ml-1">({{ campaignLevel }})</span>
             </p>
             <p class="text-digimon-dark-300 text-sm mt-1">
-              3d6 + {{ (typeof pendingDigivolve.tamer.attributes === 'string' ? JSON.parse(pendingDigivolve.tamer.attributes as any) : pendingDigivolve.tamer.attributes)?.willpower || 0 }} (Willpower)
+              3d6 + {{ ((typeof pendingDigivolve.tamer.attributes === 'string' ? JSON.parse(pendingDigivolve.tamer.attributes as any) : pendingDigivolve.tamer.attributes)?.willpower || 0) + ((typeof pendingDigivolve.tamer.xpBonuses === 'string' ? JSON.parse(pendingDigivolve.tamer.xpBonuses as any) : pendingDigivolve.tamer.xpBonuses)?.attributes?.willpower || 0) }} (Willpower)
             </p>
           </div>
 
@@ -3585,7 +3586,7 @@ async function handleUpdateHazard(hazard: Hazard) {
                 </span>
                 <span class="w-8 h-8 flex items-center justify-center text-digimon-dark-400 font-bold">+</span>
                 <span class="w-8 h-8 flex items-center justify-center rounded font-bold text-sm bg-purple-700 text-white">
-                  {{ (typeof pendingDigivolve.tamer.attributes === 'string' ? JSON.parse(pendingDigivolve.tamer.attributes as any) : pendingDigivolve.tamer.attributes)?.willpower || 0 }}
+                  {{ ((typeof pendingDigivolve.tamer.attributes === 'string' ? JSON.parse(pendingDigivolve.tamer.attributes as any) : pendingDigivolve.tamer.attributes)?.willpower || 0) + ((typeof pendingDigivolve.tamer.xpBonuses === 'string' ? JSON.parse(pendingDigivolve.tamer.xpBonuses as any) : pendingDigivolve.tamer.xpBonuses)?.attributes?.willpower || 0) }}
                 </span>
               </div>
               <div class="text-3xl font-bold mb-1" :class="willpowerRollResult.total >= DIGIVOLVE_WILLPOWER_DC[campaignLevel] ? 'text-green-400' : 'text-red-400'">
