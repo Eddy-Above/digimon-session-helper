@@ -165,6 +165,11 @@ export default defineEventHandler(async (event) => {
     }
   }
 
+  // Apply Signature Move Battery damage bonus
+  if (request.data.isSignatureMove && request.data.batteryCount) {
+    attackBaseDamage += request.data.batteryCount
+  }
+
   // With 0 dodge, net successes = accuracy successes
   const netSuccesses = accuracySuccesses
   const hit = true // 0 dodge = always hit
@@ -183,6 +188,10 @@ export default defineEventHandler(async (event) => {
       const result = calculateEffectPotency(npcAttackDef.effect, attackerDerived, interceptorDerived)
       supportPotency = result.potency
       supportPotencyStat = result.potencyStat
+      // Apply Signature Move Battery SPEC bonus
+      if (request.data.isSignatureMove && request.data.batteryCount) {
+        supportPotency += request.data.batteryCount
+      }
     }
 
     participants = participants.map((p: any) => {
