@@ -291,6 +291,53 @@ export function isTagValidForAttack(
   return true
 }
 
+// =====================================
+// Clash System Constants & Utilities
+// =====================================
+
+export const CLASH_SIZE_ORDER = ['tiny', 'small', 'medium', 'large', 'huge', 'gigantic'] as const
+export type ClashSize = typeof CLASH_SIZE_ORDER[number]
+
+/**
+ * Effects that immediately end an active clash when applied to a participant.
+ */
+export const CLASH_ENDING_EFFECTS = new Set(['Fear', 'Stun', 'Paralysis'])
+
+/**
+ * Compute size-based bonus for a clash roll.
+ * Brawler non-Gigantic: actor treated as one size class larger.
+ */
+export function getClashSizeBonus(actorSize: string, targetSize: string, hasBrawler: boolean, actorIsGigantic: boolean): number {
+  const sizes = CLASH_SIZE_ORDER as readonly string[]
+  let actorIdx = sizes.indexOf(actorSize)
+  if (actorIdx < 0) actorIdx = 2 // default to medium
+  if (hasBrawler && !actorIsGigantic) actorIdx = Math.min(actorIdx + 1, sizes.length - 1)
+  let targetIdx = sizes.indexOf(targetSize)
+  if (targetIdx < 0) targetIdx = 2
+  return Math.max(0, actorIdx - targetIdx)
+}
+
+/**
+ * Determine who controls the clash after both rolls are known.
+ */
+export function determineClashController(
+  actorRoll: number, actorTN: number, actorBody: number, actorIsPlayer: boolean,
+  targetRoll: number, targetTN: number, targetBody: number, _targetIsPlayer: boolean,
+): 'actor' | 'target' {
+  const actorBeats = actorRoll >= actorTN
+  const targetBeats = targetRoll >= targetTN
+  if (actorBeats && !targetBeats) return 'actor'
+  if (targetBeats && !actorBeats) return 'target'
+  // Both beat or both fail → compare margin
+  const actorMargin = actorRoll - actorTN
+  const targetMargin = targetRoll - targetTN
+  if (actorMargin !== targetMargin) return actorMargin > targetMargin ? 'actor' : 'target'
+  if (actorBody !== targetBody) return actorBody > targetBody ? 'actor' : 'target'
+  // Total tie: player wins
+  if (actorIsPlayer) return 'actor'
+  return 'target'
+}
+
 export const BASIC_ATTACKS = [
   {
     id: 'basic-melee',

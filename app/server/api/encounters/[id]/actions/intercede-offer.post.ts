@@ -20,6 +20,8 @@ interface IntercedeOfferBody {
   skipActionDeduction?: boolean // When called from attack.post.ts which already deducted actions
   isSignatureMove?: boolean
   batteryCount?: number
+  clashAttack?: boolean         // If true, target's dodge pool is halved (clash controller attack)
+  outsideClashCpuPenalty?: number  // Damage penalty when attacker is outside target's active clash
 }
 
 export default defineEventHandler(async (event) => {
@@ -352,6 +354,9 @@ export default defineEventHandler(async (event) => {
           // Signature Move Battery bonus
           isSignatureMove: body.isSignatureMove || false,
           batteryCount: body.isSignatureMove ? (body.batteryCount ?? 0) : 0,
+          // Clash modifiers
+          clashAttack: body.clashAttack || false,
+          outsideClashCpuPenalty: body.outsideClashCpuPenalty ?? 0,
         },
       }
 
@@ -389,6 +394,8 @@ export default defineEventHandler(async (event) => {
         attackerName, targetName,
         turnOrder,
         houseRules,
+        clashAttack: body.clashAttack,
+        outsideClashCpuPenalty: body.outsideClashCpuPenalty,
       })
 
       await db.update(encounters).set({
@@ -444,6 +451,8 @@ export default defineEventHandler(async (event) => {
         isSupportAttack: isSupportAttack || false,
         isSignatureMove: body.isSignatureMove || false,
         batteryCount: body.isSignatureMove ? (body.batteryCount ?? 0) : 0,
+        clashAttack: body.clashAttack || false,
+        outsideClashCpuPenalty: body.outsideClashCpuPenalty ?? 0,
       },
     }
 
@@ -499,6 +508,8 @@ export default defineEventHandler(async (event) => {
       isSupportAttack: isSupportAttack || false,
       isSignatureMove: body.isSignatureMove || false,
       batteryCount: body.isSignatureMove ? (body.batteryCount ?? 0) : 0,
+      clashAttack: body.clashAttack || false,
+      outsideClashCpuPenalty: body.outsideClashCpuPenalty ?? 0,
     },
   }))
 
@@ -525,6 +536,8 @@ export default defineEventHandler(async (event) => {
         isSupportAttack: isSupportAttack || false,
         isSignatureMove: body.isSignatureMove || false,
         batteryCount: body.isSignatureMove ? (body.batteryCount ?? 0) : 0,
+        clashAttack: body.clashAttack || false,
+        outsideClashCpuPenalty: body.outsideClashCpuPenalty ?? 0,
       },
     })
   }

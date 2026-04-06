@@ -309,6 +309,18 @@ export interface Digimon {
 
 // === Encounter Types ===
 
+export interface ClashState {
+  clashId: string                    // Links both participants
+  opponentParticipantId: string      // The other participant in the clash
+  isController: boolean              // Does this participant currently control?
+  isPinned: boolean                  // Cannot act (pinned by controller)
+  cannotInitiateUntilRound?: number  // Set when clash ends (can't start new one until next round)
+  clashCheckNeeded: boolean          // True = round-start re-roll needed
+  pendingRoll?: number               // Stored roll awaiting opponent's response (player-vs-player)
+  reachInitiated?: boolean           // Was this clash started using Reach?
+  reachDistance?: number             // Meters away when initiated (ongoing roll penalty for Reach user)
+}
+
 export interface CombatParticipant {
   id: string
   type: 'tamer' | 'digimon'
@@ -328,6 +340,9 @@ export interface CombatParticipant {
   combatMonsterBonus?: number  // Combat Monster: cumulative damage bonus for next successful attack
   battery?: number              // Signature Move Battery: current charge
   usedSignatureMoveThisTurn?: boolean  // Signature Move Battery: spent this turn
+  clash?: ClashState            // Active clash state (if currently clashing)
+  clashCooldownUntilRound?: number  // Cannot initiate a new clash until this round
+  usedFreeClashThisRound?: boolean  // Wrestlemania: free clash initiation used this round
 }
 
 export interface ActiveEffect {

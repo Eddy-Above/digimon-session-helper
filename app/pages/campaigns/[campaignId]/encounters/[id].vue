@@ -530,6 +530,7 @@ function getAttackStats(participant: CombatParticipant, attack: any) {
 
 // Check if participant can use an attack (requires 1 simple action)
 function canUseAttack(participant: CombatParticipant, attack: any): boolean {
+  if ((participant as any).clash) return false
   let requiredActions = 1
   if (eddySoulRules.value?.combatMonsterAreaAttackRequiresComplex) {
     const combatMonsterBonus = (participant as any).combatMonsterBonus ?? 0
@@ -1704,6 +1705,7 @@ async function changeStance(stance: CombatParticipant['currentStance'], particip
 
   const active = participants.find((p) => p.id === targetId)
   if (!active) return
+  if ((active as any).clash) return
 
   // Stance change costs 1 simple action
   if ((active.actionsRemaining?.simple || 0) < 1) return
@@ -1947,7 +1949,12 @@ async function handleGmDodgeRoll(request: any) {
     }
 
     // Get dodge pool for the target
-    const dodgePool = getDodgePool(target)
+    let dodgePool = getDodgePool(target)
+
+    // Clash Attack: target rolls only half their dodge pool
+    if (request.data?.clashAttack) {
+      dodgePool = Math.max(1, Math.floor(dodgePool / 2))
+    }
 
     // Roll dice (count successes: 5+ = 1 success)
     const dodgeDiceResults = []
@@ -1980,6 +1987,8 @@ async function handleGmDodgeRoll(request: any) {
     console.error('Error rolling dodge for GM:', error)
   }
 }
+
+// Clash state
 
 // Selected participant for detailed view
 const selectedParticipantId = ref<string | null>(null)
@@ -2106,6 +2115,121 @@ async function handleRemoveHazard(hazardId: string) {
 async function handleUpdateHazard(hazard: Hazard) {
   if (!currentEncounter.value) return
   await updateHazard(currentEncounter.value.id, hazard)
+}
+
+// === Clash helpers ===
+
+// All unique clash IDs currently active in the encounter
+const activeClashes = computed(() => {
+  if (!currentEncounter.value) return new Set<string>()
+  const participants = (currentEncounter.value.participants as CombatParticipant[]) || []
+  const ids = new Set<string>()
+  participants.forEach(p => { if (p.clash?.clashId) ids.add(p.clash.clashId) })
+  return ids
+})
+
+function openClashTargetSelector(participantId: string) {
+  if (!currentEncounter.value) return
+  const participant = (currentEncounter.value.participants as CombatParticipant[]).find(p => p.id === participantId)
+  if (!participant) return
+  selectedAttack.value = { participant, attack: { id: 'clash-initiate', name: 'Initiate Clash', type: 'clash-initiate' } }
+  selectedTargetId.value = null
+  showTargetSelector.value = true
+}
+
+function getClashTargets(participantId: string): CombatParticipant[] {
+  if (!currentEncounter.value) return []
+  return (currentEncounter.value.participants as CombatParticipant[]).filter(
+    p => p.id !== participantId && p.type !== 'gm' && !(p as any).clash
+  )
+}
+
+async function handleInitiateClash(participantId: string, targetId: string) {
+  if (!currentEncounter.value) return
+  try {
+    const participants = currentEncounter.value.participants as CombatParticipant[]
+    const actor = participants.find(p => p.id === participantId)
+    const tamerId = actor?.type === 'tamer' ? actor.entityId : undefined
+    const bodyDiceResults: number[] = []
+    for (let i = 0; i < 3; i++) {
+      bodyDiceResults.push(Math.floor(Math.random() * 6) + 1)
+    }
+    const bodyRoll = bodyDiceResults.reduce((a, b) => a + b, 0)
+    await $fetch(`/api/encounters/${currentEncounter.value.id}/actions/clash-initiate`, {
+      method: 'POST',
+      body: { participantId, targetId, tamerId, bodyRoll, bodyDiceResults },
+    })
+    showTargetSelector.value = false
+    selectedAttack.value = null
+    await fetchEncounter(currentEncounter.value.id)
+  } catch (e: any) {
+    alert(e?.data?.message || 'Failed to initiate clash')
+  }
+}
+
+async function handleClashCheck(participantId: string) {
+  if (!currentEncounter.value) return
+  const participants = currentEncounter.value.participants as CombatParticipant[]
+  const participant = participants.find(p => p.id === participantId)
+  if (!participant?.clash?.clashId) return
+  try {
+    const tamerId = participant.type === 'tamer' ? participant.entityId : undefined
+    const diceResults: number[] = []
+    for (let i = 0; i < 3; i++) {
+      diceResults.push(Math.floor(Math.random() * 6) + 1)
+    }
+    const roll = diceResults.reduce((a, b) => a + b, 0)
+    await $fetch(`/api/encounters/${currentEncounter.value.id}/actions/clash-check`, {
+      method: 'POST',
+      body: { clashId: participant.clash.clashId, participantId, tamerId, roll, diceResults },
+    })
+    await fetchEncounter(currentEncounter.value.id)
+  } catch (e: any) {
+    alert(e?.data?.message || 'Failed to submit clash check')
+  }
+}
+
+async function executeClashAction(participantId: string, actionType: 'attack' | 'end' | 'pin' | 'throw') {
+  if (!currentEncounter.value) return
+  const participants = currentEncounter.value.participants as CombatParticipant[]
+  const participant = participants.find(p => p.id === participantId)
+  if (!participant?.clash?.clashId) return
+  try {
+    const tamerId = participant.type === 'tamer' ? participant.entityId : undefined
+    await $fetch(`/api/encounters/${currentEncounter.value.id}/actions/clash-action`, {
+      method: 'POST',
+      body: {
+        clashId: participant.clash.clashId,
+        participantId,
+        tamerId,
+        actionType,
+      },
+    })
+    await fetchEncounter(currentEncounter.value.id)
+  } catch (e: any) {
+    alert(e?.data?.message || `Failed to execute clash ${actionType}`)
+  }
+}
+
+async function handleBreakClash(participantId: string, clashId: string) {
+  if (!currentEncounter.value) return
+  try {
+    const participants = currentEncounter.value.participants as CombatParticipant[]
+    const breaker = participants.find(p => p.id === participantId)
+    const tamerId = breaker?.type === 'tamer' ? breaker.entityId : undefined
+    const diceResults: number[] = []
+    for (let i = 0; i < 3; i++) {
+      diceResults.push(Math.floor(Math.random() * 6) + 1)
+    }
+    const roll = diceResults.reduce((a, b) => a + b, 0)
+    await $fetch(`/api/encounters/${currentEncounter.value.id}/actions/clash-break`, {
+      method: 'POST',
+      body: { clashId, breakerId: participantId, tamerId, roll, diceResults },
+    })
+    await fetchEncounter(currentEncounter.value.id)
+  } catch (e: any) {
+    alert(e?.data?.message || 'Failed to break clash')
+  }
 }
 </script>
 
@@ -2499,6 +2623,17 @@ async function handleUpdateHazard(hazard: Hazard) {
                         {{ effect.name }}{{ effect.potency ? ' ' + effect.potency : '' }} ({{ effect.duration }})
                       </span>
                     </div>
+
+                    <!-- Clash Status Badge -->
+                    <div v-if="item.participant.clash" class="flex flex-wrap gap-1 mt-2 items-center">
+                      <span class="text-xs px-2 py-0.5 rounded bg-orange-900/40 text-orange-300 font-medium">
+                        Clashing vs {{ getParticipantName(item.participant.clash.opponentParticipantId) || '?' }}
+                      </span>
+                      <span v-if="item.participant.clash.isController" class="text-xs px-2 py-0.5 rounded bg-green-900/40 text-green-300 font-semibold">CONTROLLER</span>
+                      <span v-else class="text-xs px-2 py-0.5 rounded bg-digimon-dark-600 text-digimon-dark-300">Controlled</span>
+                      <span v-if="item.participant.clash.isPinned" class="text-xs px-2 py-0.5 rounded bg-red-900/40 text-red-300 font-semibold">PINNED</span>
+                      <span v-if="item.participant.clash.clashCheckNeeded" class="text-xs px-2 py-0.5 rounded bg-yellow-900/40 text-yellow-300">Clash Check Needed</span>
+                    </div>
                   </div>
 
                   <!-- Actions (when active) -->
@@ -2697,6 +2832,17 @@ async function handleUpdateHazard(hazard: Hazard) {
                     {{ effect.name }}{{ effect.potency ? ' ' + effect.potency : '' }} ({{ effect.duration }})
                   </span>
                 </div>
+
+                <!-- Partner Digimon Clash Status Badge -->
+                <div v-if="item.partnerDigimon.clash" class="flex flex-wrap gap-1 mt-2 items-center">
+                  <span class="text-xs px-2 py-0.5 rounded bg-orange-900/40 text-orange-300 font-medium">
+                    Clashing vs {{ getParticipantName(item.partnerDigimon.clash.opponentParticipantId) || '?' }}
+                  </span>
+                  <span v-if="item.partnerDigimon.clash.isController" class="text-xs px-2 py-0.5 rounded bg-green-900/40 text-green-300 font-semibold">CONTROLLER</span>
+                  <span v-else class="text-xs px-2 py-0.5 rounded bg-digimon-dark-600 text-digimon-dark-300">Controlled</span>
+                  <span v-if="item.partnerDigimon.clash.isPinned" class="text-xs px-2 py-0.5 rounded bg-red-900/40 text-red-300 font-semibold">PINNED</span>
+                  <span v-if="item.partnerDigimon.clash.clashCheckNeeded" class="text-xs px-2 py-0.5 rounded bg-yellow-900/40 text-yellow-300">Clash Check Needed</span>
+                </div>
               </div>
             </template>
 
@@ -2713,6 +2859,17 @@ async function handleUpdateHazard(hazard: Hazard) {
             <h3 class="font-display text-lg font-semibold text-digimon-orange-400 mb-3">
               {{ getEntityDetails(activeParticipant)?.name }}'s Turn
             </h3>
+
+            <!-- Clash Status -->
+            <div v-if="activeParticipant.clash" class="mb-3 px-2 py-1.5 bg-orange-900/20 border border-orange-500/40 rounded-lg">
+              <div class="text-xs font-semibold text-orange-300">Clash Active</div>
+              <div class="text-xs text-digimon-dark-300">
+                vs {{ getParticipantName(activeParticipant.clash.opponentParticipantId) || '?' }}
+                <span v-if="activeParticipant.clash.isController" class="ml-2 text-green-400 font-semibold">— YOU CONTROL</span>
+                <span v-else class="ml-2 text-digimon-dark-400">— opponent controls</span>
+              </div>
+              <div v-if="activeParticipant.clash.isPinned" class="text-xs text-red-400 font-semibold mt-0.5">PINNED</div>
+            </div>
 
             <!-- Quick Actions -->
             <div class="space-y-2 mb-4">
@@ -2735,8 +2892,9 @@ async function handleUpdateHazard(hazard: Hazard) {
             </div>
 
             <!-- Movement Action -->
-            <div class="mb-4">
+            <div class="mb-4 space-y-2">
               <button
+                v-if="!(activeParticipant.clash && !activeParticipant.clash.isController)"
                 :disabled="activeParticipant.actionsRemaining.simple < 1"
                 class="w-full bg-teal-600 hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed
                        text-white px-3 py-2 rounded text-sm font-medium"
@@ -2744,10 +2902,80 @@ async function handleUpdateHazard(hazard: Hazard) {
               >
                 Move (1 Simple)
               </button>
+              <button
+                v-if="!activeParticipant.clash && (activeParticipant.clashCooldownUntilRound == null || activeParticipant.clashCooldownUntilRound <= (currentEncounter.round || 0))"
+                :disabled="activeParticipant.actionsRemaining.simple < 1"
+                class="w-full bg-orange-700 hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed
+                       text-white px-3 py-2 rounded text-sm font-medium"
+                @click="openClashTargetSelector(activeParticipant.id)"
+              >
+                Initiate Clash (1 Simple)
+              </button>
+              <div
+                v-if="!activeParticipant.clash && activeParticipant.clashCooldownUntilRound != null && activeParticipant.clashCooldownUntilRound > (currentEncounter.round || 0)"
+                class="text-xs text-digimon-dark-400 italic"
+              >
+                Cannot initiate clash until next round
+              </div>
+
+              <!-- Clash actions (when in clash) -->
+              <template v-if="activeParticipant.clash">
+                <div class="space-y-2">
+                  <button
+                    v-if="activeParticipant.clash.clashCheckNeeded"
+                    class="w-full bg-yellow-600 hover:bg-yellow-700 text-white px-3 py-2 rounded text-sm font-medium"
+                    @click="handleClashCheck(activeParticipant.id)"
+                  >
+                    Roll Clash Check (3d6+Body)
+                  </button>
+                  <template v-else-if="activeParticipant.clash.isController">
+                    <button
+                      :disabled="activeParticipant.actionsRemaining.simple < 2"
+                      :class="['w-full px-3 py-2 rounded text-sm font-medium', activeParticipant.actionsRemaining.simple >= 2 ? 'bg-red-700 hover:bg-red-600 text-white' : 'bg-digimon-dark-700 text-digimon-dark-400 opacity-50 cursor-not-allowed']"
+                      @click="executeClashAction(activeParticipant.id, 'attack')"
+                    >
+                      Clash Attack (2 Simple)
+                    </button>
+                    <button
+                      :disabled="activeParticipant.actionsRemaining.simple < 2"
+                      :class="['w-full px-3 py-2 rounded text-sm font-medium', activeParticipant.actionsRemaining.simple >= 2 ? 'bg-purple-700 hover:bg-purple-600 text-white' : 'bg-digimon-dark-700 text-digimon-dark-400 opacity-50 cursor-not-allowed']"
+                      @click="executeClashAction(activeParticipant.id, 'pin')"
+                    >
+                      Pin (2 Simple)
+                    </button>
+                    <button
+                      :disabled="activeParticipant.actionsRemaining.simple < 2"
+                      :class="['w-full px-3 py-2 rounded text-sm font-medium', activeParticipant.actionsRemaining.simple >= 2 ? 'bg-amber-700 hover:bg-amber-600 text-white' : 'bg-digimon-dark-700 text-digimon-dark-400 opacity-50 cursor-not-allowed']"
+                      @click="executeClashAction(activeParticipant.id, 'throw')"
+                    >
+                      Throw (2 Simple, ends clash)
+                    </button>
+                    <button
+                      class="w-full bg-digimon-dark-600 hover:bg-digimon-dark-500 text-white px-3 py-2 rounded text-sm font-medium"
+                      @click="executeClashAction(activeParticipant.id, 'end')"
+                    >
+                      End Clash (free)
+                    </button>
+                  </template>
+                  <div v-else class="text-xs text-digimon-dark-400 italic">
+                    Opponent controls the clash — you cannot take clash actions this turn.
+                  </div>
+                </div>
+              </template>
+
+              <!-- Break Clash -->
+              <button
+                v-if="!activeParticipant.clash && activeClashes.size > 0"
+                :disabled="activeParticipant.actionsRemaining.simple < 2"
+                :class="['w-full px-3 py-2 rounded text-sm font-medium', activeParticipant.actionsRemaining.simple >= 2 ? 'bg-digimon-dark-600 hover:bg-digimon-dark-500 text-white' : 'bg-digimon-dark-700 text-digimon-dark-400 opacity-50 cursor-not-allowed']"
+                @click="handleBreakClash(activeParticipant.id, [...activeClashes][0])"
+              >
+                Break Clash (2 Simple)
+              </button>
             </div>
 
             <!-- Tamer Direct Actions -->
-            <div v-if="activeParticipant.type === 'tamer'" class="space-y-2 mb-4">
+            <div v-if="activeParticipant.type === 'tamer' && !activeParticipant.clash" class="space-y-2 mb-4">
               <label class="block text-sm text-digimon-dark-400">Tamer Actions</label>
               <button
                 :disabled="activeParticipant.actionsRemaining.simple < 1 || activeParticipant.hasDirectedThisTurn"
@@ -2768,7 +2996,7 @@ async function handleUpdateHazard(hazard: Hazard) {
             </div>
 
             <!-- Special Orders (Tamer only) -->
-            <div v-if="activeParticipant.type === 'tamer' && getTamerSpecialOrders(activeParticipant).length > 0" class="space-y-2 mb-4">
+            <div v-if="activeParticipant.type === 'tamer' && getTamerSpecialOrders(activeParticipant).length > 0 && !(activeParticipant.clash && !activeParticipant.clash.isController)" class="space-y-2 mb-4">
               <label class="block text-sm text-digimon-dark-400">Special Orders</label>
               <div class="space-y-1">
                 <button
@@ -2831,7 +3059,7 @@ async function handleUpdateHazard(hazard: Hazard) {
             </div>
 
             <!-- Stance Selector -->
-            <div>
+            <div v-if="!activeParticipant.clash">
               <label class="block text-sm text-digimon-dark-400 mb-2">Change Stance (1 Simple)</label>
               <div class="grid grid-cols-2 gap-2">
                 <button
@@ -2852,6 +3080,7 @@ async function handleUpdateHazard(hazard: Hazard) {
                 </button>
               </div>
             </div>
+
           </div>
 
           <!-- Environmental Hazards -->
@@ -2905,6 +3134,9 @@ async function handleUpdateHazard(hazard: Hazard) {
                   <span v-else-if="request.type === 'intercede-offer' && request.targetTamerId === 'GM'" class="text-yellow-400 text-sm ml-2">
                     Intercede? {{ request.data?.attackerName || 'Unknown' }} → {{ request.data?.targetName || 'Unknown' }}
                   </span>
+                  <span v-else-if="request.type === 'clash-check'" class="text-orange-400 text-sm ml-2">
+                    Clash Check — {{ request.data?.initiatorName || 'Unknown' }} initiated, awaiting response
+                  </span>
                   <span v-else class="text-digimon-dark-400 text-sm ml-2">
                     {{ request.type === 'digimon-selection' ? 'Select Digimon' : 'Roll Initiative' }}
                   </span>
@@ -2916,6 +3148,22 @@ async function handleUpdateHazard(hazard: Hazard) {
                       class="bg-digimon-orange-600 hover:bg-digimon-orange-700 text-white px-3 py-1 rounded text-sm font-semibold transition-colors"
                     >
                       Roll Dodge
+                    </button>
+                    <button
+                      @click="cancelRequest(currentEncounter.id, request.id)"
+                      class="text-red-400 hover:text-red-300 text-sm font-semibold"
+                    >
+                      Cancel
+                    </button>
+                  </template>
+                  <template v-else-if="request.type === 'clash-check'">
+                    <!-- GM rolls on behalf of the awaiting participant -->
+                    <button
+                      v-if="request.data?.opponentParticipantId"
+                      @click="handleClashCheck(request.data.opponentParticipantId)"
+                      class="bg-orange-600 hover:bg-orange-700 text-white px-3 py-1 rounded text-sm font-semibold transition-colors"
+                    >
+                      Roll Clash Response
                     </button>
                     <button
                       @click="cancelRequest(currentEncounter.id, request.id)"
@@ -3310,7 +3558,37 @@ async function handleUpdateHazard(hazard: Hazard) {
               Select Target for {{ selectedAttack.attack.name }}
             </h2>
 
-            <div class="space-y-3 mb-6">
+            <!-- Clash target list -->
+            <div v-if="selectedAttack.attack.type === 'clash-initiate'" class="space-y-3 mb-6">
+              <button
+                v-for="target in getClashTargets(selectedAttack.participant.id)"
+                :key="target.id"
+                @click="selectedTargetId = target.id"
+                class="w-full bg-digimon-dark-700 hover:bg-digimon-dark-600 rounded-lg p-4 border border-digimon-dark-600 transition-all text-left"
+                :class="{
+                  'bg-digimon-orange-500/20 border-digimon-orange-500': selectedTargetId === target.id
+                }"
+              >
+                <div class="flex items-center gap-3">
+                  <div class="w-5 h-5 rounded border border-digimon-dark-500 flex items-center justify-center shrink-0">
+                    <span v-if="selectedTargetId === target.id" class="text-digimon-orange-400">✓</span>
+                  </div>
+                  <div class="flex-1">
+                    <div class="font-semibold text-white">{{ getEntityDetails(target)?.name || getParticipantName(target.id) || target.id }}</div>
+                    <div class="text-xs text-digimon-dark-400">{{ getEntityDetails(target)?.species }}</div>
+                  </div>
+                  <div :class="['px-2 py-0.5 rounded text-xs uppercase', getStanceColor(target.currentStance)]">
+                    {{ target.currentStance }}
+                  </div>
+                </div>
+              </button>
+              <div v-if="getClashTargets(selectedAttack.participant.id).length === 0" class="text-center text-digimon-dark-400 py-8">
+                No valid clash targets.
+              </div>
+            </div>
+
+            <!-- Attack target list -->
+            <div v-else class="space-y-3 mb-6">
               <button
                 v-for="target in getAttackTargets(selectedAttack.participant.id, selectedAttack.attack)"
                 :key="target.id"
@@ -3374,7 +3652,7 @@ async function handleUpdateHazard(hazard: Hazard) {
 
             <!-- Bolster Attack Toggle -->
             <div
-              v-if="selectedAttack && canBolsterAttack(selectedAttack.participant, selectedAttack.attack)"
+              v-if="selectedAttack && selectedAttack.attack.type !== 'clash-initiate' && canBolsterAttack(selectedAttack.participant, selectedAttack.attack)"
               class="mb-4 p-3 bg-digimon-dark-700 rounded-lg border border-digimon-dark-600"
             >
               <label class="flex items-center gap-2 cursor-pointer mb-2">
@@ -3419,7 +3697,7 @@ async function handleUpdateHazard(hazard: Hazard) {
 
             <!-- Huge Power Toggle -->
             <div
-              v-if="selectedAttack && (canUseHugePower(selectedAttack.participant, selectedAttack.attack).rank1 || canUseHugePower(selectedAttack.participant, selectedAttack.attack).rank2)"
+              v-if="selectedAttack && selectedAttack.attack.type !== 'clash-initiate' && (canUseHugePower(selectedAttack.participant, selectedAttack.attack).rank1 || canUseHugePower(selectedAttack.participant, selectedAttack.attack).rank2)"
               class="mb-4 p-3 bg-digimon-dark-700 rounded-lg border border-digimon-dark-600 space-y-2"
             >
               <label class="flex items-center gap-2 cursor-pointer">
@@ -3452,6 +3730,15 @@ async function handleUpdateHazard(hazard: Hazard) {
             <!-- Action buttons -->
             <div class="flex gap-3">
               <button
+                v-if="selectedAttack.attack.type === 'clash-initiate'"
+                @click="handleInitiateClash(selectedAttack.participant.id, selectedTargetId!)"
+                :disabled="!selectedTargetId"
+                class="flex-1 bg-orange-700 hover:bg-orange-600 disabled:bg-digimon-dark-600 disabled:text-digimon-dark-400 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg transition-colors font-medium"
+              >
+                Initiate Clash
+              </button>
+              <button
+                v-else
                 @click="confirmAttack(getAttackTargets(selectedAttack.participant.id, selectedAttack.attack).find(t => t.id === selectedTargetId))"
                 :disabled="!selectedTargetId"
                 class="flex-1 bg-digimon-orange-600 hover:bg-digimon-orange-700 disabled:bg-digimon-dark-600 disabled:text-digimon-dark-400 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg transition-colors font-medium"
@@ -3798,6 +4085,7 @@ async function handleUpdateHazard(hazard: Hazard) {
         </div>
       </div>
     </Teleport>
+
 
     <!-- GM Intercede Result Modal -->
     <Teleport to="body">

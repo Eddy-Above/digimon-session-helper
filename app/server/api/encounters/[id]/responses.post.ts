@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm'
 import { db, encounters, digimon, tamers, evolutionLines, campaigns } from '../../../db'
-import { EFFECT_ALIGNMENT, getEffectStatModifiers } from '../../../../data/attackConstants'
+import { EFFECT_ALIGNMENT, getEffectStatModifiers, CLASH_ENDING_EFFECTS } from '../../../../data/attackConstants'
 import { applyEffectToParticipant } from '../../../utils/applyEffect'
 import { getDigimonDerivedStats, calculateEffectPotency } from '../../../utils/resolveSupportAttack'
 
@@ -215,7 +215,36 @@ export default defineEventHandler(async (event) => {
 
     // Calculate hit/miss
     const accuracySuccesses = request.data.accuracySuccesses
-    const dodgeSuccesses = body.response.dodgeSuccesses
+    let dodgeSuccesses = body.response.dodgeSuccesses ?? 0
+
+    // Clash Attack: target may only use half their dodge pool — recount successes from capped dice
+    if (request.data.clashAttack) {
+      const targetParticipantForDodge = participants.find((p: any) => p.id === request.data.targetParticipantId)
+      let fullDodgePool = 3
+      if (targetParticipantForDodge?.type === 'digimon') {
+        const [targetDigimonForDodge] = await db.select().from(digimon).where(eq(digimon.id, request.data.targetEntityId))
+        if (targetDigimonForDodge) {
+          const baseStats = typeof targetDigimonForDodge.baseStats === 'string' ? JSON.parse(targetDigimonForDodge.baseStats) : targetDigimonForDodge.baseStats
+          const bonusStats = typeof (targetDigimonForDodge as any).bonusStats === 'string' ? JSON.parse((targetDigimonForDodge as any).bonusStats) : (targetDigimonForDodge as any).bonusStats
+          fullDodgePool = (baseStats?.dodge ?? 0) + (bonusStats?.dodge ?? 0) || 3
+        }
+      } else if (targetParticipantForDodge?.type === 'tamer') {
+        const [targetTamerForDodge] = await db.select().from(tamers).where(eq(tamers.id, request.data.targetEntityId))
+        if (targetTamerForDodge) {
+          const attrs = typeof targetTamerForDodge.attributes === 'string' ? JSON.parse(targetTamerForDodge.attributes) : targetTamerForDodge.attributes
+          const skills = typeof targetTamerForDodge.skills === 'string' ? JSON.parse(targetTamerForDodge.skills) : targetTamerForDodge.skills
+          fullDodgePool = (attrs?.agility ?? 0) + (skills?.dodge ?? 0) || 3
+        }
+      }
+      fullDodgePool = applyStanceToDodge(fullDodgePool, targetParticipantForDodge?.currentStance)
+      fullDodgePool = Math.max(1, fullDodgePool - (targetParticipantForDodge?.dodgePenalty ?? 0))
+      const targetEffectModsForDodge = getEffectStatModifiers(targetParticipantForDodge?.activeEffects || [])
+      fullDodgePool += targetEffectModsForDodge.dodge
+      const maxClashPool = Math.max(1, Math.floor(fullDodgePool / 2))
+      const clashDiceResults = (body.response.dodgeDiceResults ?? []).slice(0, maxClashPool)
+      dodgeSuccesses = clashDiceResults.filter((d: number) => d >= 5).length
+    }
+
     const netSuccesses = accuracySuccesses - dodgeSuccesses
     const hit = netSuccesses >= 0
 
@@ -286,6 +315,33 @@ export default defineEventHandler(async (event) => {
         }
         return p
       })
+
+      // Clash-ending effect: if Fear/Stun/Paralysis was applied, end the target's clash
+      if (hit && appliedEffectName && CLASH_ENDING_EFFECTS.has(appliedEffectName)) {
+        const clashTarget = participants.find((p: any) => p.id === request.targetParticipantId)
+        if (clashTarget?.clash?.clashId) {
+          const clashEndLog = {
+            id: `log-${Date.now()}-clashend-effect`,
+            timestamp: new Date().toISOString(),
+            round: encounter.round,
+            actorId: request.targetParticipantId,
+            actorName: request.data.targetName,
+            action: 'Clash Ended',
+            target: null,
+            result: `${appliedEffectName} forces ${request.data.targetName} out of their clash.`,
+            damage: null,
+            effects: ['Clash Ended', appliedEffectName],
+          }
+          participants = participants.map((p: any) => {
+            if (p.clash?.clashId === clashTarget.clash.clashId) {
+              const { clash, ...rest } = p
+              return { ...rest, clashCooldownUntilRound: (encounter.round || 0) + 1 }
+            }
+            return p
+          })
+          battleLog = [...battleLog, clashEndLog]
+        }
+      }
 
       const dodgeLogEntry = {
         id: `log-${Date.now()}-dodge`,
@@ -431,6 +487,8 @@ export default defineEventHandler(async (event) => {
         attackBaseDamage += request.data.batteryCount
       }
 
+      // outsideClashCpuPenalty is applied after damage calculation below
+
       // Apply Combat Monster bonus to attacker's damage on hit
       if (hit && attackerHasCombatMonster && attackerCombatMonsterBonus > 0) {
         attackBaseDamage += attackerCombatMonsterBonus
@@ -447,6 +505,10 @@ export default defineEventHandler(async (event) => {
       if (hit) {
         const effectiveArmor = Math.max(0, targetArmor - armorPiercing)
         damageDealt = Math.max(1, attackBaseDamage + netSuccesses - effectiveArmor)
+        // Outside-clash penalty: outsider attacks deal reduced damage
+        if (request.data.outsideClashCpuPenalty && request.data.outsideClashCpuPenalty > 0) {
+          damageDealt = Math.max(1, damageDealt - request.data.outsideClashCpuPenalty)
+        }
       }
 
       // Apply damage to target and auto-apply attack effects
@@ -524,6 +586,33 @@ export default defineEventHandler(async (event) => {
         }
         return p
       })
+
+      // Clash-ending effect: if Fear/Stun/Paralysis was applied, end the target's clash
+      if (hit && appliedEffectName && CLASH_ENDING_EFFECTS.has(appliedEffectName)) {
+        const clashTarget = participants.find((p: any) => p.id === request.targetParticipantId)
+        if (clashTarget?.clash?.clashId) {
+          const clashEndLog = {
+            id: `log-${Date.now()}-clashend-effect`,
+            timestamp: new Date().toISOString(),
+            round: encounter.round,
+            actorId: request.targetParticipantId,
+            actorName: request.data.targetName,
+            action: 'Clash Ended',
+            target: null,
+            result: `${appliedEffectName} forces ${request.data.targetName} out of their clash.`,
+            damage: null,
+            effects: ['Clash Ended', appliedEffectName],
+          }
+          battleLog = [...battleLog, clashEndLog]
+          participants = participants.map((p: any) => {
+            if (p.clash?.clashId === clashTarget.clash.clashId) {
+              const { clash, ...rest } = p
+              return { ...rest, clashCooldownUntilRound: (encounter.round || 0) + 1 }
+            }
+            return p
+          })
+        }
+      }
 
       // Auto-devolve check: if target is KO'd but has evolution history, devolve instead
       let autoDevolveLog: any = null

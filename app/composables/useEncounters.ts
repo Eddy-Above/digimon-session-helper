@@ -40,6 +40,22 @@ export interface CombatParticipant {
   isEnemy?: boolean
   battery?: number
   usedSignatureMoveThisTurn?: boolean
+  combatMonsterBonus?: number
+  hasAttemptedDigivolve?: boolean
+  npcStageIndex?: number
+  clash?: {
+    clashId: string
+    opponentParticipantId: string
+    isController: boolean
+    isPinned: boolean
+    clashPinsUsed?: number
+    clashCheckNeeded: boolean
+    pendingRoll?: number
+    reachInitiated?: boolean
+    reachDistance?: number
+  }
+  clashCooldownUntilRound?: number
+  usedFreeClashThisRound?: boolean
 }
 
 export interface BattleLogEntry {
@@ -292,6 +308,14 @@ export function useEncounters() {
         p.activeEffects = (p.activeEffects || [])
           .map((e) => PERMANENT_EFFECTS.has(e.name) ? e : { ...e, duration: e.duration - 1 })
           .filter((e) => e.duration > 0 || PERMANENT_EFFECTS.has(e.name))
+        // Clash round resets
+        if (p.clash) {
+          const opponent = participants.find((o) => o.id === (p.clash as any).opponentParticipantId)
+          const eitherPinned = (p.clash as any).isPinned || (opponent?.clash as any)?.isPinned
+          p.clash.clashCheckNeeded = !eitherPinned  // pinned side skips the check; controller retains
+          p.clash.isPinned = false                  // pins expire after one turn
+        }
+        p.usedFreeClashThisRound = false  // Wrestlemania free clash resets each round
       })
     }
 

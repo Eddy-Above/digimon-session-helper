@@ -21,6 +21,8 @@ interface ResolveNpcAttackParams {
   targetName: string
   turnOrder?: string[]
   houseRules?: { stunMaxDuration1?: boolean; maxTempWoundsRule?: boolean }
+  clashAttack?: boolean        // If true, target's dodge pool is halved (clash mechanic)
+  outsideClashCpuPenalty?: number  // Damage reduction when attacker is outside target's active clash
 }
 
 /**
@@ -134,6 +136,11 @@ export async function resolveNpcAttack(params: ResolveNpcAttackParams): Promise<
   const directedEffect = (target.activeEffects || []).find((e: any) => e.name === 'Directed')
   if (directedEffect?.value) {
     dodgePool += directedEffect.value
+  }
+
+  // Clash Attack: target can only use half their dodge pool
+  if (params.clashAttack) {
+    dodgePool = Math.max(1, Math.floor(dodgePool / 2))
   }
 
   dodgePool = Math.max(1, dodgePool)
@@ -256,6 +263,10 @@ export async function resolveNpcAttack(params: ResolveNpcAttackParams): Promise<
   if (hit) {
     const effectiveArmor = Math.max(0, targetArmor - armorPiercing)
     damageDealt = Math.max(1, attackBaseDamage + netSuccesses - effectiveArmor)
+    // Outside-clash penalty: outsider attacks deal reduced damage (combined CPU of both clashing participants)
+    if (params.outsideClashCpuPenalty && params.outsideClashCpuPenalty > 0) {
+      damageDealt = Math.max(1, damageDealt - params.outsideClashCpuPenalty)
+    }
   }
 
   // --- Pre-calculate effect potency (async, can't be inside .map()) ---
