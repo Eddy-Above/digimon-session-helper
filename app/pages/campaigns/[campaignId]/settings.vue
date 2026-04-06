@@ -35,6 +35,7 @@ const form = reactive({
     stunMaxDuration1: false,
     maxTempWoundsRule: false,
     signatureMoveBattery: false,
+    newDayHealsAllWounds: false,
   },
   skillRenames: {} as Record<string, string>,
   eddySoulRules: {
@@ -51,6 +52,8 @@ const form = reactive({
     chromeWeaponNoWeaponRankRequired: false,
     digizoidArmourRequiresInstinct: false,
     buffingContested: false,
+    digivolutionLimit5PerDay: false,
+    warpEvolution: false,
   },
 })
 
@@ -81,6 +84,7 @@ onMounted(async () => {
       form.houseRules.stunMaxDuration1 = houseRules.stunMaxDuration1 ?? false
       form.houseRules.maxTempWoundsRule = houseRules.maxTempWoundsRule ?? false
       form.houseRules.signatureMoveBattery = houseRules.signatureMoveBattery ?? false
+      form.houseRules.newDayHealsAllWounds = houseRules.newDayHealsAllWounds ?? false
     }
 
     // Load skill renames
@@ -105,6 +109,8 @@ onMounted(async () => {
       form.eddySoulRules.chromeWeaponNoWeaponRankRequired = eddySoul.chromeWeaponNoWeaponRankRequired ?? false
       form.eddySoulRules.digizoidArmourRequiresInstinct = eddySoul.digizoidArmourRequiresInstinct ?? false
       form.eddySoulRules.buffingContested = eddySoul.buffingContested ?? false
+      form.eddySoulRules.digivolutionLimit5PerDay = eddySoul.digivolutionLimit5PerDay ?? false
+      form.eddySoulRules.warpEvolution = eddySoul.warpEvolution ?? false
     }
   }
   loading.value = false
@@ -133,11 +139,12 @@ async function handleSave() {
   )
 
   data.rulesSettings = {
-    ...((form.houseRules.stunMaxDuration1 || form.houseRules.maxTempWoundsRule || form.houseRules.signatureMoveBattery) && {
+    ...((form.houseRules.stunMaxDuration1 || form.houseRules.maxTempWoundsRule || form.houseRules.signatureMoveBattery || form.houseRules.newDayHealsAllWounds) && {
       houseRules: {
         ...(form.houseRules.stunMaxDuration1 && { stunMaxDuration1: true }),
         ...(form.houseRules.maxTempWoundsRule && { maxTempWoundsRule: true }),
         ...(form.houseRules.signatureMoveBattery && { signatureMoveBattery: true }),
+        ...(form.houseRules.newDayHealsAllWounds && { newDayHealsAllWounds: true }),
       },
     }),
     tormentRequirements: {
@@ -153,7 +160,7 @@ async function handleSave() {
     ...(Object.keys(activeRenames).length > 0 && {
       skillRenames: activeRenames,
     }),
-    ...((form.eddySoulRules.accuracyIsAgilityAthletics || form.eddySoulRules.damageIsBodyFeatsOfStrength || form.eddySoulRules.armorIsWillpowerEndurance || form.eddySoulRules.baseStatRangesEnabled || form.eddySoulRules.chargeAttackCosts3DP || form.eddySoulRules.instinctBoostsDodgeArmorSpeed || form.eddySoulRules.hugeSizeRequiresMega || form.eddySoulRules.hugePowerOncePerTurn || form.eddySoulRules.agilityRank2RequiresUltimate || form.eddySoulRules.combatMonsterAreaAttackRequiresComplex || form.eddySoulRules.chromeWeaponNoWeaponRankRequired || form.eddySoulRules.digizoidArmourRequiresInstinct || form.eddySoulRules.buffingContested) && {
+    ...((form.eddySoulRules.accuracyIsAgilityAthletics || form.eddySoulRules.damageIsBodyFeatsOfStrength || form.eddySoulRules.armorIsWillpowerEndurance || form.eddySoulRules.baseStatRangesEnabled || form.eddySoulRules.chargeAttackCosts3DP || form.eddySoulRules.instinctBoostsDodgeArmorSpeed || form.eddySoulRules.hugeSizeRequiresMega || form.eddySoulRules.hugePowerOncePerTurn || form.eddySoulRules.agilityRank2RequiresUltimate || form.eddySoulRules.combatMonsterAreaAttackRequiresComplex || form.eddySoulRules.chromeWeaponNoWeaponRankRequired || form.eddySoulRules.digizoidArmourRequiresInstinct || form.eddySoulRules.buffingContested || form.eddySoulRules.digivolutionLimit5PerDay || form.eddySoulRules.warpEvolution) && {
       eddySoulRules: {
         ...(form.eddySoulRules.accuracyIsAgilityAthletics && { accuracyIsAgilityAthletics: true }),
         ...(form.eddySoulRules.damageIsBodyFeatsOfStrength && { damageIsBodyFeatsOfStrength: true }),
@@ -168,6 +175,8 @@ async function handleSave() {
         ...(form.eddySoulRules.chromeWeaponNoWeaponRankRequired && { chromeWeaponNoWeaponRankRequired: true }),
         ...(form.eddySoulRules.digizoidArmourRequiresInstinct && { digizoidArmourRequiresInstinct: true }),
         ...(form.eddySoulRules.buffingContested && { buffingContested: true }),
+        ...(form.eddySoulRules.digivolutionLimit5PerDay && { digivolutionLimit5PerDay: true }),
+        ...(form.eddySoulRules.warpEvolution && { warpEvolution: true }),
       },
     }),
   }
@@ -354,6 +363,17 @@ async function handleDelete() {
             <div>
               <span class="text-digimon-dark-300">Signature Move Battery Rule</span>
               <p class="text-xs text-digimon-dark-500">Replaces round cooldown with Battery resource. Stage 2+ only. Gain 1 Battery/turn (cap = Stage); spend all on use for +Battery to Accuracy/Damage or SPEC. 0 DP cost.</p>
+            </div>
+          </label>
+          <label class="flex items-start gap-3 cursor-pointer">
+            <input
+              v-model="form.houseRules.newDayHealsAllWounds"
+              type="checkbox"
+              class="w-4 h-4 rounded mt-1 shrink-0"
+            />
+            <div>
+              <span class="text-digimon-dark-300">New Day Heals All Wounds</span>
+              <p class="text-xs text-digimon-dark-500">Triggering a New Day also fully heals all tamers and digimon in the campaign.</p>
             </div>
           </label>
         </div>
@@ -597,6 +617,28 @@ async function handleDelete() {
             <div>
               <span class="text-digimon-dark-300">Buffing effects contested by health roll</span>
               <p class="text-xs text-digimon-dark-500">Default: buff duration uses health-first formula. With this rule: Duration = Accuracy successes − target Health successes, min 1. Applies to Vigor, Fury, Strengthen, Vigilance, Swiftness, Regenerate, and AOE versions of Shield/Haste/Revitalize.</p>
+            </div>
+          </label>
+          <label class="flex items-start gap-3 cursor-pointer">
+            <input
+              v-model="form.eddySoulRules.digivolutionLimit5PerDay"
+              type="checkbox"
+              class="w-4 h-4 rounded mt-1 shrink-0"
+            />
+            <div>
+              <span class="text-digimon-dark-300">Digivolution Limit (5/day)</span>
+              <p class="text-xs text-digimon-dark-500">Tamers may only digivolve their partner 5 times per day. Count resets on New Day. DMs can manually adjust a tamer's count on the tamer page.</p>
+            </div>
+          </label>
+          <label class="flex items-start gap-3 cursor-pointer">
+            <input
+              v-model="form.eddySoulRules.warpEvolution"
+              type="checkbox"
+              class="w-4 h-4 rounded mt-1 shrink-0"
+            />
+            <div>
+              <span class="text-digimon-dark-300">Warp Evolution</span>
+              <p class="text-xs text-digimon-dark-500">Allows skipping a stage when digivolving. Each extra stage requires +5 to the Willpower DC (e.g. In-Training → Champion at standard DC+5). If used with the digivolution limit, warp counts as only 1 toward the daily limit.</p>
             </div>
           </label>
         </div>

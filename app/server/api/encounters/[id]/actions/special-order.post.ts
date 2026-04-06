@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm'
 import { db, encounters, tamers, digimon, campaigns } from '../../../../db'
-import { getUnlockedSpecialOrders, getOrderActionCost } from '../../../../../utils/specialOrders'
+import { getUnlockedSpecialOrders, getOrderActionCost, getOrderUsageLimit } from '../../../../../utils/specialOrders'
 
 interface SpecialOrderBody {
   participantId: string
@@ -86,10 +86,21 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, message: `Order "${body.orderName}" is not unlocked` })
   }
 
-  // Check if already used
+  // Check if already used (per-battle)
   const usedOrders = participant.usedSpecialOrders || []
   if (usedOrders.includes(body.orderName)) {
-    throw createError({ statusCode: 400, message: `Order "${body.orderName}" has already been used` })
+    throw createError({ statusCode: 400, message: `Order "${body.orderName}" has already been used this battle` })
+  }
+
+  // Check per-day usage limit
+  const usageLimit = getOrderUsageLimit(order.type)
+  if (usageLimit === 'per-day') {
+    const usedPerDayOrders: string[] = typeof tamer.usedPerDayOrders === 'string'
+      ? JSON.parse(tamer.usedPerDayOrders)
+      : (tamer.usedPerDayOrders || [])
+    if (usedPerDayOrders.includes(body.orderName)) {
+      throw createError({ statusCode: 400, message: `Order "${body.orderName}" has already been used today` })
+    }
   }
 
   // Check action cost
@@ -235,6 +246,17 @@ export default defineEventHandler(async (event) => {
     result: effectDescription,
     damage: null,
     effects: [body.orderName],
+  }
+
+  // If per-day order, persist usage to tamer record
+  if (usageLimit === 'per-day') {
+    const usedPerDayOrders: string[] = typeof tamer.usedPerDayOrders === 'string'
+      ? JSON.parse(tamer.usedPerDayOrders)
+      : (tamer.usedPerDayOrders || [])
+    await db.update(tamers).set({
+      usedPerDayOrders: JSON.stringify([...usedPerDayOrders, body.orderName]) as any,
+      updatedAt: new Date(),
+    }).where(eq(tamers.id, tamer.id))
   }
 
   // Update encounter

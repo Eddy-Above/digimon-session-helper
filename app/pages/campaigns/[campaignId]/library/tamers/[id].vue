@@ -13,6 +13,7 @@ const { fetchTamer, updateTamer, loading, error } = useTamers()
 
 const tamer = ref<Tamer | null>(null)
 const initialLoading = ref(true)
+const digivolutionsUsedToday = ref(0)
 
 // Collapsible section state (start collapsed, except XP & Inspiration which is expanded)
 const sectionsCollapsed = reactive({
@@ -101,6 +102,7 @@ onMounted(async () => {
     form.spriteUrl = fetched.spriteUrl || ''
     form.xp = fetched.xp || 0
     form.inspiration = fetched.inspiration ?? 1
+    digivolutionsUsedToday.value = fetched.digivolutionsUsedToday ?? 0
     grantedInspiration.value = fetched.grantedInspiration ?? 0
     // Load torments
     if (fetched.torments && fetched.torments.length > 0) {
@@ -209,6 +211,7 @@ async function handleSubmit() {
     },
     notes: form.notes,
     spriteUrl: form.spriteUrl || undefined,
+    digivolutionsUsedToday: digivolutionsUsedToday.value,
   })
   if (updated) {
     router.push(`/campaigns/${campaignId.value}/library/tamers`)
@@ -849,6 +852,31 @@ async function handleSubmit() {
           <div class="bg-digimon-dark-700 rounded-lg p-4 text-center">
             <div class="text-2xl font-bold text-white">{{ derivedStats.damage }}</div>
             <div class="text-sm text-digimon-dark-400">Damage</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Digivolution Count (EddySoul rule) -->
+      <div v-if="eddySoulRules?.digivolutionLimit5PerDay" class="bg-digimon-dark-800 rounded-xl p-6 border border-digimon-dark-700">
+        <h2 class="font-display text-xl font-semibold text-white mb-2">Digivolutions Today</h2>
+        <p class="text-xs text-digimon-dark-500 mb-4">EddySoul Rule: Tamers may only digivolve 5 times per day. Resets on New Day.</p>
+        <div class="flex items-center gap-4">
+          <div class="bg-digimon-dark-700 rounded-lg p-4 flex-1 text-center">
+            <div class="text-3xl font-bold" :class="digivolutionsUsedToday >= 5 ? 'text-red-400' : 'text-white'">
+              {{ digivolutionsUsedToday }} / 5
+            </div>
+            <div class="text-sm text-digimon-dark-400">Used Today</div>
+          </div>
+          <div class="flex items-center gap-2">
+            <label class="text-sm text-digimon-dark-400">Set count:</label>
+            <input
+              v-model.number="digivolutionsUsedToday"
+              type="number"
+              min="0"
+              max="5"
+              class="w-20 bg-digimon-dark-700 border border-digimon-dark-600 rounded px-3 py-2
+                     text-white text-center focus:border-digimon-orange-500 focus:outline-none"
+            />
           </div>
         </div>
       </div>

@@ -178,7 +178,8 @@ export function useEncounters() {
     initiativeRoll: number,
     maxWounds: number = 5,
     evolutionLineId?: string,
-    isEnemy?: boolean
+    isEnemy?: boolean,
+    initialWounds: number = 0
   ): CombatParticipant {
     return {
       id: `${type}-${entityId}-${Date.now()}`,
@@ -191,7 +192,7 @@ export function useEncounters() {
       activeEffects: [],
       isActive: false,
       hasActed: false,
-      currentWounds: 0,
+      currentWounds: initialWounds,
       maxWounds,
       ...(evolutionLineId ? { evolutionLineId } : {}),
       ...(isEnemy ? { isEnemy } : {}),

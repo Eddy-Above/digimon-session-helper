@@ -77,6 +77,7 @@ const showWillpowerRollModal = ref(false)
 const willpowerRollResult = ref<{ rolls: number[]; total: number } | null>(null)
 const hasRolledWillpower = ref(false)
 const pendingDigivolve = ref<{ participant: CombatParticipant; targetChainIndex: number; targetSpecies: string; tamer: Tamer } | null>(null)
+const pendingWarpChoice = ref<{ chainIndex: number; species: string } | null>(null)
 
 // GM Intercede modal state
 const showGmIntercedeModal = ref(false)
@@ -970,7 +971,8 @@ async function handleAddParticipant() {
     const tamer = tamers.value.find(t => t.id === selectedEntityId.value)
     const derived = tamer ? calcTamerStats(tamer, eddySoulRules.value) : null
     const maxWounds = derived?.woundBoxes ?? 5
-    const participant = createParticipant('tamer', selectedEntityId.value, -1, 0, maxWounds)
+    const initialWounds = tamer?.currentWounds ?? 0
+    const participant = createParticipant('tamer', selectedEntityId.value, -1, 0, maxWounds, undefined, undefined, initialWounds)
     await addParticipant(currentEncounter.value.id, participant, digimonMap.value)
     showAddParticipant.value = false
     selectedEntityId.value = ''
@@ -1009,6 +1011,10 @@ async function handleAddParticipant() {
       evoLineId = selectedNpcEvoLineId.value
     }
 
+    const digimonEntity = digimonMap.value.get(selectedEntityId.value)
+    const persistWounds = selectedEntityType.value !== 'enemy' && digimonEntity &&
+      (digimonEntity.stage === 'fresh' || digimonEntity.stage === 'in-training' || digimonEntity.stage === 'rookie')
+    const initialWoundsForDigimon = persistWounds ? (digimonEntity!.currentWounds ?? 0) : 0
     const participant = createParticipant(
       selectedEntityType.value === 'enemy' ? 'digimon' : selectedEntityType.value,
       selectedEntityId.value,
@@ -1016,7 +1022,8 @@ async function handleAddParticipant() {
       initiativeRoll,
       maxWounds,
       evoLineId,
-      selectedEntityType.value === 'enemy' ? true : undefined
+      selectedEntityType.value === 'enemy' ? true : undefined,
+      initialWoundsForDigimon
     )
 
     // Initialize npcStageIndex for NPC participants with evolution line
@@ -1181,13 +1188,17 @@ async function processResponse(response: any) {
         })
 
         // Create BOTH participants with the same initiative
+        // Persist wounds for partner digimon at rookie and below
+        const digimonPersistWounds = digimon.stage === 'fresh' || digimon.stage === 'in-training' || digimon.stage === 'rookie'
         const digimonParticipant = createParticipant(
           'digimon',
           digimon.id,
           response.response.initiative,
           response.response.initiativeRoll,
           digimonDerived.woundBoxes,
-          matchingEvoLine?.id
+          matchingEvoLine?.id,
+          undefined,
+          digimonPersistWounds ? (digimon.currentWounds ?? 0) : 0
         )
 
         const tamerParticipant = createParticipant(
@@ -1195,7 +1206,10 @@ async function processResponse(response: any) {
           tamer.id,
           response.response.initiative,
           response.response.initiativeRoll,
-          tamerDerived.woundBoxes
+          tamerDerived.woundBoxes,
+          undefined,
+          undefined,
+          tamer.currentWounds ?? 0
         )
 
         // Update existing tamer participant (added with initiative=-1) or add if missing
@@ -1251,7 +1265,7 @@ async function processResponse(response: any) {
 
           if (!participant) {
             const derived = calcTamerStats(tamer, eddySoulRules.value)
-            participant = createParticipant('tamer', tamer.id, response.response.initiative, response.response.initiativeRoll, derived.woundBoxes)
+            participant = createParticipant('tamer', tamer.id, response.response.initiative, response.response.initiativeRoll, derived.woundBoxes, undefined, undefined, tamer.currentWounds ?? 0)
             const result = await addParticipant(currentEncounter.value.id, participant, digimonMap.value)
             if (result) {
               await cancelRequest(currentEncounter.value.id, request.id)
@@ -1413,6 +1427,34 @@ async function handleEndCombat() {
     }
 
     await endCombat(currentEncounter.value.id)
+
+    // Persist wounds back to DB for tamers and fresh/in-training digimon
+    for (const p of participants) {
+      const wounds = (p as any).currentWounds ?? 0
+      if (p.type === 'tamer') {
+        try {
+          await $fetch(`/api/tamers/${p.entityId}`, {
+            method: 'PUT',
+            body: { currentWounds: wounds },
+          })
+        } catch (e) {
+          console.error('Failed to save tamer wounds:', e)
+        }
+      } else if (p.type === 'digimon') {
+        const digimonEntity = digimonMap.value.get(p.entityId)
+        if (digimonEntity && (digimonEntity.stage === 'fresh' || digimonEntity.stage === 'in-training' || digimonEntity.stage === 'rookie') && !digimonEntity.isEnemy) {
+          try {
+            await $fetch(`/api/digimon/${p.entityId}`, {
+              method: 'PUT',
+              body: { currentWounds: wounds },
+            })
+          } catch (e) {
+            console.error('Failed to save digimon wounds:', e)
+          }
+        }
+      }
+    }
+
     await addBattleLogEntry(currentEncounter.value.id, {
       round: currentEncounter.value.round,
       actorId: 'system',
@@ -1446,6 +1488,7 @@ async function handleDigivolve(participant: CombatParticipant, targetChainIndex:
     // Partner digimon evolving — need willpower roll
     const target = evoOptions.evolveTargets.find((t: any) => t.chainIndex === targetChainIndex)
     pendingDigivolve.value = { participant, targetChainIndex, targetSpecies: target?.species || 'Unknown', tamer }
+    pendingWarpChoice.value = null
     willpowerRollResult.value = null
     hasRolledWillpower.value = false
     showWillpowerRollModal.value = true
@@ -1458,9 +1501,11 @@ async function handleDigivolve(participant: CombatParticipant, targetChainIndex:
       method: 'POST',
       body: { participantId: participant.id, targetChainIndex },
     })
-    await fetchEncounter(currentEncounter.value.id)
-    await fetchDigimon({ campaignId: campaignId.value })
-    await fetchEvolutionLines()
+    await Promise.all([
+      fetchEncounter(currentEncounter.value.id),
+      fetchDigimon({ campaignId: campaignId.value }),
+      fetchEvolutionLines(),
+    ])
   } catch (e: any) {
     console.error('Digivolve failed:', e)
     alert(e?.data?.message || 'Failed to digivolve')
@@ -1482,17 +1527,19 @@ function rollWillpowerGM() {
 async function submitWillpowerRollGM() {
   if (!currentEncounter.value || !willpowerRollResult.value || !pendingDigivolve.value) return
 
-  const tamer = pendingDigivolve.value.tamer
   const dc = DIGIVOLVE_WILLPOWER_DC[campaignLevel.value]
   const passed = willpowerRollResult.value.total >= dc
 
   if (passed) {
+    const isWarp = !!pendingWarpChoice.value
+    const targetChainIndex = pendingWarpChoice.value?.chainIndex ?? pendingDigivolve.value.targetChainIndex
     try {
       await $fetch(`/api/encounters/${currentEncounter.value.id}/actions/digivolve`, {
         method: 'POST',
         body: {
           participantId: pendingDigivolve.value.participant.id,
-          targetChainIndex: pendingDigivolve.value.targetChainIndex,
+          targetChainIndex,
+          ...(isWarp ? { rollTotal: willpowerRollResult.value.total } : {}),
         },
       })
     } catch (e: any) {
@@ -1517,9 +1564,13 @@ async function submitWillpowerRollGM() {
 
   showWillpowerRollModal.value = false
   pendingDigivolve.value = null
-  await fetchEncounter(currentEncounter.value.id)
-  await fetchDigimon({ campaignId: campaignId.value })
-  await fetchEvolutionLines()
+  pendingWarpChoice.value = null
+  await Promise.all([
+    fetchEncounter(currentEncounter.value.id),
+    fetchDigimon({ campaignId: campaignId.value }),
+    fetchEvolutionLines(),
+    fetchTamers(campaignId.value),
+  ])
 }
 
 // Get evolution options for a participant
@@ -1543,13 +1594,42 @@ function getParticipantEvolutionOptions(participant: CombatParticipant) {
   const canDevolve = (participant.woundsHistory?.length || 0) > 0 && currentEntry?.evolvesFromIndex !== null
   const devolveTarget = canDevolve ? { ...chain[currentEntry.evolvesFromIndex], chainIndex: currentEntry.evolvesFromIndex } : null
 
+  // Warp evolution targets (grandchild stages, 2+ steps forward), only when rule is active
+  const warpTargets: any[] = []
+  if (eddySoulRules.value?.warpEvolution) {
+    const baseDC = DIGIVOLVE_WILLPOWER_DC[campaignLevel.value]
+    for (const directChild of evolveTargets) {
+      const grandchildren = chain
+        .map((entry: any, index: number) => ({ ...entry, chainIndex: index }))
+        .filter((entry: any) => entry.evolvesFromIndex === directChild.chainIndex && entry.isUnlocked)
+      for (const gc of grandchildren) {
+        warpTargets.push({ ...gc, stagesSkipped: 1, warpDC: baseDC + 5 })
+      }
+    }
+  }
+
   return {
     canEvolve: evolveTargets.length > 0,
     canDevolve,
     evolveTargets,
     devolveTarget,
+    warpTargets,
   }
 }
+
+const warpAvailable = computed(() =>
+  eddySoulRules.value?.warpEvolution &&
+  willpowerRollResult.value &&
+  pendingDigivolve.value &&
+  willpowerRollResult.value.total >= DIGIVOLVE_WILLPOWER_DC[campaignLevel.value] + 5 &&
+  getParticipantEvolutionOptions(pendingDigivolve.value.participant).warpTargets.length > 0
+)
+
+const pendingDigivolveWarpTargets = computed(() =>
+  pendingDigivolve.value
+    ? getParticipantEvolutionOptions(pendingDigivolve.value.participant).warpTargets
+    : []
+)
 
 // Special Orders
 function getTamerSpecialOrders(participant: CombatParticipant) {
@@ -1569,7 +1649,10 @@ async function handleUseSpecialOrder(participant: CombatParticipant, orderName: 
       method: 'POST',
       body: { participantId: participant.id, orderName, targetId },
     })
-    await fetchEncounter(currentEncounter.value.id)
+    await Promise.all([
+      fetchEncounter(currentEncounter.value.id),
+      fetchTamers(campaignId.value),
+    ])
     showSpecialOrdersModal.value = false
   } catch (e: any) {
     console.error('Special order failed:', e)
@@ -2556,8 +2639,19 @@ async function handleUpdateHazard(hazard: Hazard) {
                 <!-- Digivolve/Devolve buttons -->
                 <div
                   v-if="canParticipantAct(item.partnerDigimon) && currentEncounter.phase === 'combat' && item.partnerDigimon.evolutionLineId"
-                  class="mt-2 flex flex-wrap gap-1"
+                  class="mt-2 flex flex-wrap gap-1 items-center"
                 >
+                  <span
+                    v-if="eddySoulRules?.digivolutionLimit5PerDay"
+                    :class="[
+                      'text-xs px-2 py-0.5 rounded',
+                      (tamers.find(t => t.id === item.participant.entityId)?.digivolutionsUsedToday ?? 0) >= 5
+                        ? 'bg-red-900/30 text-red-400'
+                        : 'bg-digimon-dark-700 text-digimon-dark-400'
+                    ]"
+                  >
+                    Digivolve {{ tamers.find(t => t.id === item.participant.entityId)?.digivolutionsUsedToday ?? 0 }}/5
+                  </span>
                   <button
                     v-for="target in getParticipantEvolutionOptions(item.partnerDigimon).evolveTargets"
                     :key="`evo-${target.chainIndex}`"
@@ -2681,6 +2775,7 @@ async function handleUpdateHazard(hazard: Hazard) {
                   :key="order.name"
                   :disabled="
                     (activeParticipant.usedSpecialOrders || []).includes(order.name) ||
+                    (getOrderUsageLimit(order.type) === 'per-day' && (tamers.find(t => t.id === activeParticipant.entityId)?.usedPerDayOrders || []).includes(order.name)) ||
                     (activeParticipant.actionsRemaining?.simple || 0) < getOrderActionCost(order.type) ||
                     getOrderUsageLimit(order.type) === 'passive'
                   "
@@ -2688,11 +2783,13 @@ async function handleUpdateHazard(hazard: Hazard) {
                     'w-full px-3 py-2 rounded text-xs text-left transition-colors',
                     (activeParticipant.usedSpecialOrders || []).includes(order.name)
                       ? 'bg-digimon-dark-700 text-digimon-dark-500 line-through cursor-not-allowed'
-                      : getOrderUsageLimit(order.type) === 'passive'
-                        ? 'bg-digimon-dark-700 text-digimon-dark-400 cursor-default'
-                        : (activeParticipant.actionsRemaining?.simple || 0) < getOrderActionCost(order.type)
-                          ? 'bg-digimon-dark-700 text-digimon-dark-500 cursor-not-allowed'
-                          : 'bg-cyan-900/30 hover:bg-cyan-900/50 text-cyan-300 cursor-pointer'
+                      : (getOrderUsageLimit(order.type) === 'per-day' && (tamers.find(t => t.id === activeParticipant.entityId)?.usedPerDayOrders || []).includes(order.name))
+                        ? 'bg-digimon-dark-700 text-digimon-dark-500 line-through cursor-not-allowed'
+                        : getOrderUsageLimit(order.type) === 'passive'
+                          ? 'bg-digimon-dark-700 text-digimon-dark-400 cursor-default'
+                          : (activeParticipant.actionsRemaining?.simple || 0) < getOrderActionCost(order.type)
+                            ? 'bg-digimon-dark-700 text-digimon-dark-500 cursor-not-allowed'
+                            : 'bg-cyan-900/30 hover:bg-cyan-900/50 text-cyan-300 cursor-pointer'
                   ]"
                   @click="
                     order.name === 'Enemy Scan'
@@ -2708,6 +2805,7 @@ async function handleUpdateHazard(hazard: Hazard) {
                   </div>
                   <div class="text-digimon-dark-400 mt-0.5">{{ order.effect }}</div>
                   <div v-if="(activeParticipant.usedSpecialOrders || []).includes(order.name)" class="text-red-400 mt-0.5">Used</div>
+                  <div v-else-if="getOrderUsageLimit(order.type) === 'per-day' && (tamers.find(t => t.id === activeParticipant.entityId)?.usedPerDayOrders || []).includes(order.name)" class="text-orange-400 mt-0.5">Used Today</div>
                 </button>
               </div>
             </div>
@@ -3500,9 +3598,30 @@ async function handleUpdateHazard(hazard: Hazard) {
             </div>
           </div>
 
+          <!-- Warp Evolution offer (shown when roll exceeds DC by 5+) -->
+          <div v-if="warpAvailable" class="bg-violet-900/20 border border-violet-500 rounded-lg p-3 mb-3">
+            <p class="text-violet-300 text-sm font-semibold mb-1">Warp Evolution Available!</p>
+            <p class="text-digimon-dark-300 text-xs mb-2">Roll exceeded DC by 5+. You may warp to a further stage instead:</p>
+            <div class="flex flex-wrap gap-2">
+              <button
+                v-for="wt in pendingDigivolveWarpTargets"
+                :key="wt.chainIndex"
+                @click="pendingWarpChoice = pendingWarpChoice?.chainIndex === wt.chainIndex ? null : { chainIndex: wt.chainIndex, species: wt.species }"
+                :class="[
+                  'text-xs px-3 py-1.5 rounded font-medium transition-colors',
+                  pendingWarpChoice?.chainIndex === wt.chainIndex
+                    ? 'bg-violet-600 text-white'
+                    : 'bg-violet-900/40 hover:bg-violet-700 text-violet-300'
+                ]"
+              >
+                {{ pendingWarpChoice?.chainIndex === wt.chainIndex ? '✓ ' : '' }}Warp → {{ wt.species }}
+              </button>
+            </div>
+          </div>
+
           <div class="flex gap-2">
             <button
-              @click="showWillpowerRollModal = false; pendingDigivolve = null"
+              @click="showWillpowerRollModal = false; pendingDigivolve = null; pendingWarpChoice = null"
               class="flex-1 bg-digimon-dark-600 hover:bg-digimon-dark-500 text-white px-4 py-2 rounded-lg font-semibold transition-colors"
               :disabled="hasRolledWillpower"
             >
@@ -3514,10 +3633,10 @@ async function handleUpdateHazard(hazard: Hazard) {
               :class="[
                 'flex-1 text-white px-4 py-2 rounded-lg font-semibold transition-colors',
                 !willpowerRollResult ? 'bg-digimon-dark-600 opacity-50 cursor-not-allowed' :
-                willpowerRollResult.total >= DIGIVOLVE_WILLPOWER_DC[campaignLevel] ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'
+                willpowerRollResult.total >= DIGIVOLVE_WILLPOWER_DC[campaignLevel] ? (pendingWarpChoice ? 'bg-violet-600 hover:bg-violet-700' : 'bg-green-600 hover:bg-green-700') : 'bg-red-600 hover:bg-red-700'
               ]"
             >
-              {{ willpowerRollResult && willpowerRollResult.total >= DIGIVOLVE_WILLPOWER_DC[campaignLevel] ? 'Digivolve!' : 'Accept Failure' }}
+              {{ willpowerRollResult && willpowerRollResult.total >= DIGIVOLVE_WILLPOWER_DC[campaignLevel] ? (pendingWarpChoice ? `Warp → ${pendingWarpChoice.species}!` : 'Digivolve!') : 'Accept Failure' }}
             </button>
           </div>
         </div>

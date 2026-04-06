@@ -1,11 +1,12 @@
 import { eq } from 'drizzle-orm'
-import { db, encounters, digimon, evolutionLines } from '../../../../db'
+import { db, encounters, digimon, evolutionLines, tamers, campaigns } from '../../../../db'
 import { STAGE_CONFIG } from '../../../../../types'
-import type { DigimonStage } from '../../../../../types'
+import type { DigimonStage, CampaignRulesSettings } from '../../../../../types'
 
 interface DigivolveBody {
   participantId: string
   targetChainIndex: number
+  rollTotal?: number
 }
 
 export default defineEventHandler(async (event) => {
@@ -84,6 +85,24 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, message: 'Not enough actions to digivolve' })
   }
 
+  // Fetch campaign eddySoul rules
+  let eddySoulRules: CampaignRulesSettings['eddySoulRules'] = {}
+  let campaignLevel = 'standard'
+  if (encounter.campaignId) {
+    const [campaign] = await db.select().from(campaigns).where(eq(campaigns.id, encounter.campaignId))
+    if (campaign) {
+      campaignLevel = campaign.level || 'standard'
+      const rs: CampaignRulesSettings = (() => {
+        try {
+          return typeof campaign.rulesSettings === 'string'
+            ? JSON.parse(campaign.rulesSettings)
+            : (campaign.rulesSettings || {})
+        } catch { return {} }
+      })()
+      eddySoulRules = rs.eddySoulRules || {}
+    }
+  }
+
   // Fetch evolution line
   const [evoLine] = await db.select().from(evolutionLines).where(eq(evolutionLines.id, participant.evolutionLineId))
   if (!evoLine) {
@@ -109,20 +128,63 @@ export default defineEventHandler(async (event) => {
   const currentEntry = chain[currentStageIndex]
 
   // Determine if this is evolve or devolve
+  // For warp evolution, forward movement of 2+ steps is allowed when the rule is active
   const isEvolve = targetEntry.evolvesFromIndex === currentStageIndex
   const isDevolve = currentEntry.evolvesFromIndex === body.targetChainIndex
 
-  if (!isEvolve && !isDevolve) {
+  // Calculate warp evolution (how many stages are being skipped)
+  let stagesSkipped = 0
+  if (!isEvolve && !isDevolve && eddySoulRules?.warpEvolution) {
+    // Walk the chain forward from current to target to count steps
+    let steps = 0
+    let idx = currentStageIndex
+    while (idx !== body.targetChainIndex && steps < chain.length) {
+      const next = chain.findIndex((e: any, i: number) => i !== idx && e.evolvesFromIndex === idx)
+      if (next === -1) break
+      idx = next
+      steps++
+    }
+    if (idx === body.targetChainIndex && steps >= 2) {
+      stagesSkipped = steps - 1
+    }
+  }
+
+  const isWarpEvolve = stagesSkipped > 0
+
+  if (!isEvolve && !isDevolve && !isWarpEvolve) {
     throw createError({ statusCode: 400, message: 'Target must be a direct child (evolve) or parent (devolve) of current form' })
   }
 
-  if (isEvolve && !targetEntry.isUnlocked) {
+  if ((isEvolve || isWarpEvolve) && !targetEntry.isUnlocked) {
     throw createError({ statusCode: 400, message: 'Target evolution stage is locked' })
   }
 
   // Only one digivolve attempt per turn (evolving only, devolving is always allowed)
-  if (isEvolve && actingParticipant.hasAttemptedDigivolve) {
+  if ((isEvolve || isWarpEvolve) && actingParticipant.hasAttemptedDigivolve) {
     throw createError({ statusCode: 400, message: 'Already attempted digivolution this turn' })
+  }
+
+  // EddySoul: digivolution limit (5/day)
+  let tamerEntity: any = null
+  if ((isEvolve || isWarpEvolve) && !isNpc && eddySoulRules?.digivolutionLimit5PerDay && tamerParticipant) {
+    const [t] = await db.select().from(tamers).where(eq(tamers.id, tamerParticipant.entityId))
+    tamerEntity = t || null
+    if (tamerEntity && (tamerEntity.digivolutionsUsedToday || 0) >= 5) {
+      throw createError({ statusCode: 400, message: 'Digivolution limit reached (5/day)' })
+    }
+  }
+
+  // EddySoul: warp evolution — validate roll total meets DC
+  if (isWarpEvolve) {
+    const DC_BASE: Record<string, number> = { standard: 12, enhanced: 15, extreme: 17 }
+    const baseDC = DC_BASE[campaignLevel] ?? 12
+    const requiredRoll = baseDC + (5 * stagesSkipped)
+    if (body.rollTotal === undefined || body.rollTotal === null) {
+      throw createError({ statusCode: 400, message: `Warp evolution requires a roll total (DC ${requiredRoll})` })
+    }
+    if (body.rollTotal < requiredRoll) {
+      throw createError({ statusCode: 400, message: `Warp evolution failed: rolled ${body.rollTotal}, needed ${requiredRoll}` })
+    }
   }
 
   // Fetch new digimon to get stats
@@ -152,14 +214,14 @@ export default defineEventHandler(async (event) => {
     const actionChanges = isActingParticipant
       ? {
           actionsRemaining: { simple: Math.max(0, (p.actionsRemaining?.simple || 0) - 1) },
-          ...(isEvolve ? { hasAttemptedDigivolve: true } : {}),
+          ...((isEvolve || isWarpEvolve) ? { hasAttemptedDigivolve: true } : {}),
         }
       : {}
 
     // Build evolution changes (apply to the digivolving participant)
     let evoChanges: any = {}
     if (isDigivolving) {
-      if (isEvolve) {
+      if (isEvolve || isWarpEvolve) {
         // Evolve: store current wounds in history, full heal
         const woundsHistory = [...(p.woundsHistory || [])]
         woundsHistory.push({
@@ -200,6 +262,20 @@ export default defineEventHandler(async (event) => {
     }).where(eq(evolutionLines.id, participant.evolutionLineId))
   }
 
+  // EddySoul: increment digivolutionsUsedToday on successful evolve
+  if ((isEvolve || isWarpEvolve) && !isNpc && eddySoulRules?.digivolutionLimit5PerDay && tamerParticipant) {
+    if (!tamerEntity) {
+      const [t] = await db.select().from(tamers).where(eq(tamers.id, tamerParticipant.entityId))
+      tamerEntity = t || null
+    }
+    if (tamerEntity) {
+      await db.update(tamers).set({
+        digivolutionsUsedToday: (tamerEntity.digivolutionsUsedToday || 0) + 1,
+        updatedAt: new Date(),
+      }).where(eq(tamers.id, tamerEntity.id))
+    }
+  }
+
   // Add battle log entry
   const logEntry = {
     id: `log-${Date.now()}-digivolve`,
@@ -207,7 +283,7 @@ export default defineEventHandler(async (event) => {
     round: encounter.round || 0,
     actorId: body.participantId,
     actorName: oldName,
-    action: isEvolve ? `digivolved to ${newName}!` : `devolved to ${newName}!`,
+    action: isWarpEvolve ? `warp digivolved to ${newName}!` : isEvolve ? `digivolved to ${newName}!` : `devolved to ${newName}!`,
     target: null,
     result: isEvolve ? 'Full heal' : `Wounds restored to ${participants.find((p: any) => p.id === body.participantId)?.currentWounds || 0}`,
     damage: null,

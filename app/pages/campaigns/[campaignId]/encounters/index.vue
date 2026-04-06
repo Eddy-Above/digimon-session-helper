@@ -10,10 +10,25 @@ const { encounters, loading, error, fetchEncounters, createEncounter, deleteEnco
 const showNewModal = ref(false)
 const newEncounterName = ref('')
 const newEncounterDescription = ref('')
+const newDayLoading = ref(false)
 
 onMounted(() => {
   fetchEncounters(campaignId.value)
 })
+
+async function handleNewDay() {
+  if (!confirm('Start a new day? This will reset daily abilities for all tamers.')) return
+  newDayLoading.value = true
+  try {
+    const result = await $fetch<{ message: string; tamersReset: number; healedAllWounds: boolean }>(`/api/campaigns/${campaignId.value}/new-day`, { method: 'POST' })
+    const healed = result.healedAllWounds ? ' All wounds healed.' : ''
+    alert(`${result.message} (${result.tamersReset} tamer(s) reset)${healed}`)
+  } catch (e: any) {
+    alert(e?.data?.message || 'Failed to start new day')
+  } finally {
+    newDayLoading.value = false
+  }
+}
 
 async function handleCreate() {
   if (!newEncounterName.value.trim()) return
@@ -48,13 +63,25 @@ function getPhaseColor(phase: string) {
         <h1 class="font-display text-3xl font-bold text-white">Encounters</h1>
         <p class="text-digimon-dark-400">Manage combat encounters for your sessions</p>
       </div>
-      <button
-        class="bg-digimon-orange-500 hover:bg-digimon-orange-600 text-white px-4 py-2 rounded-lg
-               font-semibold transition-colors"
-        @click="showNewModal = true"
-      >
-        + New Encounter
-      </button>
+      <div class="flex gap-2">
+        <button
+          :disabled="newDayLoading"
+          :class="[
+            'px-4 py-2 rounded-lg font-semibold transition-colors',
+            newDayLoading ? 'bg-digimon-dark-600 text-digimon-dark-400 cursor-not-allowed' : 'bg-blue-700 hover:bg-blue-600 text-white'
+          ]"
+          @click="handleNewDay"
+        >
+          {{ newDayLoading ? 'Resetting...' : 'New Day' }}
+        </button>
+        <button
+          class="bg-digimon-orange-500 hover:bg-digimon-orange-600 text-white px-4 py-2 rounded-lg
+                 font-semibold transition-colors"
+          @click="showNewModal = true"
+        >
+          + New Encounter
+        </button>
+      </div>
     </div>
 
     <div v-if="loading" class="text-center py-12">

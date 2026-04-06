@@ -137,6 +137,7 @@ const showWillpowerRollModal = ref(false)
 const willpowerRollResult = ref<{ rolls: number[]; total: number } | null>(null)
 const hasRolledWillpower = ref(false)
 const pendingDigivolve = ref<{ participant: CombatParticipant; targetChainIndex: number; targetSpecies: string } | null>(null)
+const pendingWarpChoice = ref<{ chainIndex: number; species: string } | null>(null)
 
 // Direct action state
 const showDirectTargetSelector = ref(false)
@@ -1297,8 +1298,35 @@ function getParticipantEvolutionOptions(participant: CombatParticipant) {
   const canDevolve = (participant.woundsHistory?.length || 0) > 0 && currentEntry?.evolvesFromIndex !== null
   const devolveTarget = canDevolve ? { ...chain[currentEntry.evolvesFromIndex], chainIndex: currentEntry.evolvesFromIndex } : null
 
-  return { canEvolve: evolveTargets.length > 0, canDevolve, evolveTargets, devolveTarget }
+  const warpTargets: any[] = []
+  if (eddySoulRules.value?.warpEvolution) {
+    const baseDC = DIGIVOLVE_WILLPOWER_DC[campaignLevel.value]
+    for (const directChild of evolveTargets) {
+      const grandchildren = chain
+        .map((entry: any, index: number) => ({ ...entry, chainIndex: index }))
+        .filter((entry: any) => entry.evolvesFromIndex === directChild.chainIndex && entry.isUnlocked)
+      for (const gc of grandchildren) {
+        warpTargets.push({ ...gc, stagesSkipped: 1, warpDC: baseDC + 5 })
+      }
+    }
+  }
+
+  return { canEvolve: evolveTargets.length > 0, canDevolve, evolveTargets, devolveTarget, warpTargets }
 }
+
+const warpAvailable = computed(() =>
+  eddySoulRules.value?.warpEvolution &&
+  willpowerRollResult.value &&
+  pendingDigivolve.value &&
+  willpowerRollResult.value.total >= DIGIVOLVE_WILLPOWER_DC[campaignLevel.value] + 5 &&
+  getParticipantEvolutionOptions(pendingDigivolve.value.participant).warpTargets.length > 0
+)
+
+const pendingDigivolveWarpTargets = computed(() =>
+  pendingDigivolve.value
+    ? getParticipantEvolutionOptions(pendingDigivolve.value.participant).warpTargets
+    : []
+)
 
 async function handleDigivolve(participant: CombatParticipant, targetChainIndex: number) {
   if (!activeEncounter.value || !tamer.value) return
@@ -1310,6 +1338,7 @@ async function handleDigivolve(participant: CombatParticipant, targetChainIndex:
   if (isEvolve) {
     const target = evoOptions.evolveTargets.find((t: any) => t.chainIndex === targetChainIndex)
     pendingDigivolve.value = { participant, targetChainIndex, targetSpecies: target?.species || 'Unknown' }
+    pendingWarpChoice.value = null
     willpowerRollResult.value = null
     hasRolledWillpower.value = false
     showWillpowerRollModal.value = true
@@ -1379,17 +1408,19 @@ function rollWillpower() {
 async function submitWillpowerRoll() {
   if (!activeEncounter.value || !tamer.value || !willpowerRollResult.value || !pendingDigivolve.value) return
 
-  const attrs = typeof tamer.value.attributes === 'string' ? JSON.parse(tamer.value.attributes as any) : tamer.value.attributes
   const dc = DIGIVOLVE_WILLPOWER_DC[campaignLevel.value]
   const passed = willpowerRollResult.value.total >= dc
 
   if (passed) {
+    const isWarp = !!pendingWarpChoice.value
+    const targetChainIndex = pendingWarpChoice.value?.chainIndex ?? pendingDigivolve.value.targetChainIndex
     try {
       await $fetch(`/api/encounters/${activeEncounter.value.id}/actions/digivolve`, {
         method: 'POST',
         body: {
           participantId: pendingDigivolve.value.participant.id,
-          targetChainIndex: pendingDigivolve.value.targetChainIndex,
+          targetChainIndex,
+          ...(isWarp ? { rollTotal: willpowerRollResult.value.total } : {}),
         },
       })
     } catch (e: any) {
@@ -1414,6 +1445,7 @@ async function submitWillpowerRoll() {
 
   showWillpowerRollModal.value = false
   pendingDigivolve.value = null
+  pendingWarpChoice.value = null
   await loadData()
 }
 
@@ -3087,15 +3119,26 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
                     </NuxtLink>
                   </div>
                   <p class="text-digimon-dark-400">Age {{ tamer.age }} • {{ campaignLevel }} campaign</p>
-                  <div class="flex gap-4 mt-2 text-sm">
-                    <span class="text-digimon-dark-300">
+                  <div class="mt-2 space-y-1">
+                    <div class="flex items-center gap-2 text-sm">
                       <span class="text-digimon-dark-400">Wounds:</span>
-                      {{ (tamerStats?.woundBoxes || 0) - tamer.currentWounds }}/{{ tamerStats?.woundBoxes }}
-                    </span>
-                    <span class="text-digimon-dark-300">
+                      <div class="flex-1 max-w-32 h-2 bg-digimon-dark-600 rounded-full overflow-hidden">
+                        <div
+                          class="h-full transition-all"
+                          :class="[
+                            tamer.currentWounds === 0 ? 'bg-green-500' :
+                            tamer.currentWounds < (tamerStats?.woundBoxes || 1) / 2 ? 'bg-yellow-500' :
+                            tamer.currentWounds < (tamerStats?.woundBoxes || 1) ? 'bg-orange-500' : 'bg-red-500'
+                          ]"
+                          :style="{ width: `${(((tamerStats?.woundBoxes || 0) - tamer.currentWounds) / (tamerStats?.woundBoxes || 1)) * 100}%` }"
+                        />
+                      </div>
+                      <span class="text-digimon-dark-300">{{ (tamerStats?.woundBoxes || 0) - tamer.currentWounds }}/{{ tamerStats?.woundBoxes }}</span>
+                    </div>
+                    <div class="flex items-center gap-2 text-sm">
                       <span class="text-digimon-dark-400">Inspiration:</span>
-                      {{ (tamer.inspiration || 0) + (tamer.xpBonuses?.inspiration || 0) + (tamer.grantedInspiration || 0) }}/{{ tamerStats?.maxInspiration }}
-                    </span>
+                      <span class="text-digimon-dark-300">{{ (tamer.inspiration || 0) + (tamer.xpBonuses?.inspiration || 0) + (tamer.grantedInspiration || 0) }}/{{ tamerStats?.maxInspiration }}</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -3310,7 +3353,12 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
                         <span class="text-digimon-dark-400">Wounds:</span>
                         <div class="flex-1 max-w-32 h-2 bg-digimon-dark-600 rounded-full overflow-hidden">
                           <div
-                            class="h-full bg-green-500 transition-all"
+                            class="h-full transition-all"
+                            :class="[
+                              getCurrentForm(chain.chainId)!.currentWounds === 0 ? 'bg-green-500' :
+                              getCurrentForm(chain.chainId)!.currentWounds < calcDigimonStats(getCurrentForm(chain.chainId)!).woundBoxes / 2 ? 'bg-yellow-500' :
+                              getCurrentForm(chain.chainId)!.currentWounds < calcDigimonStats(getCurrentForm(chain.chainId)!).woundBoxes ? 'bg-orange-500' : 'bg-red-500'
+                            ]"
                             :style="{ width: `${((calcDigimonStats(getCurrentForm(chain.chainId)!).woundBoxes - getCurrentForm(chain.chainId)!.currentWounds) / calcDigimonStats(getCurrentForm(chain.chainId)!).woundBoxes) * 100}%` }"
                           />
                         </div>
@@ -3565,6 +3613,20 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
             <div class="text-left flex-1">
               <div class="font-semibold">{{ digimon.name }}</div>
               <div class="text-sm text-digimon-dark-400">{{ digimon.stage }}</div>
+              <div class="flex items-center gap-2 mt-1">
+                <div class="w-24 h-1.5 bg-digimon-dark-600 rounded-full overflow-hidden">
+                  <div
+                    class="h-full transition-all"
+                    :class="[
+                      digimon.currentWounds === 0 ? 'bg-green-500' :
+                      digimon.currentWounds < calcDigimonStats(digimon).woundBoxes / 2 ? 'bg-yellow-500' :
+                      digimon.currentWounds < calcDigimonStats(digimon).woundBoxes ? 'bg-orange-500' : 'bg-red-500'
+                    ]"
+                    :style="{ width: `${Math.max(0, ((calcDigimonStats(digimon).woundBoxes - digimon.currentWounds) / calcDigimonStats(digimon).woundBoxes) * 100)}%` }"
+                  />
+                </div>
+                <span class="text-xs text-digimon-dark-400">{{ calcDigimonStats(digimon).woundBoxes - digimon.currentWounds }}/{{ calcDigimonStats(digimon).woundBoxes }}</span>
+              </div>
             </div>
 
             <!-- Success indicator checkmark -->
@@ -4460,9 +4522,30 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
           </div>
         </div>
 
+        <!-- Warp Evolution offer (shown when roll exceeds DC by 5+) -->
+        <div v-if="warpAvailable" class="bg-violet-900/20 border border-violet-500 rounded-lg p-3 mb-3">
+          <p class="text-violet-300 text-sm font-semibold mb-1">Warp Evolution Available!</p>
+          <p class="text-digimon-dark-300 text-xs mb-2">Roll exceeded DC by 5+. You may warp to a further stage instead:</p>
+          <div class="flex flex-wrap gap-2">
+            <button
+              v-for="wt in pendingDigivolveWarpTargets"
+              :key="wt.chainIndex"
+              @click="pendingWarpChoice = pendingWarpChoice?.chainIndex === wt.chainIndex ? null : { chainIndex: wt.chainIndex, species: wt.species }"
+              :class="[
+                'text-xs px-3 py-1.5 rounded font-medium transition-colors',
+                pendingWarpChoice?.chainIndex === wt.chainIndex
+                  ? 'bg-violet-600 text-white'
+                  : 'bg-violet-900/40 hover:bg-violet-700 text-violet-300'
+              ]"
+            >
+              {{ pendingWarpChoice?.chainIndex === wt.chainIndex ? '✓ ' : '' }}Warp → {{ wt.species }}
+            </button>
+          </div>
+        </div>
+
         <div class="flex gap-2">
           <button
-            @click="showWillpowerRollModal = false; pendingDigivolve = null"
+            @click="showWillpowerRollModal = false; pendingDigivolve = null; pendingWarpChoice = null"
             class="flex-1 bg-digimon-dark-600 hover:bg-digimon-dark-500 text-white px-4 py-2 rounded-lg font-semibold transition-colors"
             :disabled="hasRolledWillpower"
           >
@@ -4474,10 +4557,10 @@ function getMovementTypes(digimon: Digimon): { type: string; speed: number }[] {
             :class="[
               'flex-1 text-white px-4 py-2 rounded-lg font-semibold transition-colors',
               !willpowerRollResult ? 'bg-digimon-dark-600 opacity-50 cursor-not-allowed' :
-              willpowerRollResult.total >= DIGIVOLVE_WILLPOWER_DC[campaignLevel] ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'
+              willpowerRollResult.total >= DIGIVOLVE_WILLPOWER_DC[campaignLevel] ? (pendingWarpChoice ? 'bg-violet-600 hover:bg-violet-700' : 'bg-green-600 hover:bg-green-700') : 'bg-red-600 hover:bg-red-700'
             ]"
           >
-            {{ willpowerRollResult && willpowerRollResult.total >= DIGIVOLVE_WILLPOWER_DC[campaignLevel] ? 'Digivolve!' : 'Accept Failure' }}
+            {{ willpowerRollResult && willpowerRollResult.total >= DIGIVOLVE_WILLPOWER_DC[campaignLevel] ? (pendingWarpChoice ? `Warp → ${pendingWarpChoice.species}!` : 'Digivolve!') : 'Accept Failure' }}
           </button>
         </div>
       </div>

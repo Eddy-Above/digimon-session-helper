@@ -83,12 +83,15 @@ export interface EddySoulRules {
   chromeWeaponNoWeaponRankRequired?: boolean
   digizoidArmourRequiresInstinct?: boolean
   buffingContested?: boolean
+  digivolutionLimit5PerDay?: boolean
+  warpEvolution?: boolean
 }
 
 export interface HouseRules {
   stunMaxDuration1?: boolean
   maxTempWoundsRule?: boolean
   signatureMoveBattery?: boolean
+  newDayHealsAllWounds?: boolean
 }
 
 export const STAGE_BATTERY_CAPACITY: Partial<Record<DigimonStage, number>> = {
@@ -220,6 +223,8 @@ export interface Tamer {
   equipment: string[]
   partnerDigimonIds: string[]
   currentWounds: number
+  usedPerDayOrders: string[]        // order names used today (once-per-day)
+  digivolutionsUsedToday: number    // for EddySoul digivolution limit rule
   notes: string
   createdAt: Date
   updatedAt: Date
