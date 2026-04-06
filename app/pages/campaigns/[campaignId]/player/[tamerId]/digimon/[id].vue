@@ -122,6 +122,7 @@ async function loadDigimon() {
     dataOptimization: digimon.dataOptimization || '',
     bonusDP: digimon.bonusDP || 0,
     bonusDPForQualities: digimon.bonusDPForQualities || 0,
+    isDarkEvolution: (digimon as any).isDarkEvolution || false,
     notes: digimon.notes || '',
     spriteUrl: digimon.spriteUrl || '',
     evolvesFromId: digimon.evolvesFromId || null,
@@ -309,6 +310,17 @@ const hasLinkedEvolutions = computed(() => {
               class="w-full bg-digimon-dark-700 border border-digimon-dark-600 rounded-lg px-3 py-2
                      text-white focus:border-digimon-orange-500 focus:outline-none"
             />
+          </div>
+          <div class="flex items-end">
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input
+                v-model="form.isDarkEvolution"
+                type="checkbox"
+                class="w-5 h-5 bg-digimon-dark-700 border border-digimon-dark-600 rounded
+                       text-digimon-orange-500 focus:ring-digimon-orange-500"
+              />
+              <span class="text-white">Dark Digivolution</span>
+            </label>
           </div>
         </div>
         </div>

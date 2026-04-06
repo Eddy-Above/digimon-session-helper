@@ -1,5 +1,16 @@
 <script setup lang="ts">
 import { STAGE_CONFIG, type DigimonStage } from '~/types'
+
+const STAGE_FILTERS = [
+  { label: 'Baby',        value: 'fresh'       },
+  { label: 'In-Training', value: 'in-training' },
+  { label: 'Rookie',      value: 'rookie'      },
+  { label: 'Champion',    value: 'champion'    },
+  { label: 'Ultimate',    value: 'ultimate'    },
+  { label: 'Mega',        value: 'mega'        },
+  { label: 'Ultra',       value: 'ultra'       },
+  { label: 'Dark Evo',    value: 'dark-evo'    },
+]
 import { getStageBadgeColor, getAttributeColor } from '~/utils/displayHelpers'
 
 definePageMeta({
@@ -15,6 +26,7 @@ const { exportDigimon, importDigimon } = useLibraryImportExport()
 
 const filter = ref<'all' | 'partners' | 'enemies'>('all')
 const selectedTamerIds = ref<string[]>([])
+const selectedStages = ref<string[]>([])
 
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const importLoading = ref(false)
@@ -30,6 +42,14 @@ const filteredDigimon = computed(() => {
 
   if (selectedTamerIds.value.length > 0) {
     list = list.filter((d) => d.partnerId && selectedTamerIds.value.includes(d.partnerId))
+  }
+
+  if (selectedStages.value.length > 0) {
+    list = list.filter((d) => {
+      if (selectedStages.value.includes(d.stage)) return true
+      if (selectedStages.value.includes('dark-evo') && (d as any).isDarkEvolution) return true
+      return false
+    })
   }
 
   return list
@@ -62,6 +82,12 @@ async function handleCopy(digimon: typeof digimonList.value[0]) {
   if (copy) {
     router.push(`/campaigns/${campaignId.value}/library/digimon/${copy.id}`)
   }
+}
+
+function toggleStage(value: string) {
+  const idx = selectedStages.value.indexOf(value)
+  if (idx === -1) selectedStages.value.push(value)
+  else selectedStages.value.splice(idx, 1)
 }
 
 function toggleTamer(id: string) {
@@ -159,6 +185,23 @@ async function handleImportFile(event: Event) {
       </button>
     </div>
 
+    <!-- Stage sub-filter -->
+    <div class="flex flex-wrap gap-2 mb-4">
+      <button
+        v-for="sf in STAGE_FILTERS"
+        :key="sf.value"
+        :class="[
+          'px-3 py-1.5 rounded-lg text-sm font-medium transition-colors',
+          selectedStages.includes(sf.value)
+            ? 'bg-digimon-orange-500 text-white'
+            : 'bg-digimon-dark-800 text-digimon-dark-400 hover:text-white',
+        ]"
+        @click="toggleStage(sf.value)"
+      >
+        {{ sf.label }}
+      </button>
+    </div>
+
     <!-- Tamer filter (only visible when Partners tab is selected) -->
     <div v-if="filter === 'partners' && tamers.length > 0" class="mb-6 flex flex-wrap gap-2">
       <button
@@ -242,11 +285,11 @@ async function handleImportFile(event: Event) {
               <div class="grid grid-cols-5 gap-4">
                 <div class="text-center">
                   <div class="text-xs text-digimon-dark-400">ACC</div>
-                  <div class="font-semibold text-white">{{ digimon.baseStats.accuracy + ((digimon as any).bonusStats?.accuracy || 0) }}</div>
+                  <div class="font-semibold text-white">{{ digimon.baseStats.accuracy + ((digimon as any).bonusStats?.accuracy || 0) + ((digimon as any).isDarkEvolution ? 2 : 0) }}</div>
                 </div>
                 <div class="text-center">
                   <div class="text-xs text-digimon-dark-400">DMG</div>
-                  <div class="font-semibold text-white">{{ digimon.baseStats.damage + ((digimon as any).bonusStats?.damage || 0) }}</div>
+                  <div class="font-semibold text-white">{{ digimon.baseStats.damage + ((digimon as any).bonusStats?.damage || 0) + ((digimon as any).isDarkEvolution ? 2 : 0) }}</div>
                 </div>
                 <div class="text-center">
                   <div class="text-xs text-digimon-dark-400">DOD</div>

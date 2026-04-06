@@ -172,6 +172,7 @@ export const digimon = pgTable('digimon', {
 
   partnerId: text('partner_id').references(() => tamers.id),
   isEnemy: boolean('is_enemy').notNull().default(false),
+  isDarkEvolution: boolean('is_dark_evolution').notNull().default(false),
   campaignId: text('campaign_id').references(() => campaigns.id),
 
   notes: text('notes').notNull().default(''),

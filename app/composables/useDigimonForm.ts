@@ -88,6 +88,7 @@ export function useDigimonForm(initialData?: Partial<DigimonFormData>, eddySoulR
     dataOptimization: initialData?.dataOptimization || '',
     partnerId: initialData?.partnerId || undefined,
     isEnemy: initialData?.isEnemy || false,
+    isDarkEvolution: initialData?.isDarkEvolution || false,
     notes: initialData?.notes || '',
     spriteUrl: initialData?.spriteUrl || '',
     evolvesFromId: initialData?.evolvesFromId || null,

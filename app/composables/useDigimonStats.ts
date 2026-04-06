@@ -159,12 +159,17 @@ export function useDigimonStats(form: Ref<any> | any, eddySoulRules?: Ref<EddySo
     const instinct = qualities.find((q) => q.id === 'instinct')
     const instinctRanks = instinct?.ranks || 0
 
-    const accuracy = f.baseStats.accuracy + (f.bonusStats?.accuracy || 0)
-    const damage = f.baseStats.damage + (f.bonusStats?.damage || 0)
+    let accuracy = f.baseStats.accuracy + (f.bonusStats?.accuracy || 0)
+    let damage = f.baseStats.damage + (f.bonusStats?.damage || 0)
     const instinctBoostsArmor = eddySoulRules?.value?.instinctBoostsDodgeArmorSpeed
     let dodge = f.baseStats.dodge + (f.bonusStats?.dodge || 0) + instinctRanks
     let armor = f.baseStats.armor + (f.bonusStats?.armor || 0) + (instinctBoostsArmor ? instinctRanks : 0)
     let health = f.baseStats.health + (f.bonusStats?.health || 0) + (instinctBoostsArmor ? 0 : instinctRanks)
+
+    // Dark Digivolution: +2 to all base stats
+    if ((f as any).isDarkEvolution) {
+      accuracy += 2; damage += 2; dodge += 2; armor += 2; health += 2
+    }
 
     const dataOpt = qualities.find((q) => q.id === 'data-optimization')
     if (dataOpt?.choiceId === 'guardian') armor += 2

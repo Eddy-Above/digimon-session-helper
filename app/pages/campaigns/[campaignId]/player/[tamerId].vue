@@ -925,10 +925,11 @@ function getAttackStats(participant: CombatParticipant, attack: any) {
     return { accuracy: 0, damage: 0, accuracyBonus: 0, damageBonus: 0, notes: [], range: 0, effectiveLimit: 0, attackRange: null, attackEffectiveLimit: null }
   }
 
-  // Get base stats (baseStats + bonusStats), then apply stance modifier
-  const rawAccuracy = (digimon.baseStats?.accuracy ?? 0) + ((digimon as any).bonusStats?.accuracy ?? 0)
+  // Get base stats (baseStats + bonusStats + dark evo), then apply stance modifier
+  const darkEvoBonus = (digimon as any).isDarkEvolution ? 2 : 0
+  const rawAccuracy = (digimon.baseStats?.accuracy ?? 0) + ((digimon as any).bonusStats?.accuracy ?? 0) + darkEvoBonus
   const baseAccuracy = applyStanceToAccuracy(rawAccuracy, participant.currentStance)
-  const baseDamage = (digimon.baseStats?.damage ?? 0) + ((digimon as any).bonusStats?.damage ?? 0)
+  const baseDamage = (digimon.baseStats?.damage ?? 0) + ((digimon as any).bonusStats?.damage ?? 0) + darkEvoBonus
 
   let damageBonus = 0
   let accuracyBonus = 0
@@ -1685,7 +1686,7 @@ function showAttackResult(
         : (attackerDigimon as any).bonusStats
 
       // Base damage from digimon stats
-      baseDamage = (baseStats?.damage ?? 0) + (bonusStats?.damage ?? 0)
+      baseDamage = (baseStats?.damage ?? 0) + (bonusStats?.damage ?? 0) + ((attackerDigimon as any).isDarkEvolution ? 2 : 0)
 
       // Add weapon tag bonuses
       if (attackDef?.tags && Array.isArray(attackDef.tags)) {
@@ -2324,7 +2325,8 @@ function getAttackBonuses(
 function getAttackAccuracy(digimon: Digimon, attack: { range: 'melee' | 'ranged'; tags: string[] }, eddySoulRulesParam?: EddySoulRules): number {
   const bonusStats = (digimon as any).bonusStats || { accuracy: 0 }
   const bonuses = getAttackBonuses(digimon, attack, eddySoulRulesParam)
-  return digimon.baseStats.accuracy + (bonusStats.accuracy || 0) + bonuses.accuracy
+  const darkEvoBonus = (digimon as any).isDarkEvolution ? 2 : 0
+  return digimon.baseStats.accuracy + (bonusStats.accuracy || 0) + darkEvoBonus + bonuses.accuracy
 }
 
 // Get per-attack range: melee = 1 (or Reach x 2), ranged = calculated
@@ -2343,7 +2345,8 @@ function getPerAttackRange(digimon: Digimon, attackRange: 'melee' | 'ranged'): {
 function getAttackDamage(digimon: Digimon, attack: { range: 'melee' | 'ranged'; tags: string[] }, eddySoulRulesParam?: EddySoulRules): number {
   const bonusStats = (digimon as any).bonusStats || { damage: 0 }
   const bonuses = getAttackBonuses(digimon, attack, eddySoulRulesParam)
-  return digimon.baseStats.damage + (bonusStats.damage || 0) + bonuses.damage
+  const darkEvoBonus = (digimon as any).isDarkEvolution ? 2 : 0
+  return digimon.baseStats.damage + (bonusStats.damage || 0) + darkEvoBonus + bonuses.damage
 }
 
 // Stage order for sorting evolution chains
@@ -3696,11 +3699,11 @@ async function handleBreakClash(participantId: string, clashId: string) {
               <div class="grid grid-cols-5 gap-2 mb-4">
                 <div class="text-center bg-digimon-dark-700 rounded-lg p-2">
                   <div class="text-xs text-digimon-dark-400">ACC</div>
-                  <div class="text-lg font-semibold text-white">{{ getCurrentForm(chain.chainId)!.baseStats.accuracy + (getCurrentForm(chain.chainId)!.bonusStats?.accuracy || 0) }}</div>
+                  <div class="text-lg font-semibold text-white">{{ getCurrentForm(chain.chainId)!.baseStats.accuracy + (getCurrentForm(chain.chainId)!.bonusStats?.accuracy || 0) + ((getCurrentForm(chain.chainId)! as any).isDarkEvolution ? 2 : 0) }}</div>
                 </div>
                 <div class="text-center bg-digimon-dark-700 rounded-lg p-2">
                   <div class="text-xs text-digimon-dark-400">DMG</div>
-                  <div class="text-lg font-semibold text-white">{{ getCurrentForm(chain.chainId)!.baseStats.damage + (getCurrentForm(chain.chainId)!.bonusStats?.damage || 0) }}</div>
+                  <div class="text-lg font-semibold text-white">{{ getCurrentForm(chain.chainId)!.baseStats.damage + (getCurrentForm(chain.chainId)!.bonusStats?.damage || 0) + ((getCurrentForm(chain.chainId)! as any).isDarkEvolution ? 2 : 0) }}</div>
                 </div>
                 <div class="text-center bg-digimon-dark-700 rounded-lg p-2">
                   <div class="text-xs text-digimon-dark-400">DOD</div>

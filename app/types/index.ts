@@ -304,6 +304,7 @@ export interface Digimon {
   evolvesFromId: string | null  // ID of the Digimon this evolves from
   partnerId: string | null    // Tamer ID if partnered
   isEnemy: boolean
+  isDarkEvolution: boolean
   notes: string
   spriteUrl: string | null
   createdAt: Date

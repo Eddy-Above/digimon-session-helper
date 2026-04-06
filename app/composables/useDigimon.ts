@@ -34,6 +34,7 @@ export interface CreateDigimonData {
   partnerId?: string
   campaignId?: string
   isEnemy?: boolean
+  isDarkEvolution?: boolean
   notes?: string
   spriteUrl?: string
 }
@@ -166,6 +167,12 @@ export function useDigimon() {
       dodge: baseStats.dodge + (bonusStats.dodge || 0),
       armor: baseStats.armor + (bonusStats.armor || 0),
       health: baseStats.health + (bonusStats.health || 0),
+    }
+
+    // Dark Digivolution: +2 to all base stats
+    if ((digimon as any).isDarkEvolution) {
+      totalStats.accuracy += 2; totalStats.damage += 2; totalStats.dodge += 2
+      totalStats.armor += 2; totalStats.health += 2
     }
 
     // Apply quality bonuses to stats before calculating derived stats

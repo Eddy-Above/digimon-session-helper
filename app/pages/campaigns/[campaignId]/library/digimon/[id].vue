@@ -149,6 +149,7 @@ async function loadDigimon() {
         dataOptimization: data.dataOptimization || '',
         partnerId: data.partnerId || null,
         isEnemy: data.isEnemy || false,
+        isDarkEvolution: data.isDarkEvolution || false,
         notes: data.notes || '',
         spriteUrl: data.spriteUrl || '',
         evolvesFromId: data.evolvesFromId || null,
@@ -230,6 +231,7 @@ async function handleSubmit() {
     dataOptimization: form.dataOptimization || undefined,
     partnerId: form.partnerId || null,
     isEnemy: form.isEnemy,
+    isDarkEvolution: form.isDarkEvolution,
     notes: form.notes,
     spriteUrl: form.spriteUrl || undefined,
     evolvesFromId: form.evolvesFromId || undefined,
@@ -394,7 +396,7 @@ async function handleCopy() {
               </option>
             </select>
           </div>
-          <div class="flex items-end">
+          <div class="flex items-end gap-6">
             <label class="flex items-center gap-2 cursor-pointer">
               <input
                 v-model="form.isEnemy"
@@ -403,6 +405,15 @@ async function handleCopy() {
                        text-digimon-orange-500 focus:ring-digimon-orange-500"
               />
               <span class="text-white">This is an enemy Digimon</span>
+            </label>
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input
+                v-model="form.isDarkEvolution"
+                type="checkbox"
+                class="w-5 h-5 bg-digimon-dark-700 border border-digimon-dark-600 rounded
+                       text-digimon-orange-500 focus:ring-digimon-orange-500"
+              />
+              <span class="text-white">Dark Digivolution</span>
             </label>
           </div>
         </div>
