@@ -223,6 +223,11 @@ export interface Tamer {
   grantedInspiration: number
   maxInspiration: number  // = Willpower (min 1)
   xp: number
+  xpBonuses: {
+    attributes: TamerAttributes
+    skills: TamerSkills
+    inspiration: number
+  }
   equipment: string[]
   partnerDigimonIds: string[]
   currentWounds: number
