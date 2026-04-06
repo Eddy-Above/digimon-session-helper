@@ -289,6 +289,7 @@ export function useEncounters() {
     }
 
     let newRound = encounter.round
+    const poisonLogEntries: any[] = []
 
     // If we've wrapped around, start a new round
     if (nextIndex === 0) {
@@ -316,6 +317,35 @@ export function useEncounters() {
           p.clash.isPinned = false                  // pins expire after one turn
         }
         p.usedFreeClashThisRound = false  // Wrestlemania free clash resets each round
+      })
+
+      // Apply Poison damage to all affected participants
+      participants.forEach((p) => {
+        const poisonEffect = (p.activeEffects || []).find((e: any) => e.name === 'Poison')
+        if (!poisonEffect) return
+
+        const dmg = (poisonEffect as any).potency ?? 1
+        const tempAvailable = p.currentTempWounds ?? 0
+        const tempAbsorb = Math.min(tempAvailable, dmg)
+        const remainder = dmg - tempAbsorb
+        p.currentTempWounds = tempAvailable - tempAbsorb
+        if (tempAbsorb > 0 && p.currentTempWounds === 0) {
+          p.activeEffects = (p.activeEffects || []).filter((e: any) => e.name !== 'Shield')
+        }
+        p.currentWounds = Math.min(p.maxWounds, (p.currentWounds || 0) + remainder)
+
+        poisonLogEntries.push({
+          id: `log-poison-${p.id}-${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          round: newRound,
+          actorId: p.id,
+          actorName: p.id,
+          action: 'Poison',
+          target: p.id,
+          result: `${dmg} poison damage`,
+          damage: dmg,
+          effects: ['Poison'],
+        })
       })
     }
 
@@ -364,11 +394,12 @@ export function useEncounters() {
       }
     }
 
-    return updateEncounter(encounterId, {
-      participants,
-      currentTurnIndex: nextIndex,
-      round: newRound,
-    })
+    const updatePayload: Partial<Encounter> = { participants, currentTurnIndex: nextIndex, round: newRound }
+    if (poisonLogEntries.length > 0) {
+      const existingLog = [...((encounter?.battleLog as any[]) || [])]
+      updatePayload.battleLog = existingLog.concat(poisonLogEntries)
+    }
+    return updateEncounter(encounterId, updatePayload)
   }
 
   async function endCombat(encounterId: string): Promise<Encounter | null> {
