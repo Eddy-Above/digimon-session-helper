@@ -3510,7 +3510,11 @@ async function handleBreakClash(participantId: string, clashId: string) {
                           :class="[
                             'w-4 h-4 rounded border-2',
                             i <= torment.markedBoxes
-                              ? 'bg-green-500 border-green-400'
+                              ? i <= (torment.cpMarkedBoxes ?? 0)
+                                ? 'bg-yellow-500 border-yellow-400'
+                                : i <= (torment.gmMarkedBoxes ?? 0)
+                                  ? 'bg-green-500 border-green-400'
+                                  : 'bg-purple-500 border-purple-400'
                               : 'bg-digimon-dark-600 border-digimon-dark-500'
                           ]"
                         />

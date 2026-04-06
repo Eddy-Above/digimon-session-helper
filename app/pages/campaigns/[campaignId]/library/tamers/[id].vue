@@ -106,16 +106,24 @@ onMounted(async () => {
     grantedInspiration.value = fetched.grantedInspiration ?? 0
     // Load torments
     if (fetched.torments && fetched.torments.length > 0) {
-      torments.value = fetched.torments.map(t => ({
-        id: t.id,
-        name: t.name,
-        description: t.description,
-        severity: t.severity,
-        totalBoxes: t.totalBoxes,
-        markedBoxes: t.markedBoxes,
-        cpMarkedBoxes: (t as any).cpMarkedBoxes ?? 0, // Persisted CP-spent boxes
-        originalMarkedBoxes: (t as any).cpMarkedBoxes ?? 0, // Use for locking logic
-      }))
+      torments.value = fetched.torments.map(t => {
+        const gmMarkedBoxes = (t as any).gmMarkedBoxes ?? 0
+        const cpMarkedBoxes = (t as any).cpMarkedBoxes ?? 0
+        const lockFloor = Math.max(cpMarkedBoxes, gmMarkedBoxes)
+        const xpCount = Math.max(0, t.markedBoxes - lockFloor)
+        return {
+          id: t.id,
+          name: t.name,
+          description: t.description,
+          severity: t.severity,
+          totalBoxes: t.totalBoxes,
+          markedBoxes: t.markedBoxes,
+          cpMarkedBoxes, // Persisted CP-spent boxes
+          originalMarkedBoxes: cpMarkedBoxes, // Use for locking logic
+          gmMarkedBoxes,
+          xpBoxCosts: (t as any).xpBoxCosts ?? Array.from({ length: xpCount }, (_, k) => lockFloor + k + 1),
+        }
+      })
     }
     // Load xpBonuses from database (persisted separately from base values)
     if (fetched.xpBonuses) {
@@ -129,6 +137,7 @@ onMounted(async () => {
 
 function toggleTormentBox(torment: any, boxIndex: number) {
   const isMarking = boxIndex > torment.markedBoxes
+  const lockFloor = Math.max(torment.originalMarkedBoxes, torment.gmMarkedBoxes ?? 0)
 
   // Only allow marking if you have enough XP, or if unmarking
   if (isMarking && form.xp < getTormentBoxCost(torment)) {
@@ -136,25 +145,43 @@ function toggleTormentBox(torment: any, boxIndex: number) {
   }
 
   const newMarkedBoxes = torment.markedBoxes >= boxIndex
-    ? Math.max(boxIndex - 1, torment.originalMarkedBoxes)
+    ? Math.max(boxIndex - 1, lockFloor)
     : boxIndex
 
-  // Deduct XP if marking a new box
+  // Deduct XP and record cost if marking a new XP box
   if (isMarking && newMarkedBoxes > torment.markedBoxes) {
-    form.xp -= getTormentBoxCost(torment)
+    const cost = getTormentBoxCost(torment)
+    form.xp -= cost
+    torment.xpBoxCosts = [...(torment.xpBoxCosts || []), cost]
   }
 
-  // Refund XP if unmarking boxes
+  // Refund XP using stored costs for each box being removed
   if (!isMarking && newMarkedBoxes < torment.markedBoxes) {
-    // Calculate refund for all unmarked boxes (from newMarkedBoxes + 1 to torment.markedBoxes)
-    let refund = 0
-    for (let i = newMarkedBoxes + 1; i <= torment.markedBoxes; i++) {
-      refund += i
-    }
+    const boxesRemoved = torment.markedBoxes - newMarkedBoxes
+    const costs: number[] = torment.xpBoxCosts || []
+    const refund = costs.slice(-boxesRemoved).reduce((sum: number, c: number) => sum + c, 0)
     form.xp += refund
+    torment.xpBoxCosts = costs.slice(0, costs.length - boxesRemoved)
   }
 
   torment.markedBoxes = newMarkedBoxes
+}
+
+function increaseGmMark(torment: any) {
+  if (torment.gmMarkedBoxes >= torment.totalBoxes) return
+  // Preserve the count of XP-purchased boxes, shifting them up by one
+  const xpBoxes = Math.max(0, torment.markedBoxes - torment.gmMarkedBoxes)
+  torment.gmMarkedBoxes++
+  torment.markedBoxes = Math.min(torment.totalBoxes, torment.gmMarkedBoxes + xpBoxes)
+}
+
+function decreaseGmMark(torment: any) {
+  const floor = torment.originalMarkedBoxes ?? 0
+  if (torment.gmMarkedBoxes <= floor) return
+  // Preserve the count of XP-purchased boxes, shifting them down by one
+  const xpBoxes = Math.max(0, torment.markedBoxes - torment.gmMarkedBoxes)
+  torment.gmMarkedBoxes--
+  torment.markedBoxes = torment.gmMarkedBoxes + xpBoxes
 }
 
 async function handleSubmit() {
@@ -190,6 +217,8 @@ async function handleSubmit() {
     totalBoxes: t.totalBoxes,
     markedBoxes: t.markedBoxes,
     cpMarkedBoxes: t.cpMarkedBoxes, // Preserve CP-locked boxes
+    gmMarkedBoxes: t.gmMarkedBoxes, // Preserve GM-marked boxes
+    xpBoxCosts: t.xpBoxCosts,       // Preserve actual XP paid per box
   }))
 
   // Save base values and xpBonuses separately - do NOT combine them
@@ -620,18 +649,20 @@ async function handleSubmit() {
                     v-for="i in torment.totalBoxes"
                     :key="i"
                     type="button"
-                    :disabled="i > torment.markedBoxes && form.xp < getTormentBoxCost(torment)"
+                    :disabled="(i <= Math.max(torment.originalMarkedBoxes, torment.gmMarkedBoxes ?? 0)) || (i > torment.markedBoxes && form.xp < getTormentBoxCost(torment))"
                     :class="[
                       'w-5 h-5 rounded border-2 transition-colors',
                       i <= torment.markedBoxes
                         ? i <= torment.originalMarkedBoxes
-                          ? 'bg-green-600 border-green-500 cursor-not-allowed' // Locked (CP-spent)
-                          : 'bg-green-500 border-green-400 cursor-pointer'
+                          ? 'bg-yellow-500 border-yellow-400 cursor-not-allowed' // CP-spent
+                          : i <= (torment.gmMarkedBoxes ?? 0)
+                            ? 'bg-green-500 border-green-400 cursor-not-allowed' // GM-granted
+                            : 'bg-purple-500 border-purple-400 cursor-pointer' // XP-purchased
                         : form.xp >= getTormentBoxCost(torment)
                           ? 'bg-digimon-dark-600 border-digimon-dark-500 hover:border-digimon-dark-400 cursor-pointer'
                           : 'bg-digimon-dark-700 border-digimon-dark-600 cursor-not-allowed opacity-50'
                     ]"
-                    :title="i <= torment.originalMarkedBoxes ? 'CP-spent box (cannot be removed)' : i > torment.markedBoxes && form.xp < getTormentBoxCost(torment) ? `Need ${getTormentBoxCost(torment)} XP to mark this box` : ''"
+                    :title="i <= torment.originalMarkedBoxes ? 'CP-spent box (cannot be removed)' : i <= (torment.gmMarkedBoxes ?? 0) ? 'GM-granted box (cannot be removed)' : i > torment.markedBoxes && form.xp < getTormentBoxCost(torment) ? `Need ${getTormentBoxCost(torment)} XP to mark this box` : ''"
                     @click="toggleTormentBox(torment, i)"
                   />
                 </div>
@@ -649,8 +680,9 @@ async function handleSubmit() {
                   Next: {{ getTormentBoxCost(torment) }} XP
                 </span>
               </div>
-              <p v-if="torment.originalMarkedBoxes > 0" class="text-xs text-digimon-dark-500 mt-2">
-                {{ torment.originalMarkedBoxes }} box(es) marked with CP at creation (cannot be removed)
+              <p v-if="torment.originalMarkedBoxes > 0 || (torment.gmMarkedBoxes ?? 0) > 0" class="text-xs text-digimon-dark-500 mt-2 flex gap-3">
+                <span v-if="torment.originalMarkedBoxes > 0"><span class="inline-block w-2.5 h-2.5 rounded-sm bg-yellow-500 mr-1 align-middle"></span>{{ torment.originalMarkedBoxes }} CP box(es)</span>
+                <span v-if="(torment.gmMarkedBoxes ?? 0) > torment.originalMarkedBoxes"><span class="inline-block w-2.5 h-2.5 rounded-sm bg-green-500 mr-1 align-middle"></span>{{ (torment.gmMarkedBoxes ?? 0) - torment.originalMarkedBoxes }} GM box(es)</span>
               </p>
             </div>
           </div>
@@ -877,6 +909,35 @@ async function handleSubmit() {
               class="w-20 bg-digimon-dark-700 border border-digimon-dark-600 rounded px-3 py-2
                      text-white text-center focus:border-digimon-orange-500 focus:outline-none"
             />
+          </div>
+        </div>
+      </div>
+
+      <!-- GM Torment Marks -->
+      <div v-if="torments.length > 0" class="bg-digimon-dark-800 rounded-xl p-6 border border-digimon-dark-700">
+        <h2 class="font-display text-xl font-semibold text-white mb-2">GM Torment Marks</h2>
+        <p class="text-xs text-digimon-dark-500 mb-4">Mark torment boxes on behalf of the player. These count toward future XP costs but do not refund XP when removed.</p>
+        <div class="space-y-3">
+          <div v-for="torment in torments" :key="torment.id" class="flex items-center justify-between gap-4">
+            <div class="flex-1 min-w-0">
+              <span class="text-sm text-white font-medium">{{ torment.name || '(unnamed)' }}</span>
+              <span class="text-xs text-digimon-dark-400 ml-2 capitalize">{{ torment.severity }}</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <button
+                type="button"
+                :disabled="torment.gmMarkedBoxes <= (torment.originalMarkedBoxes ?? 0)"
+                class="w-7 h-7 rounded bg-digimon-dark-700 hover:bg-digimon-dark-600 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold leading-none"
+                @click="decreaseGmMark(torment)"
+              >−</button>
+              <span class="w-16 text-center text-white text-sm">{{ torment.gmMarkedBoxes }} / {{ torment.totalBoxes }}</span>
+              <button
+                type="button"
+                :disabled="torment.gmMarkedBoxes >= torment.totalBoxes"
+                class="w-7 h-7 rounded bg-digimon-dark-700 hover:bg-digimon-dark-600 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold leading-none"
+                @click="increaseGmMark(torment)"
+              >+</button>
+            </div>
           </div>
         </div>
       </div>

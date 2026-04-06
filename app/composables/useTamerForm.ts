@@ -18,6 +18,8 @@ export interface TormentEntry {
   totalBoxes: number
   markedBoxes: number
   cpMarkedBoxes: number
+  gmMarkedBoxes: number
+  xpBoxCosts: number[] // actual XP paid for each XP-purchased box, in order
 }
 
 export function useTamerForm(initialData?: Partial<CreateTamerData>, campaignLevelOverride?: Ref<CampaignLevel> | CampaignLevel, tormentRulesOverride?: Ref<TormentRequirements | undefined> | TormentRequirements, skillRenamesOverride?: Ref<SkillRenames | undefined> | SkillRenames, eddySoulRulesOverride?: Ref<EddySoulRules | undefined> | EddySoulRules) {
@@ -112,15 +114,22 @@ export function useTamerForm(initialData?: Partial<CreateTamerData>, campaignLev
   const grantedInspiration = ref(initialData?.grantedInspiration ?? 0)
 
   // Torment management
-  const torments = ref<TormentEntry[]>(initialData?.torments?.map(t => ({
-    id: t.id,
-    name: t.name,
-    description: t.description,
-    severity: t.severity,
-    totalBoxes: t.totalBoxes,
-    markedBoxes: t.markedBoxes,
-    cpMarkedBoxes: t.cpMarkedBoxes,
-  })) || [])
+  const torments = ref<TormentEntry[]>(initialData?.torments?.map(t => {
+    const gmMarkedBoxes = (t as any).gmMarkedBoxes ?? 0
+    const lockFloor = Math.max(t.cpMarkedBoxes, gmMarkedBoxes)
+    const xpCount = Math.max(0, t.markedBoxes - lockFloor)
+    return {
+      id: t.id,
+      name: t.name,
+      description: t.description,
+      severity: t.severity,
+      totalBoxes: t.totalBoxes,
+      markedBoxes: t.markedBoxes,
+      cpMarkedBoxes: t.cpMarkedBoxes,
+      gmMarkedBoxes,
+      xpBoxCosts: (t as any).xpBoxCosts ?? Array.from({ length: xpCount }, (_, k) => lockFloor + k + 1),
+    }
+  }) || [])
 
   const showAddTorment = ref(false)
   const newTormentSeverity = ref<TormentSeverity>('minor')
@@ -242,6 +251,8 @@ export function useTamerForm(initialData?: Partial<CreateTamerData>, campaignLev
         totalBoxes: boxCount,
         markedBoxes: 0,
         cpMarkedBoxes: 0,
+        gmMarkedBoxes: 0,
+        xpBoxCosts: [],
       })
       console.log('[addTorment] Torment added, count:', torments.value.length)
       showAddTorment.value = false
@@ -378,6 +389,8 @@ export function useTamerForm(initialData?: Partial<CreateTamerData>, campaignLev
         totalBoxes: getTormentBoxCount('minor'),
         markedBoxes: 0,
         cpMarkedBoxes: 0,
+        gmMarkedBoxes: 0,
+        xpBoxCosts: [],
       })
     }
     for (let i = 0; i < major; i++) {
@@ -389,6 +402,8 @@ export function useTamerForm(initialData?: Partial<CreateTamerData>, campaignLev
         totalBoxes: getTormentBoxCount('major'),
         markedBoxes: 0,
         cpMarkedBoxes: 0,
+        gmMarkedBoxes: 0,
+        xpBoxCosts: [],
       })
     }
     for (let i = 0; i < terrible; i++) {
@@ -400,6 +415,8 @@ export function useTamerForm(initialData?: Partial<CreateTamerData>, campaignLev
         totalBoxes: getTormentBoxCount('terrible'),
         markedBoxes: 0,
         cpMarkedBoxes: 0,
+        gmMarkedBoxes: 0,
+        xpBoxCosts: [],
       })
     }
   }

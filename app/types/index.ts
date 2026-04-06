@@ -203,6 +203,9 @@ export interface Torment {
   severity: TormentSeverity
   totalBoxes: number      // Minor: 5, Major: 7, Terrible: 10
   markedBoxes: number
+  cpMarkedBoxes?: number
+  gmMarkedBoxes?: number
+  xpBoxCosts?: number[]
 }
 
 export interface Tamer {
