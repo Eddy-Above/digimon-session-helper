@@ -133,6 +133,12 @@ export async function resolveNpcAttack(params: ResolveNpcAttackParams): Promise<
     }
   }
 
+  // --- Target quality vars (hoisted — used in dodge pool section and armor section below) ---
+  let targetHasPositiveReinforcement = false
+  let targetHasCombatMonster = false
+  let targetHealthStat = 0
+  const targetMoodValue = target.moodValue ?? 3
+
   // --- Target dodge pool ---
   let dodgePool = 3
   if (target.type === 'digimon') {
@@ -143,6 +149,11 @@ export async function resolveNpcAttack(params: ResolveNpcAttackParams): Promise<
       const bonusStats = typeof (targetDigimon as any).bonusStats === 'string'
         ? JSON.parse((targetDigimon as any).bonusStats) : (targetDigimon as any).bonusStats
       dodgePool = (baseStats?.dodge ?? 0) + (bonusStats?.dodge ?? 0) || 3
+      const targetQualities = typeof targetDigimon.qualities === 'string'
+        ? JSON.parse(targetDigimon.qualities) : targetDigimon.qualities
+      targetHasPositiveReinforcement = (targetQualities || []).some((q: any) => q.id === 'positive-reinforcement')
+      targetHasCombatMonster = (targetQualities || []).some((q: any) => q.id === 'combat-monster')
+      targetHealthStat = (baseStats?.health ?? 0) + (bonusStats?.health ?? 0)
     }
   } else if (target.type === 'tamer') {
     const [targetTamer] = await db.select().from(tamers).where(eq(tamers.id, target.entityId))
@@ -273,10 +284,6 @@ export async function resolveNpcAttack(params: ResolveNpcAttackParams): Promise<
 
   // Target armor and Combat Monster
   let targetArmor = 0
-  let targetHasCombatMonster = false
-  let targetHealthStat = 0
-  let targetHasPositiveReinforcement = false
-  let targetMoodValue = 3
   if (target.type === 'digimon') {
     const [targetDigimon] = await db.select().from(digimon).where(eq(digimon.id, target.entityId))
     if (targetDigimon) {
@@ -285,15 +292,11 @@ export async function resolveNpcAttack(params: ResolveNpcAttackParams): Promise<
       const bonusStats = typeof (targetDigimon as any).bonusStats === 'string'
         ? JSON.parse((targetDigimon as any).bonusStats) : (targetDigimon as any).bonusStats
       targetArmor = (baseStats?.armor ?? 0) + (bonusStats?.armor ?? 0)
-      targetHealthStat = (baseStats?.health ?? 0) + (bonusStats?.health ?? 0)
 
       const qualities = typeof targetDigimon.qualities === 'string'
         ? JSON.parse(targetDigimon.qualities) : targetDigimon.qualities
       const dataOpt = qualities?.find((q: any) => q.id === 'data-optimization')
       if (dataOpt?.choiceId === 'guardian') targetArmor += 2
-      targetHasCombatMonster = (qualities || []).some((q: any) => q.id === 'combat-monster')
-      targetHasPositiveReinforcement = (qualities || []).some((q: any) => q.id === 'positive-reinforcement')
-      targetMoodValue = target.moodValue ?? 3
     }
   } else if (target.type === 'tamer') {
     const [targetTamer] = await db.select().from(tamers).where(eq(tamers.id, target.entityId))
