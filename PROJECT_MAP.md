@@ -290,6 +290,55 @@ All are POST. Body always includes `encounterId` (path param) + action-specific 
 | `/campaigns/[campaignId]/library/tamers/[id]` | `.../library/tamers/[id].vue` | default | dm-access | Edit tamer; uses `TamerFormPage` |
 | `/campaigns/[campaignId]/encounters` | `.../encounters/index.vue` | default | campaign-access | Encounter list |
 | `/campaigns/[campaignId]/encounters/[id]` | `.../encounters/[id].vue` | default | campaign-access | Full combat view; uses most combat components |
+
+#### `app/pages/campaigns/[campaignId]/encounters/[id].vue` — Line Index (4611 lines)
+
+**Script Setup**
+| Symbol | Line | Notes |
+|--------|------|-------|
+| Imports & composables | ~1 | useRoute, useEncounters, useDigimon, useTamers, useEvolution, attack/effect constants |
+| UI state refs | ~50 | showSpecialOrdersModal, showAddParticipant, attack selection refs, willpower modal refs |
+| GM intercede modal refs | ~85 | showGmIntercedeModal, gmIntercedeRequest, gmIntercedeLoading |
+| digimonMap / tamerMap | ~94 | entity lookup maps |
+| pendingRequests (computed) | ~169 | CRITICAL — drives pending requests panel |
+| getDodgePool() | ~562 | dodge pool calc; adds quickReactionDiceBonus before dodgePenalty subtraction |
+| getGmIntercedeOptions() | ~611 | |
+| gmIntercedeOffer (computed) | ~646 | finds GM intercede-offer in pendingRequests |
+| gmIntercedeQuickReactionRequest (computed) | ~653 | finds player QR-eligible offer in same group |
+| confirmAttack() | ~800 | main attack submission; routes to intercede-offer API |
+| confirmAreaAttack() | ~894 | multi-target attack |
+| cancelIntercedeGroup() | ~988 | cancels all offers in a group |
+| handleGmIntercedeClaim() | ~999 | GM steps interceptor in front |
+| handleGmIntercedeSkip() | ~1051 | GM skips intercede |
+| handleQuickReaction() | ~1067 | player uses QR from pending requests panel |
+| handleGmQuickReaction() | ~1085 | GM uses QR from intercede modal |
+| handleGmSaveCharacterOptOuts() | ~1109 | |
+| requestDodgeRoll() | ~1241 | creates dodge-roll pending request |
+| processResponse() | ~1268 | handles responses to pending requests (large function) |
+| handleNextTurn() | ~1540 | |
+| handleGmDodgeRoll() | ~2229 | GM rolls dodge for NPC/auto |
+| handleAddHazard / handleRemoveHazard / handleUpdateHazard | ~2374–2407 | |
+| handleInitiateClash / handleClashCheck / executeClashAction / handleBreakClash | ~2440–2507 | |
+| onMounted | ~2294 | |
+
+**Template**
+| Block | Line | Notes |
+|-------|------|-------|
+| Combat controls panel | ~2579 | Start/Next Turn/End Combat, Add Participant buttons |
+| Turn order list (hierarchicalParticipants loop) | ~2751 | main participant card + partner digimon card |
+| — Dodge penalty badge | ~2778 | `v-if="item.participant.dodgePenalty"` |
+| — Partner digimon wounds & status | ~2960–3066 | |
+| Pending Player Requests section | ~3398 | drives all player-facing request UI |
+| — dodge-roll block | ~3446 | handleGmDodgeRoll button |
+| — clash-check block | ~3460 | |
+| — intercede-offer (player, non-GM) | ~3476 | Quick Reaction button + Cancel Intercede |
+| — intercede-offer (GM auto-modal) | ~3422 | comment-only; modal opens via watch on gmIntercedeOffer |
+| GM Intercede modal | ~4386 | v-if="showGmIntercedeModal && gmIntercedeRequest" |
+| — main view: Intercede / Quick Reaction / Skip / Never Intercede buttons | ~4419–4453 | |
+| — select-interceptor view | ~4458 | handleGmIntercedeClaim buttons |
+| — select-optout view | ~4491 | per-character never-intercede checkboxes |
+| GM Intercede Result modal | ~4550 | showGmIntercedeResultModal |
+| Willpower roll modal | ~4273 | showWillpowerRollModal |
 | `/campaigns/[campaignId]/player` | `.../player/index.vue` | player | campaign-access | Player hub |
 | `/campaigns/[campaignId]/player/new` | `.../player/new.vue` | player | campaign-access | Create player character |
 | `/campaigns/[campaignId]/player/[tamerId]` | `.../player/[tamerId]/index.vue` | player | campaign-access | Tamer detail view |
