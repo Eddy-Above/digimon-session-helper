@@ -2019,6 +2019,15 @@ async function updateMoodValue(participantId: string, newValue: number) {
   await updateEncounter(currentEncounter.value.id, { participants })
 }
 
+async function updateActionsRemaining(participantId: string, newValue: number) {
+  if (!currentEncounter.value) return
+  const participants = currentEncounter.value.participants as CombatParticipant[]
+  const participant = participants.find((p) => p.id === participantId)
+  if (!participant) return
+  participant.actionsRemaining.simple = Math.max(0, newValue)
+  await updateEncounter(currentEncounter.value.id, { participants })
+}
+
 const cheerUpTargets = computed(() => {
   if (!currentEncounter.value || !activeParticipant.value || activeParticipant.value.type !== 'tamer') return []
   const tamerEntityId = activeParticipant.value.entityId
@@ -3834,8 +3843,18 @@ async function handleBreakClash(participantId: string, clashId: string) {
                   <span class="text-white ml-2">{{ selectedParticipant.initiative }}</span>
                 </div>
                 <div>
-                  <span class="text-digimon-dark-400">Actions Remaining:</span>
-                  <span class="text-white ml-2">{{ selectedParticipant.actionsRemaining.simple }}/2</span>
+                  <span class="text-digimon-dark-400 block mb-1">Actions Remaining:</span>
+                  <div class="flex items-center gap-2">
+                    <button
+                      class="bg-digimon-dark-600 hover:bg-digimon-dark-500 text-white w-7 h-7 rounded text-lg font-bold leading-none"
+                      @click="updateActionsRemaining(selectedParticipant.id, selectedParticipant.actionsRemaining.simple - 1)"
+                    >–</button>
+                    <span class="text-white font-semibold">{{ selectedParticipant.actionsRemaining.simple }}</span>
+                    <button
+                      class="bg-digimon-dark-600 hover:bg-digimon-dark-500 text-white w-7 h-7 rounded text-lg font-bold leading-none"
+                      @click="updateActionsRemaining(selectedParticipant.id, selectedParticipant.actionsRemaining.simple + 1)"
+                    >+</button>
+                  </div>
                 </div>
               </div>
             </div>
