@@ -103,10 +103,19 @@ export function useDigimonDP(form: Ref<DigimonFormData> | DigimonFormData, eddyS
     return hasRoomInQualityBudget && bonusDPValid
   })
 
+  // Minimum bonus DP per category (EddySoul rule: floor(10% of bonusDP), only when bonusDP >= 10)
+  const minBonusDPPerCategory = computed(() => {
+    if (!rulesValue.value?.bonusDPMinPerCategory) return 0
+    const bonusDP = formValue.value.bonusDP || 0
+    if (bonusDP < 10) return 0
+    return Math.floor(bonusDP * 0.10)
+  })
+
   // Minimum bonus DP required for qualities
   const minBonusDPForQualities = computed(() => {
     const baseDPAvailableForQualities = Math.max(0, baseDP.value - dpUsedOnStats.value)
-    return Math.max(0, dpUsedOnQualities.value - baseDPAvailableForQualities)
+    const overflowMin = Math.max(0, dpUsedOnQualities.value - baseDPAvailableForQualities)
+    return Math.max(overflowMin, minBonusDPPerCategory.value)
   })
 
   // Maximum bonus DP that can be allocated to qualities
@@ -136,6 +145,7 @@ export function useDigimonDP(form: Ref<DigimonFormData> | DigimonFormData, eddyS
     totalDPForQualities,
     availableDPForQualities,
     canAddQualities,
+    minBonusDPPerCategory,
     minBonusDPForQualities,
     maxBonusDPForQualities,
     bonusStatsOverspent,

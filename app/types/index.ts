@@ -85,6 +85,7 @@ export interface EddySoulRules {
   buffingContested?: boolean
   digivolutionLimit5PerDay?: boolean
   warpEvolution?: boolean
+  bonusDPMinPerCategory?: boolean
 }
 
 export interface HouseRules {

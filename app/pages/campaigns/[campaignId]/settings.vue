@@ -54,6 +54,7 @@ const form = reactive({
     buffingContested: false,
     digivolutionLimit5PerDay: false,
     warpEvolution: false,
+    bonusDPMinPerCategory: false,
   },
 })
 
@@ -111,6 +112,7 @@ onMounted(async () => {
       form.eddySoulRules.buffingContested = eddySoul.buffingContested ?? false
       form.eddySoulRules.digivolutionLimit5PerDay = eddySoul.digivolutionLimit5PerDay ?? false
       form.eddySoulRules.warpEvolution = eddySoul.warpEvolution ?? false
+      form.eddySoulRules.bonusDPMinPerCategory = eddySoul.bonusDPMinPerCategory ?? false
     }
   }
   loading.value = false
@@ -160,7 +162,7 @@ async function handleSave() {
     ...(Object.keys(activeRenames).length > 0 && {
       skillRenames: activeRenames,
     }),
-    ...((form.eddySoulRules.accuracyIsAgilityAthletics || form.eddySoulRules.damageIsBodyFeatsOfStrength || form.eddySoulRules.armorIsWillpowerEndurance || form.eddySoulRules.baseStatRangesEnabled || form.eddySoulRules.chargeAttackCosts3DP || form.eddySoulRules.instinctBoostsDodgeArmorSpeed || form.eddySoulRules.hugeSizeRequiresMega || form.eddySoulRules.hugePowerOncePerTurn || form.eddySoulRules.agilityRank2RequiresUltimate || form.eddySoulRules.combatMonsterAreaAttackRequiresComplex || form.eddySoulRules.chromeWeaponNoWeaponRankRequired || form.eddySoulRules.digizoidArmourRequiresInstinct || form.eddySoulRules.buffingContested || form.eddySoulRules.digivolutionLimit5PerDay || form.eddySoulRules.warpEvolution) && {
+    ...((form.eddySoulRules.accuracyIsAgilityAthletics || form.eddySoulRules.damageIsBodyFeatsOfStrength || form.eddySoulRules.armorIsWillpowerEndurance || form.eddySoulRules.baseStatRangesEnabled || form.eddySoulRules.chargeAttackCosts3DP || form.eddySoulRules.instinctBoostsDodgeArmorSpeed || form.eddySoulRules.hugeSizeRequiresMega || form.eddySoulRules.hugePowerOncePerTurn || form.eddySoulRules.agilityRank2RequiresUltimate || form.eddySoulRules.combatMonsterAreaAttackRequiresComplex || form.eddySoulRules.chromeWeaponNoWeaponRankRequired || form.eddySoulRules.digizoidArmourRequiresInstinct || form.eddySoulRules.buffingContested || form.eddySoulRules.digivolutionLimit5PerDay || form.eddySoulRules.warpEvolution || form.eddySoulRules.bonusDPMinPerCategory) && {
       eddySoulRules: {
         ...(form.eddySoulRules.accuracyIsAgilityAthletics && { accuracyIsAgilityAthletics: true }),
         ...(form.eddySoulRules.damageIsBodyFeatsOfStrength && { damageIsBodyFeatsOfStrength: true }),
@@ -177,6 +179,7 @@ async function handleSave() {
         ...(form.eddySoulRules.buffingContested && { buffingContested: true }),
         ...(form.eddySoulRules.digivolutionLimit5PerDay && { digivolutionLimit5PerDay: true }),
         ...(form.eddySoulRules.warpEvolution && { warpEvolution: true }),
+        ...(form.eddySoulRules.bonusDPMinPerCategory && { bonusDPMinPerCategory: true }),
       },
     }),
   }
@@ -639,6 +642,13 @@ async function handleDelete() {
             <div>
               <span class="text-digimon-dark-300">Warp Evolution</span>
               <p class="text-xs text-digimon-dark-500">Allows skipping a stage when digivolving. Each extra stage requires +5 to the Willpower DC (e.g. In-Training → Champion at standard DC+5). If used with the digivolution limit, warp counts as only 1 toward the daily limit.</p>
+            </div>
+          </label>
+          <label class="flex items-start gap-3 cursor-pointer">
+            <input v-model="form.eddySoulRules.bonusDPMinPerCategory" type="checkbox" class="w-4 h-4 rounded mt-1 shrink-0" />
+            <div>
+              <span class="text-digimon-dark-300">Bonus DP Minimum Per Category</span>
+              <p class="text-xs text-digimon-dark-500">A minimum of 10% of total Bonus DP (rounded down) must be spent in each stat and on qualities. 40% remains free to allocate.</p>
             </div>
           </label>
         </div>

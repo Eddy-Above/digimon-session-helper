@@ -47,6 +47,7 @@ const {
   totalDPForQualities,
   availableDPForQualities,
   canAddQualities,
+  minBonusDPPerCategory,
   minBonusDPForQualities,
   maxBonusDPForQualities,
   bonusStatsOverspent,
@@ -581,7 +582,7 @@ const hasLinkedEvolutions = computed(() => {
               <input
                 v-model.number="form.bonusStats.accuracy"
                 type="number"
-                min="0"
+                :min="minBonusDPPerCategory"
                 class="w-full bg-digimon-dark-700 border border-digimon-dark-600 rounded-lg px-2 py-2
                        text-white text-center focus:border-digimon-orange-500 focus:outline-none"
               />
@@ -591,7 +592,7 @@ const hasLinkedEvolutions = computed(() => {
               <input
                 v-model.number="form.bonusStats.damage"
                 type="number"
-                min="0"
+                :min="minBonusDPPerCategory"
                 class="w-full bg-digimon-dark-700 border border-digimon-dark-600 rounded-lg px-2 py-2
                        text-white text-center focus:border-digimon-orange-500 focus:outline-none"
               />
@@ -601,7 +602,7 @@ const hasLinkedEvolutions = computed(() => {
               <input
                 v-model.number="form.bonusStats.dodge"
                 type="number"
-                min="0"
+                :min="minBonusDPPerCategory"
                 class="w-full bg-digimon-dark-700 border border-digimon-dark-600 rounded-lg px-2 py-2
                        text-white text-center focus:border-digimon-orange-500 focus:outline-none"
               />
@@ -611,7 +612,7 @@ const hasLinkedEvolutions = computed(() => {
               <input
                 v-model.number="form.bonusStats.armor"
                 type="number"
-                min="0"
+                :min="minBonusDPPerCategory"
                 class="w-full bg-digimon-dark-700 border border-digimon-dark-600 rounded-lg px-2 py-2
                        text-white text-center focus:border-digimon-orange-500 focus:outline-none"
               />
@@ -621,12 +622,13 @@ const hasLinkedEvolutions = computed(() => {
               <input
                 v-model.number="form.bonusStats.health"
                 type="number"
-                min="0"
+                :min="minBonusDPPerCategory"
                 class="w-full bg-digimon-dark-700 border border-digimon-dark-600 rounded-lg px-2 py-2
                        text-white text-center focus:border-digimon-orange-500 focus:outline-none"
               />
             </div>
           </div>
+          <p v-if="minBonusDPPerCategory > 0" class="text-xs text-digimon-dark-500 mt-2">Min {{ minBonusDPPerCategory }} per stat (EddySoul rule)</p>
         </div>
 
         <div v-if="form.syncBonusDP && (form.evolvesFromId || form.evolutionPathIds.length > 0)" class="mt-4 p-3 bg-cyan-900/20 border border-cyan-500/30 rounded-lg">

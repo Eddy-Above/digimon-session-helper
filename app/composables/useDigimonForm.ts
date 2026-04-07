@@ -177,6 +177,49 @@ export function useDigimonForm(initialData?: Partial<DigimonFormData>, eddySoulR
     }
   )
 
+  // Enforce per-stat minimum (EddySoul rule) - budget-aware with rebalancing
+  // Watches both the minimum value and available budget so bumps happen whenever
+  // the rule activates OR when bonusDP increases and more budget becomes available
+  watch(
+    [() => statsComposable.minBonusDPPerCategory.value, () => statsComposable.bonusDPForStats.value],
+    ([min]) => {
+      if (!form.bonusStats || min <= 0) return
+      const keys = Object.keys(form.bonusStats) as (keyof typeof form.bonusStats)[]
+
+      // Phase 1: spend free budget on under-minimum stats
+      let remaining = Math.max(0, statsComposable.bonusDPForStats.value - statsComposable.bonusStatsTotal.value)
+      for (const key of keys) {
+        if (remaining <= 0) break
+        const current = form.bonusStats[key] ?? 0
+        if (current < min) {
+          const toAdd = Math.min(min - current, remaining)
+          form.bonusStats[key] = current + toAdd
+          remaining -= toAdd
+        }
+      }
+
+      // Phase 2: rebalance - steal from highest bonus stat (down to min) to bring under-minimum stats up
+      for (const key of keys) {
+        const current = form.bonusStats[key] ?? 0
+        if (current >= min) continue
+        let needed = min - current
+        const donors = [...keys]
+          .filter(k => k !== key && (form.bonusStats[k] ?? 0) > min)
+          .sort((a, b) => (form.bonusStats[b] ?? 0) - (form.bonusStats[a] ?? 0))
+        for (const donor of donors) {
+          if (needed <= 0) break
+          const canGive = (form.bonusStats[donor] ?? 0) - min
+          const toGive = Math.min(needed, canGive)
+          if (toGive > 0) {
+            form.bonusStats[donor] = (form.bonusStats[donor] ?? 0) - toGive
+            form.bonusStats[key] = (form.bonusStats[key] ?? 0) + toGive
+            needed -= toGive
+          }
+        }
+      }
+    }
+  )
+
   // Auto-validate Speedy ranks when max changes
   watch(
     () => statsComposable.currentSpeedyMaxRanks.value,
@@ -284,6 +327,7 @@ export function useDigimonForm(initialData?: Partial<DigimonFormData>, eddySoulR
     totalDPForQualities: statsComposable.totalDPForQualities,
     availableDPForQualities: statsComposable.availableDPForQualities,
     canAddQualities: statsComposable.canAddQualities,
+    minBonusDPPerCategory: statsComposable.minBonusDPPerCategory,
     minBonusDPForQualities: statsComposable.minBonusDPForQualities,
     maxBonusDPForQualities: statsComposable.maxBonusDPForQualities,
     bonusStatsOverspent: statsComposable.bonusStatsOverspent,

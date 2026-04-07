@@ -202,9 +202,17 @@ const canAddQualities = computed(() => {
   return hasRoomInQualityBudget && bonusDPValid
 })
 
+const minBonusDPPerCategory = computed(() => {
+  if (!eddySoulRules.value?.bonusDPMinPerCategory) return 0
+  const bonusDP = form.bonusDP || 0
+  if (bonusDP < 10) return 0
+  return Math.floor(bonusDP * 0.10)
+})
+
 const minBonusDPForQualities = computed(() => {
   const baseDPAvailableForQualities = Math.max(0, baseDP.value - dpUsedOnStats.value)
-  return Math.max(0, dpUsedOnQualities.value - baseDPAvailableForQualities)
+  const overflowMin = Math.max(0, dpUsedOnQualities.value - baseDPAvailableForQualities)
+  return Math.max(overflowMin, minBonusDPPerCategory.value)
 })
 
 const maxBonusDPForQualities = computed(() => {
@@ -711,6 +719,43 @@ watch(() => bonusStatsTotal.value, () => {
 watch(() => minBonusDPForQualities.value, (newMin) => {
   if (form.bonusDPForQualities < newMin) {
     form.bonusDPForQualities = newMin
+  }
+})
+
+watch([() => minBonusDPPerCategory.value, () => bonusDPForStats.value], ([min]) => {
+  if (min <= 0) return
+  const keys = Object.keys(form.bonusStats) as (keyof typeof form.bonusStats)[]
+
+  // Phase 1: spend free budget on under-minimum stats
+  let remaining = Math.max(0, bonusDPForStats.value - bonusStatsTotal.value)
+  for (const key of keys) {
+    if (remaining <= 0) break
+    const current = form.bonusStats[key] ?? 0
+    if (current < min) {
+      const toAdd = Math.min(min - current, remaining)
+      form.bonusStats[key] = current + toAdd
+      remaining -= toAdd
+    }
+  }
+
+  // Phase 2: rebalance - steal from highest bonus stat (down to min) to bring under-minimum stats up
+  for (const key of keys) {
+    const current = form.bonusStats[key] ?? 0
+    if (current >= min) continue
+    let needed = min - current
+    const donors = [...keys]
+      .filter(k => k !== key && (form.bonusStats[k] ?? 0) > min)
+      .sort((a, b) => (form.bonusStats[b] ?? 0) - (form.bonusStats[a] ?? 0))
+    for (const donor of donors) {
+      if (needed <= 0) break
+      const canGive = (form.bonusStats[donor] ?? 0) - min
+      const toGive = Math.min(needed, canGive)
+      if (toGive > 0) {
+        form.bonusStats[donor] = (form.bonusStats[donor] ?? 0) - toGive
+        form.bonusStats[key] = (form.bonusStats[key] ?? 0) + toGive
+        needed -= toGive
+      }
+    }
   }
 })
 
@@ -1280,7 +1325,7 @@ function handleCancel() {
                   <input
                     v-model.number="form.bonusStats.accuracy"
                     type="number"
-                    min="0"
+                    :min="minBonusDPPerCategory"
                     class="w-full bg-digimon-dark-700 border border-digimon-dark-600 rounded-lg px-2 py-2
                            text-white text-center focus:border-digimon-orange-500 focus:outline-none"
                   />
@@ -1290,7 +1335,7 @@ function handleCancel() {
                   <input
                     v-model.number="form.bonusStats.damage"
                     type="number"
-                    min="0"
+                    :min="minBonusDPPerCategory"
                     class="w-full bg-digimon-dark-700 border border-digimon-dark-600 rounded-lg px-2 py-2
                            text-white text-center focus:border-digimon-orange-500 focus:outline-none"
                   />
@@ -1300,7 +1345,7 @@ function handleCancel() {
                   <input
                     v-model.number="form.bonusStats.dodge"
                     type="number"
-                    min="0"
+                    :min="minBonusDPPerCategory"
                     class="w-full bg-digimon-dark-700 border border-digimon-dark-600 rounded-lg px-2 py-2
                            text-white text-center focus:border-digimon-orange-500 focus:outline-none"
                   />
@@ -1310,7 +1355,7 @@ function handleCancel() {
                   <input
                     v-model.number="form.bonusStats.armor"
                     type="number"
-                    min="0"
+                    :min="minBonusDPPerCategory"
                     class="w-full bg-digimon-dark-700 border border-digimon-dark-600 rounded-lg px-2 py-2
                            text-white text-center focus:border-digimon-orange-500 focus:outline-none"
                   />
@@ -1320,12 +1365,13 @@ function handleCancel() {
                   <input
                     v-model.number="form.bonusStats.health"
                     type="number"
-                    min="0"
+                    :min="minBonusDPPerCategory"
                     class="w-full bg-digimon-dark-700 border border-digimon-dark-600 rounded-lg px-2 py-2
                            text-white text-center focus:border-digimon-orange-500 focus:outline-none"
                   />
                 </div>
               </div>
+              <p v-if="minBonusDPPerCategory > 0" class="text-xs text-digimon-dark-500 mt-2">Min {{ minBonusDPPerCategory }} per stat (EddySoul rule)</p>
             </div>
           </div>
         </div>
