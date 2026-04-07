@@ -5,6 +5,7 @@ import { applyEffectToParticipant } from '../../../utils/applyEffect'
 import { getDigimonDerivedStats, calculateEffectPotency } from '../../../utils/resolveSupportAttack'
 import { triggerCounterattack } from '../../../utils/triggerCounterattack'
 import { resolveNpcAttack } from '../../../utils/resolveNpcAttack'
+import { applyStanceToDodge } from '../../../../utils/stanceModifiers'
 
 interface SubmitResponseBody {
   requestId: string
@@ -269,7 +270,7 @@ export default defineEventHandler(async (event) => {
 
     // Clash Attack / Counterattack halfDodge: target may only use half their dodge pool — recount successes from capped dice
     if (request.data.clashAttack || request.data.halfDodge) {
-      const targetParticipantForDodge = participants.find((p: any) => p.id === request.data.targetParticipantId)
+      const targetParticipantForDodge = participants.find((p: any) => p.id === request.targetParticipantId)
       let fullDodgePool = 3
       if (targetParticipantForDodge?.type === 'digimon') {
         const [targetDigimonForDodge] = await db.select().from(digimon).where(eq(digimon.id, request.data.targetEntityId))

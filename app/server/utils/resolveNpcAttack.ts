@@ -65,7 +65,7 @@ export async function resolveNpcAttack(params: ResolveNpcAttackParams): Promise<
   const attacker = participants.find((p: any) => p.id === params.attackerParticipantId)
   const target = participants.find((p: any) => p.id === params.targetParticipantId)
   if (!attacker || !target) {
-    return { participants, battleLog }
+    return { participants, battleLog, hit: false }
   }
 
   // --- Attacker damage stats ---
