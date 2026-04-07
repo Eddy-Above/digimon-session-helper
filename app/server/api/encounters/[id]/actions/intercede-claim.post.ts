@@ -220,6 +220,11 @@ export default defineEventHandler(async (event) => {
           }
           updated.activeEffects = applyEffectToParticipant(p.activeEffects || [], effectData, houseRules)
           appliedEffectName = npcAttackDef.effect
+          // Stun: immediately reduce actions if interceptor hasn't taken their turn yet this round
+          if (npcAttackDef?.effect === 'Stun' && !turnHasGone) {
+            updated.actionsRemaining = { simple: Math.max(0, (updated.actionsRemaining?.simple || p.actionsRemaining?.simple || 0) - 1) }
+            updated.stunActionReducedThisRound = true
+          }
         }
 
         return updated
@@ -344,6 +349,11 @@ export default defineEventHandler(async (event) => {
           }
           updated.activeEffects = applyEffectToParticipant(p.activeEffects || [], effectData, houseRules)
           appliedEffectName = npcAttackDef.effect
+          // Stun: immediately reduce actions if interceptor hasn't taken their turn yet this round
+          if (npcAttackDef?.effect === 'Stun' && !turnHasGone) {
+            updated.actionsRemaining = { simple: Math.max(0, (updated.actionsRemaining?.simple || p.actionsRemaining?.simple || 0) - 1) }
+            updated.stunActionReducedThisRound = true
+          }
         }
       }
 

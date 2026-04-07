@@ -363,6 +363,7 @@ export default defineEventHandler(async (event) => {
         dodgeDicePool: body.response.dodgeDicePool,
         dodgeDiceResults: body.response.dodgeDiceResults,
         dodgeSuccesses: body.response.dodgeSuccesses,
+        netSuccesses,
       }
 
       battleLog = [...battleLog, dodgeLogEntry]

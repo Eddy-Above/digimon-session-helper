@@ -389,7 +389,7 @@ watch(
       // Find a Dodge or Intercede battle log entry matching this attacker
       const matchingLogEntry = ([...(newBattleLog as any[])]).reverse().find(
         (entry: any) =>
-          (entry.action === 'Dodge' || entry.effects?.includes('Intercede')) &&
+          (entry.action === 'Dodge' || entry.action === 'Dodge (Support)' || entry.effects?.includes('Intercede')) &&
           entry.attackerParticipantId === pendingAttack.participantId &&
           entry.hit !== undefined &&
           new Date(entry.timestamp).getTime() > pendingAttack.timestamp - 5000
@@ -1596,7 +1596,7 @@ async function confirmAttack(target: CombatParticipant) {
         const newEntries = returnedBattleLog.slice(preBattleLogLength)
         const resolvedLogEntry = [...newEntries].reverse().find(
           (entry: any) =>
-            (entry.action === 'Dodge' || entry.effects?.includes('Intercede')) &&
+            (entry.action === 'Dodge' || entry.action === 'Dodge (Support)' || entry.effects?.includes('Intercede')) &&
             entry.attackerParticipantId === participant.id &&
             entry.hit !== undefined
         )
@@ -1762,9 +1762,10 @@ function showAttackResult(
     }
   }
 
-  // Calculate final damage
-  let finalDamage = 0
-  if (hit) {
+  // Calculate final damage (support attacks deal no damage)
+  let finalDamage: number | null = null
+  const isSupport = pendingAttack.attackData?.type === 'support'
+  if (hit && !isSupport) {
     const effectiveArmor = Math.max(0, targetArmor - armorPiercing)
     finalDamage = Math.max(1, baseDamage + netSuccesses - effectiveArmor)  // Minimum 1 damage on hit
   }
@@ -1986,8 +1987,9 @@ async function submitDodgeRoll() {
 
       // Extract the dodge result from the API response before calling loadData()
       const battleLog = (result.battleLog as any[]) || []
+      const isSupportDodge = capturedRequest.data?.isSupportAttack === true
       const dodgeEntry = battleLog.findLast(
-        (entry: any) => entry.action === 'Dodge' && entry.actorId === capturedRequest.targetParticipantId
+        (entry: any) => entry.action === (isSupportDodge ? 'Dodge (Support)' : 'Dodge') && entry.actorId === capturedRequest.targetParticipantId
       )
 
       if (dodgeEntry && capturedRequest) {
@@ -4748,8 +4750,8 @@ async function handleBreakClash(participantId: string, clashId: string) {
             </div>
           </div>
 
-          <!-- Damage Result (if hit) -->
-          <div v-if="attackResultData.hit" class="mt-4 pt-4 border-t border-digimon-dark-600">
+          <!-- Damage Result (if hit and not a support attack) -->
+          <div v-if="attackResultData.hit && attackResultData.finalDamage != null" class="mt-4 pt-4 border-t border-digimon-dark-600">
             <div class="flex items-center justify-between">
               <span class="text-orange-400 font-semibold text-lg">Damage Dealt:</span>
               <span class="text-red-400 font-bold text-3xl">{{ attackResultData.finalDamage }}</span>
@@ -4846,8 +4848,8 @@ async function handleBreakClash(participantId: string, clashId: string) {
             </div>
           </div>
 
-          <!-- Damage Result (if hit) -->
-          <div v-if="dodgeResultData.hit" class="mt-4 pt-4 border-t border-digimon-dark-600">
+          <!-- Damage Result (if hit and not a support attack) -->
+          <div v-if="dodgeResultData.hit && dodgeResultData.finalDamage != null" class="mt-4 pt-4 border-t border-digimon-dark-600">
             <div class="flex items-center justify-between">
               <span class="text-red-400 font-semibold text-lg">Damage Taken:</span>
               <span class="text-red-500 font-bold text-3xl">{{ dodgeResultData.finalDamage }}</span>

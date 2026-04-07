@@ -221,7 +221,15 @@ export default defineEventHandler(async (event) => {
           description: '',
         }
         appliedEffectName = npcAttackDef.effect
-        return { ...p, activeEffects: [...(p.activeEffects || []), newEffect] }
+        const stunImmediate = npcAttackDef.effect === 'Stun' && !p.hasActed
+        return {
+          ...p,
+          activeEffects: [...(p.activeEffects || []), newEffect],
+          ...(stunImmediate ? {
+            actionsRemaining: { simple: Math.max(0, (p.actionsRemaining?.simple || 0) - 1) },
+            stunActionReducedThisRound: true,
+          } : {}),
+        }
       }
       return p
     })
@@ -403,6 +411,11 @@ export default defineEventHandler(async (event) => {
           }
           updated.activeEffects = [...(p.activeEffects || []), newEffect]
           appliedEffectName = npcAttackDef.effect
+          // Stun: immediately reduce actions if target hasn't taken their turn yet this round
+          if (npcAttackDef.effect === 'Stun' && !p.hasActed) {
+            updated.actionsRemaining = { simple: Math.max(0, (p.actionsRemaining?.simple || 0) - 1) }
+            updated.stunActionReducedThisRound = true
+          }
         }
       }
 
