@@ -7,6 +7,7 @@ interface DigivolveBody {
   participantId: string
   targetChainIndex: number
   rollTotal?: number
+  force?: boolean
 }
 
 export default defineEventHandler(async (event) => {
@@ -20,6 +21,8 @@ export default defineEventHandler(async (event) => {
   if (!body.participantId || body.targetChainIndex === undefined) {
     throw createError({ statusCode: 400, message: 'participantId and targetChainIndex are required' })
   }
+
+  const force = body.force ?? false
 
   // Fetch encounter
   const [encounter] = await db.select().from(encounters).where(eq(encounters.id, encounterId))
@@ -72,7 +75,7 @@ export default defineEventHandler(async (event) => {
     }
   }
 
-  if (!canAct) {
+  if (!force && !canAct) {
     throw createError({ statusCode: 400, message: 'Participant cannot act right now' })
   }
 
@@ -81,7 +84,7 @@ export default defineEventHandler(async (event) => {
   const isNpc = !tamerParticipant
 
   // Check action cost (1 simple action from tamer or digimon)
-  if ((actingParticipant.actionsRemaining?.simple || 0) < 1) {
+  if (!force && (actingParticipant.actionsRemaining?.simple || 0) < 1) {
     throw createError({ statusCode: 400, message: 'Not enough actions to digivolve' })
   }
 
@@ -169,13 +172,13 @@ export default defineEventHandler(async (event) => {
   }
 
   // Only one digivolve attempt per turn (evolving only, devolving is always allowed)
-  if ((isEvolve || isWarpEvolve) && actingParticipant.hasAttemptedDigivolve) {
+  if (!force && (isEvolve || isWarpEvolve) && actingParticipant.hasAttemptedDigivolve) {
     throw createError({ statusCode: 400, message: 'Already attempted digivolution this turn' })
   }
 
   // EddySoul: digivolution limit (5/day)
   let tamerEntity: any = null
-  if ((isEvolve || isWarpEvolve) && !isNpc && eddySoulRules?.digivolutionLimit5PerDay && tamerParticipant) {
+  if (!force && (isEvolve || isWarpEvolve) && !isNpc && eddySoulRules?.digivolutionLimit5PerDay && tamerParticipant) {
     const [t] = await db.select().from(tamers).where(eq(tamers.id, tamerParticipant.entityId))
     tamerEntity = t || null
     if (tamerEntity && (tamerEntity.digivolutionsUsedToday || 0) >= 5) {
@@ -184,7 +187,7 @@ export default defineEventHandler(async (event) => {
   }
 
   // EddySoul: warp evolution — validate roll total meets DC
-  if (isWarpEvolve) {
+  if (!force && isWarpEvolve) {
     const DC_BASE: Record<string, number> = { standard: 12, enhanced: 15, extreme: 17 }
     const baseDC = DC_BASE[campaignLevel] ?? 12
     const requiredRoll = baseDC + (5 * stagesSkipped)
@@ -224,7 +227,7 @@ export default defineEventHandler(async (event) => {
     if (!isActingParticipant && !isDigivolving) return p
 
     // Build action-cost changes (apply to acting participant — tamer or NPC digimon)
-    const actionChanges = isActingParticipant
+    const actionChanges = (!force && isActingParticipant)
       ? {
           actionsRemaining: { simple: Math.max(0, (p.actionsRemaining?.simple || 0) - 1) },
           ...((isEvolve || isWarpEvolve) ? { hasAttemptedDigivolve: true } : {}),
@@ -279,7 +282,7 @@ export default defineEventHandler(async (event) => {
   }
 
   // EddySoul: increment digivolutionsUsedToday on successful evolve
-  if ((isEvolve || isWarpEvolve) && !isNpc && eddySoulRules?.digivolutionLimit5PerDay && tamerParticipant) {
+  if (!force && (isEvolve || isWarpEvolve) && !isNpc && eddySoulRules?.digivolutionLimit5PerDay && tamerParticipant) {
     if (!tamerEntity) {
       const [t] = await db.select().from(tamers).where(eq(tamers.id, tamerParticipant.entityId))
       tamerEntity = t || null

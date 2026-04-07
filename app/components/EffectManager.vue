@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { EFFECT_ALIGNMENT, EFFECT_ATTACK_TYPE_RESTRICTIONS } from '../data/attackConstants'
+import { EFFECT_ALIGNMENT, EFFECT_ATTACK_TYPE_RESTRICTIONS, EFFECT_POTENCY_STAT } from '../data/attackConstants'
 
 interface Effect {
   id: string
@@ -25,6 +25,7 @@ const emit = defineEmits<{
 }>()
 
 const showAddForm = ref(false)
+const pendingQuickEffect = ref<{ effect: typeof commonEffects[0], duration: number, potency: number } | null>(null)
 const newEffect = reactive({
   name: '',
   type: 'buff' as 'buff' | 'debuff' | 'status',
@@ -81,15 +82,23 @@ function addEffect() {
 }
 
 function applyQuickEffect(effect: typeof commonEffects[0]) {
-  const newEff: Effect = {
+  pendingQuickEffect.value = { effect, duration: 1, potency: 0 }
+}
+
+function confirmQuickEffect() {
+  if (!pendingQuickEffect.value) return
+  const { effect, duration, potency } = pendingQuickEffect.value
+  const hasPotency = !!EFFECT_POTENCY_STAT[effect.name]
+  emit('add', {
     id: `effect-${Date.now()}`,
     name: effect.name,
     type: effect.type,
-    duration: effect.duration,
+    duration,
     source: 'Quick Apply',
     description: effect.description,
-  }
-  emit('add', newEff)
+    ...(hasPotency && potency ? { potency } : {}),
+  })
+  pendingQuickEffect.value = null
 }
 
 function getEffectColor(type: string) {
@@ -164,6 +173,38 @@ function getEffectColor(type: string) {
           {{ effect.name }}
         </button>
       </div>
+
+    <!-- Quick apply config row -->
+    <div v-if="pendingQuickEffect" class="mt-2 p-2 bg-digimon-dark-700 rounded border border-digimon-dark-600 text-sm">
+      <div class="font-medium text-white mb-2">Configure: {{ pendingQuickEffect.effect.name }}</div>
+      <div class="flex flex-wrap gap-2 items-center">
+        <label class="text-digimon-dark-400">Duration</label>
+        <input
+          v-model.number="pendingQuickEffect.duration"
+          type="number"
+          min="1"
+          max="99"
+          class="w-16 bg-digimon-dark-600 border border-digimon-dark-500 rounded px-2 py-1 text-white text-center focus:border-digimon-orange-500 focus:outline-none"
+        />
+        <template v-if="EFFECT_POTENCY_STAT[pendingQuickEffect.effect.name]">
+          <label class="text-digimon-dark-400 ml-1">Spec Value</label>
+          <input
+            v-model.number="pendingQuickEffect.potency"
+            type="number"
+            min="0"
+            class="w-16 bg-digimon-dark-600 border border-digimon-dark-500 rounded px-2 py-1 text-white text-center focus:border-digimon-orange-500 focus:outline-none"
+          />
+        </template>
+        <button
+          class="ml-auto bg-digimon-orange-500 hover:bg-digimon-orange-600 text-white px-3 py-1 rounded text-xs"
+          @click="confirmQuickEffect"
+        >Apply</button>
+        <button
+          class="text-digimon-dark-400 hover:text-white text-xs px-2 py-1"
+          @click="pendingQuickEffect = null"
+        >Cancel</button>
+      </div>
+    </div>
     </div>
 
     <!-- Add custom effect form -->

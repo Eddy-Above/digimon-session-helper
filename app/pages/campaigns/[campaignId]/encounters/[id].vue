@@ -1887,6 +1887,96 @@ async function updateWounds(participantId: string, wounds: number) {
   }
 }
 
+// Update battery for a digimon participant (Manage modal)
+async function updateBattery(participantId: string, newValue: number) {
+  if (!currentEncounter.value) return
+  const participants = currentEncounter.value.participants as CombatParticipant[]
+  const participant = participants.find((p) => p.id === participantId)
+  if (!participant || participant.type !== 'digimon') return
+  const stage = (digimonMap.value.get(participant.entityId) as any)?.stage
+  const cap = STAGE_BATTERY_CAPACITY[stage as keyof typeof STAGE_BATTERY_CAPACITY] ?? 0
+  ;(participant as any).battery = Math.max(0, Math.min(newValue, cap))
+  await updateEncounter(currentEncounter.value.id, { participants })
+}
+
+// Update combat monster bonus for a participant (Manage modal)
+async function updateCombatMonsterBonus(participantId: string, newValue: number) {
+  if (!currentEncounter.value) return
+  const participants = currentEncounter.value.participants as CombatParticipant[]
+  const participant = participants.find((p) => p.id === participantId)
+  if (!participant) return
+  participant.combatMonsterBonus = Math.max(0, Math.min(newValue, participant.maxWounds))
+  await updateEncounter(currentEncounter.value.id, { participants })
+}
+
+// Force stance change (no action cost, Manage modal)
+async function forceChangeStance(participantId: string, stance: CombatParticipant['currentStance']) {
+  if (!currentEncounter.value) return
+  const participants = currentEncounter.value.participants as CombatParticipant[]
+  const participant = participants.find((p) => p.id === participantId)
+  if (!participant || (participant as any).clash) return
+  participant.currentStance = stance
+  await updateEncounter(currentEncounter.value.id, { participants })
+  const entity = getEntityDetails(participant)
+  if (entity) {
+    await addBattleLogEntry(currentEncounter.value.id, {
+      round: currentEncounter.value.round,
+      actorId: participant.id,
+      actorName: entity.name,
+      action: 'Stance changed (GM)',
+      target: null,
+      result: `Switched to ${stance} stance`,
+      damage: null,
+      effects: [],
+    })
+  }
+}
+
+// Force digivolve (bypasses willpower roll, action cost, and digivolution limit)
+async function forceDigivolve(participant: CombatParticipant, targetChainIndex: number) {
+  if (!currentEncounter.value) return
+  try {
+    await $fetch(`/api/encounters/${currentEncounter.value.id}/actions/digivolve`, {
+      method: 'POST',
+      body: { participantId: participant.id, targetChainIndex, force: true },
+    })
+    await Promise.all([
+      fetchEncounter(currentEncounter.value.id),
+      fetchDigimon({ campaignId: campaignId.value }),
+      fetchEvolutionLines(),
+    ])
+  } catch (e: any) {
+    alert(e?.data?.message || 'Failed to force digivolve')
+  }
+}
+
+// Evolution options for the Manage modal (force mode: devolve doesn't require wounds history)
+const selectedParticipantForceEvoOptions = computed(() => {
+  const p = selectedParticipant.value
+  if (!p || !p.evolutionLineId) return { evolveTargets: [] as any[], devolveTarget: null as any, warpTargets: [] as any[] }
+  const evoLine = evolutionLines.value.find(l => l.id === p.evolutionLineId)
+  if (!evoLine) return { evolveTargets: [], devolveTarget: null, warpTargets: [] }
+  const chain = typeof evoLine.chain === 'string' ? JSON.parse(evoLine.chain) : evoLine.chain
+  const currentIndex = (p as any).npcStageIndex !== undefined ? (p as any).npcStageIndex : evoLine.currentStageIndex
+  const evolveTargets = chain
+    .map((e: any, i: number) => ({ ...e, chainIndex: i }))
+    .filter((e: any) => e.evolvesFromIndex === currentIndex && e.isUnlocked)
+  const currentEntry = chain[currentIndex]
+  const devolveTarget = (currentEntry?.evolvesFromIndex !== null && currentEntry?.evolvesFromIndex !== undefined)
+    ? { ...chain[currentEntry.evolvesFromIndex], chainIndex: currentEntry.evolvesFromIndex }
+    : null
+  const warpTargets: any[] = []
+  if (eddySoulRules.value?.warpEvolution) {
+    for (const child of evolveTargets) {
+      chain
+        .map((e: any, i: number) => ({ ...e, chainIndex: i }))
+        .filter((e: any) => e.evolvesFromIndex === child.chainIndex && e.isUnlocked)
+        .forEach((gc: any) => warpTargets.push(gc))
+    }
+  }
+  return { evolveTargets, devolveTarget, warpTargets }
+})
+
 // Add effect to a participant
 async function addEffect(participantId: string, effect: CombatParticipant['activeEffects'][0]) {
   if (!currentEncounter.value) return
@@ -3512,6 +3602,40 @@ async function handleBreakClash(participantId: string, clashId: string) {
               </div>
             </div>
 
+            <!-- Battery (Digimon with Signature Move quality and battery rule enabled) -->
+            <div v-if="selectedParticipant.type === 'digimon' && houseRules?.signatureMoveBattery && digimonMap.get(selectedParticipant.entityId)?.qualities?.some((q: any) => q.id === 'signature-move')" class="mb-6 bg-digimon-dark-700 rounded-lg p-4">
+              <h3 class="font-semibold text-white mb-3">Battery</h3>
+              <div class="flex items-center gap-3">
+                <button
+                  class="bg-digimon-dark-600 hover:bg-digimon-dark-500 text-white w-8 h-8 rounded text-lg font-bold"
+                  @click="updateBattery(selectedParticipant.id, ((selectedParticipant as any).battery ?? 0) - 1)"
+                >–</button>
+                <span class="text-white font-semibold text-lg">{{ (selectedParticipant as any).battery ?? 0 }}</span>
+                <span class="text-digimon-dark-400">/{{ STAGE_BATTERY_CAPACITY[digimonMap.get(selectedParticipant.entityId)?.stage as keyof typeof STAGE_BATTERY_CAPACITY] ?? 0 }}</span>
+                <button
+                  class="bg-digimon-dark-600 hover:bg-digimon-dark-500 text-white w-8 h-8 rounded text-lg font-bold"
+                  @click="updateBattery(selectedParticipant.id, ((selectedParticipant as any).battery ?? 0) + 1)"
+                >+</button>
+              </div>
+            </div>
+
+            <!-- Combat Monster Bonus (Digimon with Combat Monster quality only) -->
+            <div v-if="selectedParticipant.type === 'digimon' && digimonMap.get(selectedParticipant.entityId)?.qualities?.some((q: any) => q.id === 'combat-monster')" class="mb-6 bg-digimon-dark-700 rounded-lg p-4">
+              <h3 class="font-semibold text-white mb-3">Combat Monster Bonus</h3>
+              <div class="flex items-center gap-3">
+                <button
+                  class="bg-digimon-dark-600 hover:bg-digimon-dark-500 text-white w-8 h-8 rounded text-lg font-bold"
+                  @click="updateCombatMonsterBonus(selectedParticipant.id, (selectedParticipant.combatMonsterBonus ?? 0) - 1)"
+                >–</button>
+                <span class="text-white font-semibold text-lg">{{ selectedParticipant.combatMonsterBonus ?? 0 }}</span>
+                <span class="text-digimon-dark-400 text-xs">(cap: {{ selectedParticipant.maxWounds }})</span>
+                <button
+                  class="bg-digimon-dark-600 hover:bg-digimon-dark-500 text-white w-8 h-8 rounded text-lg font-bold"
+                  @click="updateCombatMonsterBonus(selectedParticipant.id, (selectedParticipant.combatMonsterBonus ?? 0) + 1)"
+                >+</button>
+              </div>
+            </div>
+
             <!-- Effect Manager -->
             <EffectManager
               :effects="selectedParticipant.activeEffects"
@@ -3519,6 +3643,24 @@ async function handleBreakClash(participantId: string, clashId: string) {
               @add="(effect) => addEffect(selectedParticipant!.id, effect)"
               @remove="(effectId) => removeEffect(selectedParticipant!.id, effectId)"
             />
+
+            <!-- Stance -->
+            <div class="mt-6 bg-digimon-dark-700 rounded-lg p-4">
+              <h3 class="font-semibold text-white mb-3">Stance</h3>
+              <div class="grid grid-cols-5 gap-1">
+                <button
+                  v-for="s in (['neutral', 'defensive', 'offensive', 'sniper', 'brave'] as const)"
+                  :key="s"
+                  :class="[
+                    'py-1 rounded text-xs capitalize transition-colors',
+                    selectedParticipant.currentStance === s
+                      ? getStanceColor(s) + ' font-semibold'
+                      : 'bg-digimon-dark-600 text-digimon-dark-300 hover:bg-digimon-dark-500',
+                  ]"
+                  @click="forceChangeStance(selectedParticipant.id, s)"
+                >{{ s }}</button>
+              </div>
+            </div>
 
             <!-- Quick Stats -->
             <div class="mt-6 bg-digimon-dark-700 rounded-lg p-4">
@@ -3529,16 +3671,48 @@ async function handleBreakClash(participantId: string, clashId: string) {
                   <span class="text-white ml-2">{{ selectedParticipant.initiative }}</span>
                 </div>
                 <div>
-                  <span class="text-digimon-dark-400">Stance:</span>
-                  <span class="text-white ml-2 capitalize">{{ selectedParticipant.currentStance }}</span>
-                </div>
-                <div>
                   <span class="text-digimon-dark-400">Actions Remaining:</span>
                   <span class="text-white ml-2">{{ selectedParticipant.actionsRemaining.simple }}/2</span>
-                  <span class="text-xs text-digimon-dark-400 ml-2">
-                    (Simple: 1 action, Complex: 2 actions)
-                  </span>
                 </div>
+              </div>
+            </div>
+
+            <!-- Force Evolution (Digimon with evolution line only) -->
+            <div v-if="selectedParticipant.type === 'digimon' && selectedParticipant.evolutionLineId" class="mt-6 bg-digimon-dark-700 rounded-lg p-4">
+              <h3 class="font-semibold text-white mb-3">
+                Force Evolution
+                <span class="text-xs font-normal text-digimon-dark-400 ml-1">(bypasses roll &amp; limits)</span>
+              </h3>
+              <div
+                v-if="!selectedParticipantForceEvoOptions.evolveTargets.length && !selectedParticipantForceEvoOptions.devolveTarget"
+                class="text-digimon-dark-400 text-sm"
+              >
+                No options available
+              </div>
+              <div class="space-y-2">
+                <button
+                  v-for="t in selectedParticipantForceEvoOptions.evolveTargets"
+                  :key="t.chainIndex"
+                  class="w-full bg-digimon-orange-500/20 hover:bg-digimon-orange-500/30 text-digimon-orange-300 px-3 py-2 rounded text-sm text-left transition-colors"
+                  @click="forceDigivolve(selectedParticipant, t.chainIndex)"
+                >
+                  Evolve → {{ t.species }}
+                </button>
+                <button
+                  v-for="t in selectedParticipantForceEvoOptions.warpTargets"
+                  :key="`warp-${t.chainIndex}`"
+                  class="w-full bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 px-3 py-2 rounded text-sm text-left transition-colors"
+                  @click="forceDigivolve(selectedParticipant, t.chainIndex)"
+                >
+                  Warp → {{ t.species }}
+                </button>
+                <button
+                  v-if="selectedParticipantForceEvoOptions.devolveTarget"
+                  class="w-full bg-digimon-dark-600 hover:bg-digimon-dark-500 text-digimon-dark-200 px-3 py-2 rounded text-sm text-left transition-colors"
+                  @click="forceDigivolve(selectedParticipant, selectedParticipantForceEvoOptions.devolveTarget.chainIndex)"
+                >
+                  Devolve → {{ selectedParticipantForceEvoOptions.devolveTarget.species }}
+                </button>
               </div>
             </div>
 
