@@ -134,6 +134,7 @@ All are POST. Body always includes `encounterId` (path param) + action-specific 
 | `intercede-offer` | `intercede-offer.post.ts` | `attackId`, `targetId`, `damage`, various roll data | Creates dodge/intercede pending request for player; NPCs auto-dodge; handles Stun action reduction; triggers counterattack on miss |
 | `intercede-claim` | `intercede-claim.post.ts` | `requestId`, `intercedeParticipantId` | Player steps in to take hit for ally; updates request data |
 | `intercede-skip` | `intercede-skip.post.ts` | `requestId`, `participantId` | Player declines intercede; marks opt-out |
+| `quick-reaction` | `quick-reaction.post.ts` | `requestId`, `tamerParticipantId` | Tamer with Quick Reaction order uses it as an Intercede: grants partner digimon Stage Bonus+2 Dodge Dice for the round (diminishing); defers -1 action to tamer next round; marks order used today; creates dodge-roll request for target |
 | `digivolve` | `digivolve.post.ts` | `participantId`, `targetStageIndex`, `evolutionLineId?`, `isWarp?` | Evolves/devolves digimon in combat; full heal on evolve; restores prior wounds on devolve; validates unlock status, warp DC (vs campaign level), 5/day EddySoul limit; costs 1 simple action |
 | `digivolve-fail` | `digivolve-fail.post.ts` | `participantId` | Marks failed warp evolution attempt; sets `hasAttemptedDigivolve` |
 | `clash-initiate` | `clash-initiate.post.ts` | `initiatorId`, `targetId`, `bolster?` | Rolls Body + size bonus vs target Agility; sets `clash` state on both; creates pending request for player targets; Wrestlemania: free once/round; Multi-Grappler support |
@@ -415,6 +416,7 @@ flowchart TD
 - `constants/tamer-skills.ts` — only by `TamerFormPage`
 - `data/hazards.ts` — only by `HazardManager`
 - `data/special-orders.ts` — only by `special-order.post.ts` and `useLibraryImportExport`
+- `utils/specialOrders.ts` — by `special-order.post.ts`, `intercede-offer.post.ts`, `quick-reaction.post.ts`
 - `utils/torment-validation.ts` — only by `useTamerValidation`
 - `server/utils/participantName.ts` — only by server action handlers
 

@@ -575,6 +575,7 @@ function getDodgePool(participant: CombatParticipant): number {
     }
   }
   pool = applyStanceToDodge(pool, participant.currentStance)
+  pool += (participant.quickReactionDiceBonus ?? 0)
   pool = Math.max(1, pool - (participant.dodgePenalty ?? 0))
 
   // Active effect dodge modifiers
@@ -645,6 +646,18 @@ const gmIntercedeOptionsWithNames = computed(() => {
 const gmIntercedeOffer = computed(() => {
   return pendingRequests.value.find(
     (r: any) => r.type === 'intercede-offer' && r.targetTamerId === 'GM'
+  ) || null
+})
+
+// Find the player intercede-offer request (non-GM) for the same group as the GM offer, that has QR available
+const gmIntercedeQuickReactionRequest = computed(() => {
+  const gmOffer = gmIntercedeOffer.value
+  if (!gmOffer) return null
+  const groupId = gmOffer.data?.intercedeGroupId
+  if (!groupId) return null
+  return pendingRequests.value.find(
+    (r: any) => r.type === 'intercede-offer' && r.targetTamerId !== 'GM' &&
+      r.data?.intercedeGroupId === groupId && r.data?.canUseQuickReaction
   ) || null
 })
 
@@ -1045,6 +1058,48 @@ async function handleGmIntercedeSkip(requestId: string, optOut = false) {
     showGmIntercedeModal.value = false
     gmIntercedeRequest.value = null
     await fetchEncounter(currentEncounter.value.id)
+  } finally {
+    gmIntercedeLoading.value = false
+  }
+}
+
+// Quick Reaction: player tamer uses Quick Reaction order for their partner digimon
+async function handleQuickReaction(request: any) {
+  if (!currentEncounter.value) return
+  const tamerParticipant = (currentEncounter.value.participants as any[]).find(
+    (p: any) => p.type === 'tamer' && p.entityId === request.targetTamerId
+  )
+  if (!tamerParticipant) return
+  try {
+    const result = await $fetch<any>(`/api/encounters/${currentEncounter.value.id}/actions/quick-reaction`, {
+      method: 'POST',
+      body: { requestId: request.id, tamerParticipantId: tamerParticipant.id },
+    })
+    if (result) currentEncounter.value = result as any
+  } catch (e: any) {
+    alert(e?.data?.message || 'Quick Reaction failed')
+  }
+}
+
+// Quick Reaction triggered from the GM intercede modal
+async function handleGmQuickReaction() {
+  if (!currentEncounter.value || !gmIntercedeQuickReactionRequest.value) return
+  const qrRequest = gmIntercedeQuickReactionRequest.value
+  const tamerParticipant = (currentEncounter.value.participants as any[]).find(
+    (p: any) => p.type === 'tamer' && p.entityId === qrRequest.targetTamerId
+  )
+  if (!tamerParticipant) return
+  gmIntercedeLoading.value = true
+  try {
+    const result = await $fetch<any>(`/api/encounters/${currentEncounter.value.id}/actions/quick-reaction`, {
+      method: 'POST',
+      body: { requestId: qrRequest.id, tamerParticipantId: tamerParticipant.id },
+    })
+    showGmIntercedeModal.value = false
+    gmIntercedeRequest.value = null
+    if (result) currentEncounter.value = result as any
+  } catch (e: any) {
+    alert(e?.data?.message || 'Quick Reaction failed')
   } finally {
     gmIntercedeLoading.value = false
   }
@@ -3422,7 +3477,14 @@ async function handleBreakClash(participantId: string, clashId: string) {
                     <!-- GM intercede modal auto-appears -->
                   </template>
                   <template v-else-if="request.type === 'intercede-offer'">
-                    <!-- Player intercede: just cancel button -->
+                    <!-- Player intercede: Quick Reaction + cancel buttons -->
+                    <button
+                      v-if="request.data?.canUseQuickReaction"
+                      @click="handleQuickReaction(request)"
+                      class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm font-semibold transition-colors"
+                    >
+                      Quick Reaction (+{{ request.data?.quickReactionDiceCount }} Dodge Dice)
+                    </button>
                     <button
                       @click="cancelIntercedeGroup(request.data?.intercedeGroupId)"
                       class="bg-yellow-600 hover:bg-yellow-700 text-white px-3 py-1 rounded text-sm font-semibold transition-colors"
@@ -4361,6 +4423,14 @@ async function handleBreakClash(participantId: string, clashId: string) {
                 class="w-full bg-yellow-600 hover:bg-yellow-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg font-semibold transition-colors"
               >
                 {{ gmIntercedeOptionsWithNames.length === 0 ? 'No eligible interceptors' : 'Intercede' }}
+              </button>
+              <button
+                v-if="gmIntercedeQuickReactionRequest"
+                :disabled="gmIntercedeLoading"
+                @click="handleGmQuickReaction"
+                class="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg font-semibold transition-colors"
+              >
+                {{ gmIntercedeLoading ? 'Processing...' : `Quick Reaction (+${gmIntercedeQuickReactionRequest.data?.quickReactionDiceCount} Dodge Dice)` }}
               </button>
               <button
                 :disabled="gmIntercedeLoading"

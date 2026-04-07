@@ -5,6 +5,8 @@ import { resolveParticipantName } from '~/server/utils/participantName'
 import { getEffectResolutionType, EFFECT_ALIGNMENT } from '~/data/attackConstants'
 import { resolvePositiveAuto, resolvePositiveHealth, resolveNegativeSupportNpc } from '~/server/utils/resolveSupportAttack'
 import { triggerCounterattack } from '~/server/utils/triggerCounterattack'
+import { getUnlockedSpecialOrders } from '~/utils/specialOrders'
+import { STAGE_CONFIG } from '~/types'
 
 interface IntercedeOfferBody {
   attackerId: string
@@ -47,6 +49,7 @@ export default defineEventHandler(async (event) => {
   // Fetch campaign house rules
   let houseRules: { stunMaxDuration1?: boolean; maxTempWoundsRule?: boolean } | undefined
   let eddySoulRules: import('~/types').EddySoulRules | undefined
+  let campaignLevel: string = 'standard'
   if (encounter.campaignId) {
     const [campaign] = await db.select().from(campaigns).where(eq(campaigns.id, encounter.campaignId))
     if (campaign) {
@@ -54,6 +57,7 @@ export default defineEventHandler(async (event) => {
         ? JSON.parse(campaign.rulesSettings) : (campaign.rulesSettings || {})
       houseRules = rulesSettings.houseRules
       eddySoulRules = rulesSettings.eddySoulRules
+      if (campaign.level) campaignLevel = campaign.level
     }
   }
 
@@ -291,6 +295,31 @@ export default defineEventHandler(async (event) => {
     }
   }
 
+  // Per-tamer Quick Reaction eligibility: only if target is their partner and order not used today
+  const tamerQuickReactionMap: Record<string, { canUse: boolean; diceCount: number }> = {}
+  if (target.type === 'digimon') {
+    const [targetDig] = await db.select().from(digimon).where(eq(digimon.id, target.entityId))
+    if (targetDig) {
+      const stageBonus = (STAGE_CONFIG as any)[targetDig.stage]?.stageBonus ?? 0
+      const diceCount = stageBonus + 2
+      for (const tamerId of eligibleTamerIds) {
+        if (targetDig.partnerId !== tamerId) {
+          tamerQuickReactionMap[tamerId] = { canUse: false, diceCount: 0 }
+          continue
+        }
+        const [tamerRecord] = await db.select().from(tamers).where(eq(tamers.id, tamerId))
+        if (!tamerRecord) { tamerQuickReactionMap[tamerId] = { canUse: false, diceCount: 0 }; continue }
+        const tamerAttrs = typeof tamerRecord.attributes === 'string' ? JSON.parse(tamerRecord.attributes) : (tamerRecord.attributes || {})
+        const tamerXp = typeof tamerRecord.xpBonuses === 'string' ? JSON.parse(tamerRecord.xpBonuses) : (tamerRecord.xpBonuses || {})
+        const unlockedOrders = getUnlockedSpecialOrders(tamerAttrs, tamerXp, campaignLevel as any)
+        const hasQR = unlockedOrders.some((o: any) => o.name === 'Quick Reaction')
+        if (!hasQR) { tamerQuickReactionMap[tamerId] = { canUse: false, diceCount: 0 }; continue }
+        const usedPerDay = typeof tamerRecord.usedPerDayOrders === 'string' ? JSON.parse(tamerRecord.usedPerDayOrders) : (tamerRecord.usedPerDayOrders || [])
+        tamerQuickReactionMap[tamerId] = { canUse: !usedPerDay.includes('Quick Reaction'), diceCount }
+      }
+    }
+  }
+
   // GM always gets intercede modal unless explicitly opted out via "Never Intercede"
   const gmParticipant = participants.find((p: any) => p.id === 'gm')
   const gmOptOuts: string[] = gmParticipant?.intercedeOptOuts || []
@@ -510,36 +539,42 @@ export default defineEventHandler(async (event) => {
   const intercedeGroupId = `intercede-${Date.now()}`
 
   // Create intercede-offer requests for each eligible tamer
-  const newRequests = eligibleTamerIds.map(tamerId => ({
-    id: `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-    type: 'intercede-offer',
-    targetTamerId: tamerId,
-    targetParticipantId: body.targetId,
-    timestamp: new Date().toISOString(),
-    data: {
-      intercedeGroupId,
-      attackerId: body.attackerId,
-      targetId: body.targetId,
-      attackerName,
-      targetName,
-      attackName: body.attackName || 'Attack',
-      accuracySuccesses: body.accuracySuccesses,
-      accuracyDice: body.accuracyDice,
-      attackId: body.attackId,
-      attackData: body.attackData,
-      eligibleTamerIds,
-      // Pass through bolster bonuses
-      bolstered: body.bolstered || false,
-      bolsterType: body.bolsterType || null,
-      bolsterDamageBonus: body.bolstered && body.bolsterType === 'damage-accuracy' ? 2 : 0,
-      bolsterBitCpuBonus: body.bolstered && body.bolsterType === 'bit-cpu' ? 1 : 0,
-      isSupportAttack: isSupportAttack || false,
-      isSignatureMove: body.isSignatureMove || false,
-      batteryCount: body.isSignatureMove ? (body.batteryCount ?? 0) : 0,
-      clashAttack: body.clashAttack || false,
-      outsideClashCpuPenalty: body.outsideClashCpuPenalty ?? 0,
-    },
-  }))
+  const newRequests: any[] = []
+  for (const tamerId of eligibleTamerIds) {
+    const qr = tamerQuickReactionMap[tamerId] || { canUse: false, diceCount: 0 }
+    newRequests.push({
+      id: `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      type: 'intercede-offer',
+      targetTamerId: tamerId,
+      targetParticipantId: body.targetId,
+      timestamp: new Date().toISOString(),
+      data: {
+        intercedeGroupId,
+        attackerId: body.attackerId,
+        targetId: body.targetId,
+        attackerName,
+        targetName,
+        attackName: body.attackName || 'Attack',
+        accuracySuccesses: body.accuracySuccesses,
+        accuracyDice: body.accuracyDice,
+        attackId: body.attackId,
+        attackData: body.attackData,
+        eligibleTamerIds,
+        // Pass through bolster bonuses
+        bolstered: body.bolstered || false,
+        bolsterType: body.bolsterType || null,
+        bolsterDamageBonus: body.bolstered && body.bolsterType === 'damage-accuracy' ? 2 : 0,
+        bolsterBitCpuBonus: body.bolstered && body.bolsterType === 'bit-cpu' ? 1 : 0,
+        isSupportAttack: isSupportAttack || false,
+        isSignatureMove: body.isSignatureMove || false,
+        batteryCount: body.isSignatureMove ? (body.batteryCount ?? 0) : 0,
+        clashAttack: body.clashAttack || false,
+        outsideClashCpuPenalty: body.outsideClashCpuPenalty ?? 0,
+        canUseQuickReaction: qr.canUse,
+        quickReactionDiceCount: qr.diceCount,
+      },
+    })
+  }
 
   // Add GM intercede offer if eligible (reusing check computed earlier)
   if (gmEligible) {
