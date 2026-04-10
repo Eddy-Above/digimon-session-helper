@@ -151,6 +151,7 @@ const pendingWarpChoice = ref<{ chainIndex: number; species: string } | null>(nu
 // Direct action state
 const showDirectTargetSelector = ref(false)
 const pendingDirectBolstered = ref(false)
+const endingTurn = ref(false)
 
 // Bolster attack state
 const bolsterAttackEnabled = ref(false)
@@ -165,8 +166,14 @@ const hugePowerRank2Enabled = ref(false)
 const { fetchTamer, fetchTamers, tamers: allTamersFromComposable, calculateDerivedStats: calcTamerStats } = useTamers()
 const { fetchDigimon, digimonList, calculateDerivedStats: _calcDigimonStats } = useDigimon()
 const calcDigimonStats = (digimon: any) => _calcDigimonStats(digimon, eddySoulRules.value, hasStrikeFirst.value)
-const { encounters, fetchEncounters, fetchEncounter, getCurrentParticipant, respondToRequest, getMyPendingRequests, performAttack, deleteResponse, cancelRequest, updateEncounter, addBattleLogEntry } = useEncounters()
+const { encounters, fetchEncounters, fetchEncounter, getCurrentParticipant, respondToRequest, getMyPendingRequests, performAttack, deleteResponse, cancelRequest, updateEncounter, addBattleLogEntry, nextTurn } = useEncounters()
 const { fetchEvolutionLines, evolutionLines, getCurrentStage } = useEvolution()
+
+const digimonMap = computed(() => {
+  const map = new Map<string, any>()
+  digimonList.value.forEach((d) => map.set(d.id, d))
+  return map
+})
 
 // Auto-refresh every 5 seconds
 let refreshInterval: ReturnType<typeof setInterval>
@@ -2948,6 +2955,17 @@ async function executeClashAction(participantId: string, actionType: 'attack' | 
   }
 }
 
+async function handleEndTurn() {
+  if (!activeEncounter.value || endingTurn.value || !isMyTurn.value) return
+  endingTurn.value = true
+  try {
+    await nextTurn(activeEncounter.value.id, digimonMap.value, houseRules.value)
+    await fetchEncounter(activeEncounter.value.id)
+  } finally {
+    endingTurn.value = false
+  }
+}
+
 async function handleBreakClash(participantId: string, clashId: string) {
   if (!activeEncounter.value || !tamer.value) return
   try {
@@ -3042,7 +3060,16 @@ async function handleBreakClash(participantId: string, clashId: string) {
                 {{ activeEncounter.name }} • Round {{ activeEncounter.round }}
               </p>
             </div>
-            <div v-if="!isMyTurn && currentTurnParticipant" class="text-right">
+            <div v-if="isMyTurn && activeEncounter?.phase === 'combat'">
+              <button
+                :disabled="endingTurn"
+                class="px-4 py-1.5 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-bold rounded-lg font-orbitron text-sm transition-colors"
+                @click="handleEndTurn"
+              >
+                {{ endingTurn ? 'Ending...' : 'End Turn' }}
+              </button>
+            </div>
+            <div v-else-if="currentTurnParticipant" class="text-right">
               <div class="text-sm text-digimon-dark-400">Current Turn:</div>
               <div class="text-white font-semibold">
                 {{ getParticipantName(currentTurnParticipant) }}
