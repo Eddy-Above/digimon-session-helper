@@ -1,5 +1,7 @@
 # Project Map: DDA Tactics (Digimon Session Helper)
-> Auto-generated deep analysis. Read this file to understand the full project context.
+> Deep analysis of project. Read this file to understand the full project context.
+
+> ⚠️ AUTH: All API routes are unprotected server-side. Security relies entirely on client-side middleware cookies. Any direct API request bypasses auth.
 
 ---
 
@@ -36,6 +38,9 @@ npm run db:studio    # drizzle-kit studio — visual DB browser
 - `tsconfig.json`: Extends `.nuxt/tsconfig.json`
 - `drizzle.config.ts`: Schema at `server/db/schema.ts`, migrations at `server/db/migrations/`, dialect `postgresql`
 - `tailwind.config.ts`: Custom theme — `digimon-dark` (background palette), `digimon-orange` (accents), stage colors (fresh→ultra), attribute colors (vaccine/data/virus/free), fonts Orbitron (display) + Inter (body)
+- **CORS:** No CORS policy configured — no `routeRules`, no `cors` header config in `nuxt.config.ts`. Nitro defaults apply (no CORS headers sent).
+- **Deployment:** No Procfile, `railway.toml`, or deploy scripts found. App is deployed to Railway; deploys are triggered by git push (Railway auto-detects Node/Nuxt). Requires `DATABASE_URL` in Railway environment. Build: `npm run build` → `node .output/server/index.mjs`.
+- **Sprite storage:** `spriteUrl` is a plain text field in the DB (`digimon.sprite_url`, `tamers.sprite_url`). No file upload infrastructure — users paste external image URLs directly. `SpritePreview.vue` renders them as `<img :src="...">`. No CDN, no `public/` sprite folder, no server-side upload endpoint.
 
 ---
 
@@ -341,7 +346,7 @@ All are POST. Body always includes `encounterId` (path param) + action-specific 
 | Willpower roll modal | ~4273 | showWillpowerRollModal |
 | `/campaigns/[campaignId]/player` | `.../player/index.vue` | player | campaign-access | Player hub |
 | `/campaigns/[campaignId]/player/new` | `.../player/new.vue` | player | campaign-access | Create player character |
-| `/campaigns/[campaignId]/player/[tamerId]` | `.../player/[tamerId]/index.vue` | player | campaign-access | Tamer detail view |
+| `/campaigns/[campaignId]/player/[tamerId]` | `.../player/[tamerId]/index.vue` | player | campaign-access | Tamer detail view; End Turn button shown when it's the player's own turn in active combat |
 | `/campaigns/[campaignId]/player/[tamerId]/edit` | `.../player/[tamerId]/edit.vue` | player | campaign-access | Edit own tamer |
 | `/campaigns/[campaignId]/player/[tamerId]/digimon/new` | `.../player/[tamerId]/digimon/new.vue` | player | campaign-access | Add partner digimon |
 | `/campaigns/[campaignId]/player/[tamerId]/digimon/[id]` | `.../player/[tamerId]/digimon/[id].vue` | player | campaign-access | Partner digimon detail |
@@ -483,31 +488,31 @@ No HTTP clients, no third-party APIs, no webhooks.
 
 **Sources:** Import traces across all source files.
 
-| Module | Direct Dependents | Transitive Reach (≤3 hops) | Test Coverage | CI/Deploy Impact | Risk |
-|---|---|---|---|---|---|
-| `types/index.ts` | All 17 composables, all 14 components, all 40+ API handlers, all server utils | Entire application | None | None | 🔴 CRITICAL |
-| `server/db/schema.ts` | All 40+ API handlers, `server/db/index.ts` | All composables (via API), all pages | None | None | 🔴 CRITICAL |
-| `server/db/index.ts` | All 40+ API handlers | All composables (via fetch), all pages | None | None | 🔴 CRITICAL |
-| `data/attackConstants.ts` | `useEncounters`, `useAttackTags`, `applyEffect`, `attack.post`, `intercede-offer.post`, `npc-attack.post`, `clash-action.post` | All encounter pages, all combat UI | None | None | 🔴 CRITICAL |
-| `data/qualities.ts` | `QualitySelector`, `useDigimonQualities`, `useDigimonForm`, `digivolve.post`, `special-order.post`, `attack.post` | DigimonFormPage, all library/digimon pages, all encounter pages | None | None | 🔴 CRITICAL |
-| `server/utils/applyEffect.ts` | `attack.post`, `intercede-offer.post`, `npc-attack.post`, `clash-action.post`, `direct.post`, `special-order.post` | All encounter pages | None | None | 🔴 CRITICAL |
-| `server/utils/resolveNpcAttack.ts` | `intercede-offer.post`, `npc-attack.post`, `clash-action.post`, `triggerCounterattack` | All encounter pages | None | None | 🔴 CRITICAL |
-| `composables/useEncounters.ts` | `encounters/[id].vue` (combat page), indirectly via sub-composables | All encounter-related UI | None | None | 🔴 CRITICAL |
-| `server/utils/triggerCounterattack.ts` | `attack.post`, `intercede-offer.post` | Encounter pages | None | None | 🟡 MODERATE |
-| `data/attacks.ts` | `AttackSelector`, `useDigimonAttacks`, `useAttackTags` | DigimonFormPage, encounter pages | None | None | 🟡 MODERATE |
-| `composables/useDigimonForm.ts` | `DigimonFormPage` | Library digimon pages (new, edit) | None | None | 🟡 MODERATE |
-| `composables/useTamerForm.ts` | `TamerFormPage` | Library tamer pages (new, edit) | None | None | 🟡 MODERATE |
-| `components/DigimonFormPage.vue` | `library/digimon/new.vue`, `library/digimon/[id].vue` | 2 pages | None | None | 🟡 MODERATE |
-| `components/TamerFormPage.vue` | `library/tamers/new.vue`, `library/tamers/[id].vue` | 2 pages | None | None | 🟡 MODERATE |
-| `utils/formDefaults.ts` | `useDigimonForm`, `DigimonFormPage` | Library digimon pages | None | None | 🟡 MODERATE |
-| `composables/useEvolution.ts` | `library/evolution/[id].vue`, `digivolve.post` | 1 page | None | None | 🟡 MODERATE |
-| `middleware/campaign-access.ts` | All `[campaignId]` routes | All campaign pages | None | None | 🟡 MODERATE |
-| `middleware/dm-access.ts` | Settings, new/edit library pages | ~8 pages | None | None | 🟡 MODERATE |
-| `constants/tamer-skills.ts` | `TamerFormPage` only | 2 pages | None | None | 🟢 LOW |
-| `data/hazards.ts` | `HazardManager` only | 1 component, encounter page | None | None | 🟢 LOW |
-| `utils/torment-validation.ts` | `useTamerValidation` only | TamerFormPage | None | None | 🟢 LOW |
-| `server/utils/participantName.ts` | Several action handlers | Encounter pages (via log entries) | None | None | 🟢 LOW |
-| `server/utils/id.ts` | Several API handlers (ID gen) | — | None | None | 🟢 LOW |
+| Module | Direct Dependents | Transitive Reach (≤3 hops) | If changed, check these files | Risk |
+|---|---|---|---|---|
+| `types/index.ts` | All 17 composables, all 14 components, all 40+ API handlers, all server utils | Entire application | `useDigimonStats.ts`, `applyEffect.ts`, `resolveNpcAttack.ts`, `encounters/[id].vue`, `DigimonFormPage.vue` | 🔴 CRITICAL |
+| `server/db/schema.ts` | All 40+ API handlers, `server/db/index.ts` | All composables (via API), all pages | `server/db/index.ts`, `digimon/index.post.ts`, `tamers/index.post.ts`, `encounters/[id].put.ts`, `campaigns/[id].put.ts` | 🔴 CRITICAL |
+| `server/db/index.ts` | All 40+ API handlers | All composables (via fetch), all pages | `attack.post.ts`, `npc-attack.post.ts`, `digimon/[id].put.ts`, `campaigns/[id].put.ts` | 🔴 CRITICAL |
+| `data/attackConstants.ts` | `useEncounters`, `useAttackTags`, `applyEffect`, `attack.post`, `intercede-offer.post`, `npc-attack.post`, `clash-action.post` | All encounter pages, all combat UI | `applyEffect.ts`, `attack.post.ts`, `intercede-offer.post.ts`, `npc-attack.post.ts`, `useAttackTags.ts` | 🔴 CRITICAL |
+| `data/qualities.ts` | `QualitySelector`, `useDigimonQualities`, `useDigimonForm`, `digivolve.post`, `special-order.post`, `attack.post` | DigimonFormPage, all library/digimon pages, all encounter pages | `QualitySelector.vue`, `useDigimonQualities.ts`, `attack.post.ts`, `digivolve.post.ts`, `resolveSupportAttack.ts` | 🔴 CRITICAL |
+| `server/utils/applyEffect.ts` | `attack.post`, `intercede-offer.post`, `npc-attack.post`, `clash-action.post`, `direct.post`, `special-order.post` | All encounter pages | `attack.post.ts`, `intercede-offer.post.ts`, `npc-attack.post.ts`, `clash-action.post.ts`, `direct.post.ts` | 🔴 CRITICAL |
+| `server/utils/resolveNpcAttack.ts` | `intercede-offer.post`, `npc-attack.post`, `clash-action.post`, `triggerCounterattack` | All encounter pages | `intercede-offer.post.ts`, `npc-attack.post.ts`, `clash-action.post.ts`, `triggerCounterattack.ts` | 🔴 CRITICAL |
+| `composables/useEncounters.ts` | `encounters/[id].vue` (combat page), indirectly via sub-composables | All encounter-related UI | `encounters/[id].vue`, `player/[tamerId]/index.vue` | 🔴 CRITICAL |
+| `server/utils/triggerCounterattack.ts` | `attack.post`, `intercede-offer.post` | Encounter pages | `attack.post.ts`, `intercede-offer.post.ts` | 🟡 MODERATE |
+| `data/attacks.ts` | `AttackSelector`, `useDigimonAttacks`, `useAttackTags` | DigimonFormPage, encounter pages | `AttackSelector.vue`, `useDigimonAttacks.ts`, `useAttackTags.ts` | 🟡 MODERATE |
+| `composables/useDigimonForm.ts` | `DigimonFormPage` | Library digimon pages (new, edit) | `DigimonFormPage.vue`, `library/digimon/new.vue`, `library/digimon/[id].vue` | 🟡 MODERATE |
+| `composables/useTamerForm.ts` | `TamerFormPage` | Library tamer pages (new, edit) | `TamerFormPage.vue`, `library/tamers/new.vue`, `library/tamers/[id].vue` | 🟡 MODERATE |
+| `components/DigimonFormPage.vue` | `library/digimon/new.vue`, `library/digimon/[id].vue` | 2 pages | `library/digimon/new.vue`, `library/digimon/[id].vue` | 🟡 MODERATE |
+| `components/TamerFormPage.vue` | `library/tamers/new.vue`, `library/tamers/[id].vue` | 2 pages | `library/tamers/new.vue`, `library/tamers/[id].vue` | 🟡 MODERATE |
+| `utils/formDefaults.ts` | `useDigimonForm`, `DigimonFormPage` | Library digimon pages | `useDigimonForm.ts`, `DigimonFormPage.vue` | 🟡 MODERATE |
+| `composables/useEvolution.ts` | `library/evolution/[id].vue`, `digivolve.post` | 1 page | `library/evolution/[id].vue`, `digivolve.post.ts` | 🟡 MODERATE |
+| `middleware/campaign-access.ts` | All `[campaignId]` routes | All campaign pages | `campaigns/[campaignId]/index.vue`, `encounters/[id].vue`, `player/[tamerId]/index.vue` | 🟡 MODERATE |
+| `middleware/dm-access.ts` | Settings, new/edit library pages | ~8 pages | `campaigns/[campaignId]/settings.vue`, `library/digimon/new.vue`, `library/tamers/new.vue` | 🟡 MODERATE |
+| `constants/tamer-skills.ts` | `TamerFormPage` only | 2 pages | `TamerFormPage.vue` | 🟢 LOW |
+| `data/hazards.ts` | `HazardManager` only | 1 component, encounter page | `HazardManager.vue` | 🟢 LOW |
+| `utils/torment-validation.ts` | `useTamerValidation` only | TamerFormPage | `useTamerValidation.ts`, `TamerFormPage.vue` | 🟢 LOW |
+| `server/utils/participantName.ts` | Several action handlers | Encounter pages (via log entries) | `attack.post.ts`, `npc-attack.post.ts`, `intercede-offer.post.ts` | 🟢 LOW |
+| `server/utils/id.ts` | Several API handlers (ID gen) | — | `digimon/index.post.ts`, `tamers/index.post.ts`, `campaigns/index.post.ts` | 🟢 LOW |
 
 ---
 
