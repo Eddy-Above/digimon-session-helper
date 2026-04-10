@@ -187,9 +187,16 @@ export function useDigimonStats(form: Ref<any> | any, eddySoulRules?: Ref<EddySo
       if (cid === 'blue') dodge += 2
     }
 
-    const brains = Math.floor(accuracy / 2) + stageConfig.brainsBonus
-    const body = Math.max(0, Math.floor((health + damage + armor) / 3) + sizeConfig.bodyBonus)
-    const agility = Math.max(0, Math.floor((accuracy + dodge) / 2) + sizeConfig.agilityBonus)
+    let brains = Math.floor(accuracy / 2) + stageConfig.brainsBonus
+    let body = Math.max(0, Math.floor((health + damage + armor) / 3) + sizeConfig.bodyBonus)
+    let agility = Math.max(0, Math.floor((accuracy + dodge) / 2) + sizeConfig.agilityBonus)
+
+    for (const ids of qualities.filter((q: any) => q.id === 'improved-derived-stat')) {
+      const r = ids.ranks || 1
+      if (ids.choiceId === 'body') body += r
+      else if (ids.choiceId === 'agility') agility += r
+      else if (ids.choiceId === 'brains') brains += r
+    }
 
     let bit = Math.floor(brains / 10) + stageConfig.stageBonus
     let cpu = Math.floor(body / 10) + stageConfig.stageBonus

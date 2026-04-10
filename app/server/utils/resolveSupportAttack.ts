@@ -8,7 +8,7 @@ import {
   getEffectResolutionType,
   getEffectStatModifiers,
 } from '../../data/attackConstants'
-import { calculateDigimonDerivedStats } from '../../types'
+import { calculateDigimonDerivedStats, STAGE_CONFIG } from '../../types'
 import type { DigimonBaseStats, DigimonStage, DigimonSize, EddySoulRules } from '../../types'
 import { applyEffectToParticipant } from './applyEffect'
 import { applyStanceToDodge } from '../../utils/stanceModifiers'
@@ -70,14 +70,29 @@ export async function getDigimonDerivedStats(entityId: string) {
 
   const derived = calculateDigimonDerivedStats(totalBaseStats, stage, size)
 
-  // Apply Quality bonuses to derived Spec Values
+  // Apply Quality bonuses to derived stats
   const qualities = typeof (dig as any).qualities === 'string'
     ? JSON.parse((dig as any).qualities) : ((dig as any).qualities ?? [])
+
+  // Improved Derived Stat: apply to primary derived stats first, then recompute spec values
+  for (const ids of qualities.filter((q: any) => q.id === 'improved-derived-stat')) {
+    const r = ids.ranks || 1
+    if (ids.choiceId === 'body') derived.body += r
+    else if (ids.choiceId === 'agility') derived.agility += r
+    else if (ids.choiceId === 'brains') derived.brains += r
+  }
+  const stageConf = STAGE_CONFIG[stage]
+  derived.bit = Math.floor(derived.brains / 10) + stageConf.stageBonus
+  derived.cpu = Math.floor(derived.body / 10) + stageConf.stageBonus
+  derived.ram = Math.floor(derived.agility / 10) + stageConf.stageBonus
+
+  // Effect Warrior: +1 to all spec values
   if (qualities.some((q: any) => q.choiceId === 'effect-warrior')) {
     derived.bit += 1
     derived.cpu += 1
     derived.ram += 1
   }
+  // System Boost: capped at 2x base spec value
   const baseBit = derived.bit, baseCpu = derived.cpu, baseRam = derived.ram
   for (const sb of qualities.filter((q: any) => q.id === 'system-boost')) {
     const r = sb.ranks || 1
