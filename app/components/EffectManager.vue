@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { EFFECT_ALIGNMENT, EFFECT_ATTACK_TYPE_RESTRICTIONS, EFFECT_POTENCY_STAT } from '../data/attackConstants'
+import { EFFECT_ALIGNMENT, EFFECT_ATTACK_TYPE_RESTRICTIONS, EFFECT_POTENCY_STAT, PERMANENT_EFFECTS } from '../data/attackConstants'
 
 interface Effect {
   id: string
@@ -82,7 +82,7 @@ function addEffect() {
 }
 
 function applyQuickEffect(effect: typeof commonEffects[0]) {
-  pendingQuickEffect.value = { effect, duration: 1, potency: 0 }
+  pendingQuickEffect.value = { effect, duration: PERMANENT_EFFECTS.has(effect.name) ? 0 : 1, potency: 0 }
 }
 
 function confirmQuickEffect() {
@@ -178,14 +178,17 @@ function getEffectColor(type: string) {
     <div v-if="pendingQuickEffect" class="mt-2 p-2 bg-digimon-dark-700 rounded border border-digimon-dark-600 text-sm">
       <div class="font-medium text-white mb-2">Configure: {{ pendingQuickEffect.effect.name }}</div>
       <div class="flex flex-wrap gap-2 items-center">
-        <label class="text-digimon-dark-400">Duration</label>
-        <input
-          v-model.number="pendingQuickEffect.duration"
-          type="number"
-          min="1"
-          max="99"
-          class="w-16 bg-digimon-dark-600 border border-digimon-dark-500 rounded px-2 py-1 text-white text-center focus:border-digimon-orange-500 focus:outline-none"
-        />
+        <template v-if="!PERMANENT_EFFECTS.has(pendingQuickEffect.effect.name)">
+          <label class="text-digimon-dark-400">Duration</label>
+          <input
+            v-model.number="pendingQuickEffect.duration"
+            type="number"
+            min="1"
+            max="99"
+            class="w-16 bg-digimon-dark-600 border border-digimon-dark-500 rounded px-2 py-1 text-white text-center focus:border-digimon-orange-500 focus:outline-none"
+          />
+        </template>
+        <span v-else class="text-digimon-dark-400 text-xs">Permanent</span>
         <template v-if="EFFECT_POTENCY_STAT[pendingQuickEffect.effect.name]">
           <label class="text-digimon-dark-400 ml-1">Spec Value</label>
           <input

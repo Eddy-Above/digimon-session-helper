@@ -2204,6 +2204,16 @@ async function addEffect(participantId: string, effect: CombatParticipant['activ
   if (!participant) return
 
   participant.activeEffects = [...participant.activeEffects, effect]
+
+  if (effect.name === 'Shield' && (effect.potency ?? 0) > 0) {
+    const newTemp = effect.potency!
+    const currentTemp = participant.currentTempWounds ?? 0
+    const shouldOverride = !houseRules.value?.maxTempWoundsRule || newTemp >= currentTemp
+    if (shouldOverride) {
+      participant.currentTempWounds = newTemp
+    }
+  }
+
   await updateEncounter(currentEncounter.value.id, { participants })
 
   const entity = getEntityDetails(participant)
@@ -2231,6 +2241,11 @@ async function removeEffect(participantId: string, effectId: string) {
 
   const effect = participant.activeEffects.find((e) => e.id === effectId)
   participant.activeEffects = participant.activeEffects.filter((e) => e.id !== effectId)
+
+  if (effect?.name === 'Shield') {
+    participant.currentTempWounds = 0
+  }
+
   await updateEncounter(currentEncounter.value.id, { participants })
 
   const entity = getEntityDetails(participant)
