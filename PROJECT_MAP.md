@@ -1,6 +1,7 @@
 ## Changelog
 | Date | Sections Updated | Summary |
 |------|-----------------|---------|
+| 2026-04-14 | API Schema | Haste effect wired up: attack.post.ts enforces Complex Action cost and blocks bolster/lifesteal; useEncounters.ts grants +1 simple action at round start; canBolsterAttack() blocks bolster for Haste attacks |
 | 2026-04-14 | Env Variables, Pages, Dependency Graph, Blast Radius | Fixed DATABASE_URL Read By column (added migrate.mjs, run-migrations.mjs); corrected player/[tamerId].vue route path (was wrongly listed as index.vue); added computeAttackDamage.ts to graph and blast radius |
 
 ---
@@ -144,7 +145,7 @@ All are POST. Body always includes `encounterId` (path param) + action-specific 
 
 | Endpoint | Handler | Key Inputs | Effect |
 |---|---|---|---|
-| `attack` | `attack.post.ts` | `attackerId`, `targetId` OR `targetIds[]` (area), `attackId`, `bolster?`, `isClashAttack?` | Rolls accuracy vs target dodge, applies damage, deducts actions once; when `targetIds` provided (area attack), delegates to `intercede-offer` with all targetIds after single action deduction; handles Bolster, Lifesteal, Huge Power, Signature Move battery; triggers counterattack on miss; creates dodge/intercede request for player targets |
+| `attack` | `attack.post.ts` | `attackerId`, `targetId` OR `targetIds[]` (area), `attackId`, `bolster?`, `isClashAttack?` | Rolls accuracy vs target dodge, applies damage, deducts actions once; when `targetIds` provided (area attack), delegates to `intercede-offer` with all targetIds after single action deduction; handles Bolster, Lifesteal, Huge Power, Signature Move battery, Haste (Complex Action cost, blocks bolster/lifesteal); triggers counterattack on miss; creates dodge/intercede request for player targets |
 | `npc-attack` | `npc-attack.post.ts` | `attackerId`, `targetId`, `attackId`, `combatMonsterBonus?` | Full server-side attack resolution for NPC→player; rolls dice, calculates net successes, applies wounds; auto-devolves on KO; removes defeated NPCs |
 | `intercede-offer` | `intercede-offer.post.ts` | `attackId`, `targetId` (single) or `targetIds[]` (area), roll data | Single-target: creates one intercede-offer per eligible tamer + GM. Support attacks go through intercede same as damage attacks — only exception is single-target melee self-buff (attacker===target), which resolves immediately. Area attack: deducts actions once, NPC targets auto-resolved via support or damage resolvers, creates ONE request per eligible tamer with `data.areaTargetIds` + `isAreaAttack: true`; excludes tamers/partners who are themselves targets |
 | `intercede-claim` | `intercede-claim.post.ts` | `requestId`, `interceptorParticipantId`, `chosenTargetId?` (area only) | Player steps in to take hit for ally; area attacks: 409 if target already claimed, strips chosen target from other group requests, creates dodge-rolls for any uncovered remaining targets |

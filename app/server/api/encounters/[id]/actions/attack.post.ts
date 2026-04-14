@@ -170,8 +170,34 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  // Attacks cost 1 simple action, or 2 if bolstered or Lifesteal Complex Action
-  let actionCostSimple = (body.bolstered || body.lifestealed) ? 2 : 1
+  // Haste attacks require a Complex Action and cannot be combined with bolster or Lifesteal
+  let attackHasHaste = false
+  if (actor.type === 'digimon') {
+    const [actorDigimonForHaste] = await db.select().from(digimon).where(eq(digimon.id, actor.entityId))
+    if (actorDigimonForHaste?.attacks) {
+      const hasteAttacks = typeof actorDigimonForHaste.attacks === 'string'
+        ? JSON.parse(actorDigimonForHaste.attacks) : actorDigimonForHaste.attacks
+      const hasteAttackDef = hasteAttacks?.find((a: any) => a.id === body.attackId)
+      if (hasteAttackDef?.effect === 'Haste') {
+        attackHasHaste = true
+        if (body.bolstered) {
+          throw createError({
+            statusCode: 400,
+            message: 'Cannot bolster an attack with the Haste effect (already requires Complex Action)',
+          })
+        }
+        if (body.lifestealed) {
+          throw createError({
+            statusCode: 400,
+            message: 'Cannot use Lifesteal Complex Action with Haste (already requires Complex Action)',
+          })
+        }
+      }
+    }
+  }
+
+  // Attacks cost 1 simple action, or 2 if bolstered, Lifesteal Complex Action, or Haste
+  let actionCostSimple = (body.bolstered || body.lifestealed || attackHasHaste) ? 2 : 1
 
   // EddySoul: Combat Monster + Area Attack requires a Complex Action (unless no bonus)
   const campaignRulesSettings = typeof campaign?.rulesSettings === 'string' ? JSON.parse(campaign.rulesSettings) : (campaign?.rulesSettings || {})

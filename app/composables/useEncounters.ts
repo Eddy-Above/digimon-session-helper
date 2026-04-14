@@ -309,6 +309,12 @@ export function useEncounters() {
       newRound += 1
       // Reset actions and hasActed for all participants
       participants.forEach((p) => {
+        // Capture Haste state BEFORE reset: potency=1 means applied after turn passed;
+        // actionsRemaining > 0 means the immediate Haste action wasn't spent on intercede.
+        const hasteEffect = (p.activeEffects || []).find((e: any) => e.name === 'Haste')
+        const hasteGrantsNextRound = !!(hasteEffect && (hasteEffect as any).potency === 1
+          && (p.actionsRemaining?.simple ?? 0) > 0)
+
         p.actionsRemaining = { simple: 2 }
         p.hasActed = false
         p.usedAttackIds = []
@@ -321,6 +327,9 @@ export function useEncounters() {
           }
         }
         p.stunActionReducedThisRound = false
+        if (hasteGrantsNextRound) {
+          p.actionsRemaining.simple += 1
+        }
         // Decrement effect durations; skip permanent effects
         p.activeEffects = (p.activeEffects || [])
           .map((e) => PERMANENT_EFFECTS.has(e.name) ? e : { ...e, duration: e.duration - 1 })

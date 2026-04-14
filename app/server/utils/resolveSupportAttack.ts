@@ -202,6 +202,14 @@ export async function resolvePositiveAuto(params: SupportAttackParams): Promise<
           updated.currentTempWounds = newTempWounds
         }
       }
+      if (params.attackDef.effect === 'Haste') {
+        updated.actionsRemaining = { simple: (p.actionsRemaining?.simple ?? 0) + 1 }
+        if (p.hasActed) {
+          updated.activeEffects = (updated.activeEffects || []).map((e: any) =>
+            e.name === 'Haste' ? { ...e, potency: 1 } : e
+          )
+        }
+      }
       return updated
     }
     return p

@@ -782,6 +782,8 @@ function canBolsterAttack(participant: CombatParticipant, attack: any): boolean 
     const isAreaAttack = attack.tags?.some((t: string) => t.startsWith('Area Attack'))
     if (combatMonsterBonus > 0 && isAreaAttack) return false
   }
+  // Haste already requires Complex Action, cannot bolster
+  if (attack.effect === 'Haste') return false
   return true
 }
 
@@ -2211,6 +2213,17 @@ async function addEffect(participantId: string, effect: CombatParticipant['activ
     const shouldOverride = !houseRules.value?.maxTempWoundsRule || newTemp >= currentTemp
     if (shouldOverride) {
       participant.currentTempWounds = newTemp
+    }
+  }
+
+  if (effect.name === 'Haste') {
+    participant.actionsRemaining = {
+      simple: (participant.actionsRemaining?.simple ?? 0) + 1,
+    }
+    if (participant.hasActed) {
+      participant.activeEffects = participant.activeEffects.map((e) =>
+        e.name === 'Haste' ? { ...e, potency: 1 } : e
+      )
     }
   }
 
