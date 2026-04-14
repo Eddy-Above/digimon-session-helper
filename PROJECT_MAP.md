@@ -1,6 +1,7 @@
 ## Changelog
 | Date | Sections Updated | Summary |
 |------|-----------------|---------|
+| 2026-04-14 | API Schema | Effect duration timing changed: durations now decrement at end of affected target's own turn (not start of round); Poison damage likewise fires at end of each poisoned participant's turn. useEncounters.ts nextTurn() updated. |
 | 2026-04-14 | API Schema | Haste effect wired up: attack.post.ts enforces Complex Action cost and blocks bolster/lifesteal; useEncounters.ts grants +1 simple action at round start; canBolsterAttack() blocks bolster for Haste attacks |
 | 2026-04-14 | Env Variables, Pages, Dependency Graph, Blast Radius | Fixed DATABASE_URL Read By column (added migrate.mjs, run-migrations.mjs); corrected player/[tamerId].vue route path (was wrongly listed as index.vue); added computeAttackDamage.ts to graph and blast radius |
 

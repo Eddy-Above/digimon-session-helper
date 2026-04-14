@@ -330,10 +330,6 @@ export function useEncounters() {
         if (hasteGrantsNextRound) {
           p.actionsRemaining.simple += 1
         }
-        // Decrement effect durations; skip permanent effects
-        p.activeEffects = (p.activeEffects || [])
-          .map((e) => PERMANENT_EFFECTS.has(e.name) ? e : { ...e, duration: e.duration - 1 })
-          .filter((e) => e.duration > 0 || PERMANENT_EFFECTS.has(e.name))
         // Clash round resets
         if (p.clash) {
           const opponent = participants.find((o) => o.id === (p.clash as any).opponentParticipantId)
@@ -342,35 +338,6 @@ export function useEncounters() {
           p.clash.isPinned = false                  // pins expire after one turn
         }
         p.usedFreeClashThisRound = false  // Wrestlemania free clash resets each round
-      })
-
-      // Apply Poison damage to all affected participants
-      participants.forEach((p) => {
-        const poisonEffect = (p.activeEffects || []).find((e: any) => e.name === 'Poison')
-        if (!poisonEffect) return
-
-        const dmg = (poisonEffect as any).potency ?? 1
-        const tempAvailable = p.currentTempWounds ?? 0
-        const tempAbsorb = Math.min(tempAvailable, dmg)
-        const remainder = dmg - tempAbsorb
-        p.currentTempWounds = tempAvailable - tempAbsorb
-        if (tempAbsorb > 0 && p.currentTempWounds === 0) {
-          p.activeEffects = (p.activeEffects || []).filter((e: any) => e.name !== 'Shield')
-        }
-        p.currentWounds = Math.min(p.maxWounds, (p.currentWounds || 0) + remainder)
-
-        poisonLogEntries.push({
-          id: `log-poison-${p.id}-${Date.now()}`,
-          timestamp: new Date().toISOString(),
-          round: newRound,
-          actorId: p.id,
-          actorName: p.id,
-          action: 'Poison',
-          target: p.id,
-          result: `${dmg} poison damage`,
-          damage: dmg,
-          effects: ['Poison'],
-        })
       })
 
       // Signature Move Battery: grant +1 Battery at end of round to digimon who did not use Signature Move
@@ -399,6 +366,38 @@ export function useEncounters() {
     if (currentParticipant) {
       currentParticipant.hasActed = true
       currentParticipant.isActive = false
+
+      // Apply Poison damage at end of this participant's turn (before duration tick removes it)
+      const poisonEffect = (currentParticipant.activeEffects || []).find((e: any) => e.name === 'Poison')
+      if (poisonEffect) {
+        const dmg = (poisonEffect as any).potency ?? 1
+        const tempAvailable = currentParticipant.currentTempWounds ?? 0
+        const tempAbsorb = Math.min(tempAvailable, dmg)
+        const remainder = dmg - tempAbsorb
+        currentParticipant.currentTempWounds = tempAvailable - tempAbsorb
+        if (tempAbsorb > 0 && currentParticipant.currentTempWounds === 0) {
+          currentParticipant.activeEffects = (currentParticipant.activeEffects || []).filter((e: any) => e.name !== 'Shield')
+        }
+        currentParticipant.currentWounds = Math.min(currentParticipant.maxWounds, (currentParticipant.currentWounds || 0) + remainder)
+
+        poisonLogEntries.push({
+          id: `log-poison-${currentParticipant.id}-${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          round: encounter.round,
+          actorId: currentParticipant.id,
+          actorName: currentParticipant.id,
+          action: 'Poison',
+          target: currentParticipant.id,
+          result: `${dmg} poison damage`,
+          damage: dmg,
+          effects: ['Poison'],
+        })
+      }
+
+      // Decrement effect durations at end of this participant's turn; skip permanent effects
+      currentParticipant.activeEffects = (currentParticipant.activeEffects || [])
+        .map((e) => PERMANENT_EFFECTS.has(e.name) ? e : { ...e, duration: e.duration - 1 })
+        .filter((e) => e.duration > 0 || PERMANENT_EFFECTS.has(e.name))
     }
 
     // At tamer turn-end: mark partner digimon as having acted and open post-turn intercede window
