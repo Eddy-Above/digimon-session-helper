@@ -83,6 +83,9 @@ const hasRolledWillpower = ref(false)
 const pendingDigivolve = ref<{ participant: CombatParticipant; targetChainIndex: number; targetSpecies: string; tamer: Tamer } | null>(null)
 const pendingWarpChoice = ref<{ chainIndex: number; species: string } | null>(null)
 
+// End Combat modal state
+const showEndCombatModal = ref(false)
+
 // GM Intercede modal state
 const showGmIntercedeModal = ref(false)
 const gmIntercedeRequest = ref<any>(null)
@@ -171,6 +174,13 @@ const hazards = computed(() => {
 const pendingRequests = computed(() => {
   if (!currentEncounter.value) return []
   return (currentEncounter.value.pendingRequests as any[]) || []
+})
+
+const hasRecoveryChecksPending = computed(() => {
+  return pendingRequests.value.some((r: any) => r.type === 'recovery-check')
+})
+const pendingRecoveryCheckCount = computed(() => {
+  return pendingRequests.value.filter((r: any) => r.type === 'recovery-check').length
 })
 
 // Unprocessed responses
@@ -1590,21 +1600,25 @@ async function handleNextTurn() {
   }
 }
 
-// End combat
-async function handleEndCombat() {
+// End combat — opens the modal to choose recovery check or immediate end
+function handleEndCombat() {
   if (!currentEncounter.value) return
-  if (confirm('End this combat encounter?')) {
-    // Refresh evolution lines to get latest currentStageIndex values
-    await fetchEvolutionLines()
+  showEndCombatModal.value = true
+}
 
-    // Auto-devolve all partner digimon to rookie stage
-    const participants = (currentEncounter.value.participants as CombatParticipant[]) || []
+// Shared end-combat sequence: devolve (unless skipDevolve), end combat, persist wounds, log
+async function executeEndCombatSequence(skipDevolve = false) {
+  if (!currentEncounter.value) return
+  const participants = (currentEncounter.value.participants as CombatParticipant[]) || []
+
+  if (!skipDevolve) {
+    // Refresh evolution lines and devolve all partner digimon to rookie
+    await fetchEvolutionLines()
     for (const p of participants) {
       if (p.type === 'digimon' && p.evolutionLineId) {
         const evoLine = evolutionLines.value.find(l => l.id === p.evolutionLineId)
         if (evoLine) {
           const chain = typeof evoLine.chain === 'string' ? JSON.parse(evoLine.chain) : evoLine.chain
-          // Find rookie entry (or fall back to first entry)
           const rookieIndex = chain.findIndex((e: any) => e.stage === 'rookie')
           const targetIndex = rookieIndex >= 0 ? rookieIndex : 0
           if (evoLine.currentStageIndex !== targetIndex) {
@@ -1613,47 +1627,123 @@ async function handleEndCombat() {
         }
       }
     }
+  }
 
-    await endCombat(currentEncounter.value.id)
+  await endCombat(currentEncounter.value.id)
 
-    // Persist wounds back to DB for tamers and fresh/in-training digimon
-    for (const p of participants) {
-      const wounds = (p as any).currentWounds ?? 0
-      if (p.type === 'tamer') {
+  // Persist wounds back to DB for tamers and fresh/in-training/rookie digimon
+  for (const p of participants) {
+    const wounds = (p as any).currentWounds ?? 0
+    if (p.type === 'tamer') {
+      try {
+        await $fetch(`/api/tamers/${p.entityId}`, {
+          method: 'PUT',
+          body: { currentWounds: wounds },
+        })
+      } catch (e) {
+        console.error('Failed to save tamer wounds:', e)
+      }
+    } else if (p.type === 'digimon') {
+      const digimonEntity = digimonMap.value.get(p.entityId)
+      if (digimonEntity && (digimonEntity.stage === 'fresh' || digimonEntity.stage === 'in-training' || digimonEntity.stage === 'rookie') && !digimonEntity.isEnemy) {
         try {
-          await $fetch(`/api/tamers/${p.entityId}`, {
+          await $fetch(`/api/digimon/${p.entityId}`, {
             method: 'PUT',
             body: { currentWounds: wounds },
           })
         } catch (e) {
-          console.error('Failed to save tamer wounds:', e)
-        }
-      } else if (p.type === 'digimon') {
-        const digimonEntity = digimonMap.value.get(p.entityId)
-        if (digimonEntity && (digimonEntity.stage === 'fresh' || digimonEntity.stage === 'in-training' || digimonEntity.stage === 'rookie') && !digimonEntity.isEnemy) {
-          try {
-            await $fetch(`/api/digimon/${p.entityId}`, {
-              method: 'PUT',
-              body: { currentWounds: wounds },
-            })
-          } catch (e) {
-            console.error('Failed to save digimon wounds:', e)
-          }
+          console.error('Failed to save digimon wounds:', e)
         }
       }
     }
+  }
 
-    await addBattleLogEntry(currentEncounter.value.id, {
-      round: currentEncounter.value.round,
-      actorId: 'system',
-      actorName: 'System',
-      action: 'Combat ended',
-      target: null,
-      result: 'The encounter has concluded',
-      damage: null,
-      effects: [],
+  await addBattleLogEntry(currentEncounter.value.id, {
+    round: currentEncounter.value.round,
+    actorId: 'system',
+    actorName: 'System',
+    action: 'Combat ended',
+    target: null,
+    result: 'The encounter has concluded',
+    damage: null,
+    effects: [],
+  })
+}
+
+// No recovery — end immediately
+async function handleEndCombatNoRecovery() {
+  showEndCombatModal.value = false
+  await executeEndCombatSequence(false)
+}
+
+// Request recovery checks — devolve first, then send one request per tamer
+async function handleRequestRecoveryChecks() {
+  if (!currentEncounter.value) return
+  showEndCombatModal.value = false
+
+  const encounterId = currentEncounter.value.id
+  await fetchEvolutionLines()
+
+  // Devolve all partner digimon to rookie
+  const participants = (currentEncounter.value.participants as CombatParticipant[]) || []
+  for (const p of participants) {
+    if (p.type === 'digimon' && p.evolutionLineId) {
+      const evoLine = evolutionLines.value.find(l => l.id === p.evolutionLineId)
+      if (evoLine) {
+        const chain = typeof evoLine.chain === 'string' ? JSON.parse(evoLine.chain) : evoLine.chain
+        const rookieIndex = chain.findIndex((e: any) => e.stage === 'rookie')
+        const targetIndex = rookieIndex >= 0 ? rookieIndex : 0
+        if (evoLine.currentStageIndex !== targetIndex) {
+          await updateEvolutionLine(p.evolutionLineId, { currentStageIndex: targetIndex })
+        }
+      }
+    }
+  }
+
+  // Reload evolution lines so we have fresh rookieDigimonId data
+  await fetchEvolutionLines()
+
+  // Send one recovery-check request per non-enemy tamer participant
+  for (const p of participants) {
+    if (p.type !== 'tamer' || (p as any).isEnemy) continue
+
+    // Find partner digimon participant (partnerId is on the digimon entity, not the participant)
+    const digimonPart = participants.find((d: any) => {
+      if (d.type !== 'digimon' || d.isEnemy) return false
+      const entity = digimonMap.value.get(d.entityId)
+      return entity?.partnerId === p.entityId
+    }) as CombatParticipant | undefined
+
+    // Resolve rookie digimon ID via evolution line
+    let rookieDigimonId: string | null = null
+    if (digimonPart?.evolutionLineId) {
+      const evoLine = evolutionLines.value.find(l => l.id === digimonPart.evolutionLineId)
+      if (evoLine) {
+        const chain = typeof evoLine.chain === 'string' ? JSON.parse(evoLine.chain) : evoLine.chain
+        const rookieIndex = chain.findIndex((e: any) => e.stage === 'rookie')
+        const idx = rookieIndex >= 0 ? rookieIndex : 0
+        rookieDigimonId = chain[idx]?.digimonId ?? null
+      }
+    }
+
+    await createRequest(encounterId, 'recovery-check', p.entityId, p.id, {
+      tamerParticipantId: p.id,
+      digimonParticipantId: digimonPart?.id ?? null,
+      rookieDigimonId,
     })
   }
+}
+
+// Complete end combat — cancel remaining recovery requests, then end
+async function handleFinishEndCombat() {
+  if (!currentEncounter.value) return
+
+  const remainingRecovery = pendingRequests.value.filter((r: any) => r.type === 'recovery-check')
+  for (const req of remainingRecovery) {
+    await cancelRequest(currentEncounter.value.id, req.id)
+  }
+
+  await executeEndCombatSequence(true)
 }
 
 // Get the tamer for a partner digimon participant
@@ -2695,6 +2785,15 @@ async function handleBreakClash(participantId: string, clashId: string) {
               >
                 End Combat
               </button>
+              <div v-if="hasRecoveryChecksPending" class="flex items-center gap-2">
+                <span class="text-green-400 text-sm">Recovery rolls pending: {{ pendingRecoveryCheckCount }}</span>
+                <button
+                  @click="handleFinishEndCombat"
+                  class="bg-green-700 hover:bg-green-600 text-white px-4 py-2 rounded-lg font-semibold transition-colors"
+                >
+                  Complete End Combat
+                </button>
+              </div>
               <button
                 v-if="currentEncounter.phase !== 'ended'"
                 class="bg-digimon-dark-700 hover:bg-digimon-dark-600 text-white px-4 py-2 rounded-lg font-semibold transition-colors"
@@ -4792,6 +4891,40 @@ async function handleBreakClash(participantId: string, clashId: string) {
       </div>
     </Teleport>
 
+    <!-- End Combat Modal -->
+    <Teleport to="body">
+      <div
+        v-if="showEndCombatModal"
+        class="fixed inset-0 bg-black/80 flex items-center justify-center z-50"
+      >
+        <div class="bg-digimon-dark-800 rounded-xl p-6 w-full max-w-md border-2 border-red-500">
+          <h2 class="font-display text-xl font-semibold text-red-400 mb-4">End Combat</h2>
+          <p class="text-white text-sm mb-6">
+            Would you like to offer players a Recovery Check before ending the encounter?
+          </p>
+          <div class="flex gap-3">
+            <button
+              @click="handleRequestRecoveryChecks"
+              class="flex-1 bg-green-700 hover:bg-green-600 text-white px-4 py-2 rounded-lg font-semibold transition-colors"
+            >
+              Yes — Request Recovery Checks
+            </button>
+            <button
+              @click="handleEndCombatNoRecovery"
+              class="flex-1 bg-red-700 hover:bg-red-600 text-white px-4 py-2 rounded-lg font-semibold transition-colors"
+            >
+              No — End Combat
+            </button>
+          </div>
+          <button
+            @click="showEndCombatModal = false"
+            class="mt-3 w-full text-digimon-dark-400 hover:text-white text-sm transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </Teleport>
 
   </div>
 </template>

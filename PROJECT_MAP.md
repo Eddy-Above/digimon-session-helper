@@ -135,9 +135,9 @@ All routes return JSON. No auth middleware on API routes — access is enforced 
 
 | Method | Path | Handler File | Notes |
 |---|---|---|---|
-| POST | `/api/encounters/[id]/requests` | `encounters/[id]/requests.post.ts` | Create pending action request for a player |
+| POST | `/api/encounters/[id]/requests` | `encounters/[id]/requests.post.ts` | Create pending action request for a player; types: `digimon-selection`, `initiative-roll`, `dodge-roll`, `intercede-offer`, `health-roll`, `recovery-check`; `recovery-check` data: `{ tamerParticipantId, digimonParticipantId, rookieDigimonId }` |
 | DELETE | `/api/encounters/[id]/requests/[requestId]` | `encounters/[id]/requests/[requestId].delete.ts` | Remove resolved request |
-| POST | `/api/encounters/[id]/responses` | `encounters/[id]/responses.post.ts` | Player submits response to request |
+| POST | `/api/encounters/[id]/responses` | `encounters/[id]/responses.post.ts` | Player submits response to request; `recovery-rolled` type: `{ tamerSuccesses, digimonSuccesses, tamerDiceResults, digimonDiceResults }` — server recovers wounds on tamer participant and rookie digimon (participant JSON if already at rookie, or DB record if devolved from higher stage), removes request immediately |
 | DELETE | `/api/encounters/[id]/responses/[responseId]` | `encounters/[id]/responses/[responseId].delete.ts` | Remove processed response |
 
 **Combat Actions — `server/api/encounters/[id]/actions/`:**
@@ -244,7 +244,7 @@ All are POST. Body always includes `encounterId` (path param) + action-specific 
 | `turnOrder` | jsonb | `string[]` — participant IDs in initiative order |
 | `battleLog` | jsonb | `BattleLogEntry[]` — complete action history |
 | `hazards` | jsonb | `EnvironmentHazard[]` |
-| `pendingRequests` | jsonb | `PendingRequest[]` — awaiting player input (dodge, intercede, clash) |
+| `pendingRequests` | jsonb | `PendingRequest[]` — awaiting player input (dodge, intercede, clash, recovery-check) |
 | `requestResponses` | jsonb | `RequestResponse[]` — submitted player responses |
 | `createdAt` | timestamp | — |
 | `updatedAt` | timestamp | — |

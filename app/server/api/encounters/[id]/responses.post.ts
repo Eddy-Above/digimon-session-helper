@@ -11,7 +11,7 @@ interface SubmitResponseBody {
   requestId: string
   tamerId: string
   response: {
-    type: 'digimon-selected' | 'initiative-rolled' | 'dodge-rolled' | 'health-rolled' | 'counterattack-declined' | 'counterattack-triggered'
+    type: 'digimon-selected' | 'initiative-rolled' | 'dodge-rolled' | 'health-rolled' | 'counterattack-declined' | 'counterattack-triggered' | 'recovery-rolled'
     digimonId?: string
     initiative?: number
     initiativeRoll?: number
@@ -26,6 +26,10 @@ interface SubmitResponseBody {
     accuracyDicePool?: number
     accuracySuccesses?: number
     accuracyDiceResults?: number[]
+    tamerSuccesses?: number
+    digimonSuccesses?: number
+    tamerDiceResults?: number[]
+    digimonDiceResults?: number[]
   }
 }
 
@@ -1148,6 +1152,86 @@ export default defineEventHandler(async (event) => {
         updatedAt: new Date(),
       }).where(eq(encounters.id, encounterId))
     }
+
+    const [updated] = await db.select().from(encounters).where(eq(encounters.id, encounterId))
+    return {
+      ...updated,
+      participants: parseJsonField(updated.participants),
+      turnOrder: parseJsonField(updated.turnOrder),
+      battleLog: parseJsonField(updated.battleLog),
+      hazards: parseJsonField(updated.hazards),
+      pendingRequests: parseJsonField(updated.pendingRequests),
+      requestResponses: parseJsonField(updated.requestResponses),
+    }
+  }
+
+  // === RECOVERY-ROLLED: post-combat wound recovery ===
+  if (body.response.type === 'recovery-rolled') {
+    let participants = parseJsonField(encounter.participants)
+    const battleLog = parseJsonField(encounter.battleLog)
+
+    const tamerSuccesses = body.response.tamerSuccesses ?? 0
+    const digimonSuccesses = body.response.digimonSuccesses ?? 0
+    const { tamerParticipantId, digimonParticipantId, rookieDigimonId } = request.data || {}
+
+    // Recover tamer wounds (reduce currentWounds, min 0)
+    if (tamerParticipantId && tamerSuccesses > 0) {
+      participants = participants.map((p: any) => {
+        if (p.id === tamerParticipantId) {
+          return { ...p, currentWounds: Math.max(0, (p.currentWounds ?? 0) - tamerSuccesses) }
+        }
+        return p
+      })
+    }
+
+    // Recover digimon wounds
+    if (digimonSuccesses > 0 && rookieDigimonId) {
+      const digimonPart = digimonParticipantId
+        ? participants.find((p: any) => p.id === digimonParticipantId)
+        : null
+
+      if (digimonPart && digimonPart.entityId === rookieDigimonId) {
+        // Digimon is already at rookie in the encounter — update participant wounds
+        participants = participants.map((p: any) => {
+          if (p.id === digimonParticipantId) {
+            return { ...p, currentWounds: Math.max(0, (p.currentWounds ?? 0) - digimonSuccesses) }
+          }
+          return p
+        })
+      } else {
+        // Digimon was at champion+ — update the rookie entity's DB record directly
+        const [rookieDigi] = await db.select().from(digimon).where(eq(digimon.id, rookieDigimonId))
+        if (rookieDigi) {
+          const newWounds = Math.max(0, (rookieDigi.currentWounds ?? 0) - digimonSuccesses)
+          await db.update(digimon).set({ currentWounds: newWounds }).where(eq(digimon.id, rookieDigimonId))
+        }
+      }
+    }
+
+    // Add battle log entry
+    const tamerPart = participants.find((p: any) => p.id === tamerParticipantId)
+    const recoveryLog = {
+      id: `log-${Date.now()}-recovery`,
+      timestamp: new Date().toISOString(),
+      round: encounter.round,
+      actorId: tamerParticipantId,
+      actorName: tamerPart?.name ?? 'Tamer',
+      action: 'Recovery Check',
+      target: null,
+      result: `Tamer: ${tamerSuccesses} wound${tamerSuccesses !== 1 ? 's' : ''} recovered. Digimon: ${digimonSuccesses} wound${digimonSuccesses !== 1 ? 's' : ''} recovered.`,
+      damage: null,
+      effects: ['Recovery'],
+    }
+
+    // Remove request immediately
+    const filteredRequests = pendingRequests.filter((r: any) => r.id !== body.requestId)
+
+    await db.update(encounters).set({
+      participants: JSON.stringify(participants),
+      battleLog: JSON.stringify([...battleLog, recoveryLog]),
+      pendingRequests: JSON.stringify(filteredRequests),
+      updatedAt: new Date(),
+    }).where(eq(encounters.id, encounterId))
 
     const [updated] = await db.select().from(encounters).where(eq(encounters.id, encounterId))
     return {

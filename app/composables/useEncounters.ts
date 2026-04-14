@@ -523,7 +523,7 @@ export function useEncounters() {
 
   async function createRequest(
     encounterId: string,
-    type: 'digimon-selection' | 'initiative-roll' | 'dodge-roll' | 'intercede-offer',
+    type: 'digimon-selection' | 'initiative-roll' | 'dodge-roll' | 'intercede-offer' | 'health-roll' | 'recovery-check',
     targetTamerId: string,
     targetParticipantId?: string,
     data?: any
@@ -555,7 +555,7 @@ export function useEncounters() {
     requestId: string,
     tamerId: string,
     response: {
-      type: 'digimon-selected' | 'initiative-rolled' | 'dodge-rolled' | 'health-rolled' | 'counterattack-declined' | 'counterattack-triggered'
+      type: 'digimon-selected' | 'initiative-rolled' | 'dodge-rolled' | 'health-rolled' | 'counterattack-declined' | 'counterattack-triggered' | 'recovery-rolled'
       digimonId?: string
       initiative?: number
       initiativeRoll?: number
@@ -571,6 +571,10 @@ export function useEncounters() {
       accuracyDicePool?: number
       accuracySuccesses?: number
       accuracyDiceResults?: number[]
+      tamerSuccesses?: number
+      digimonSuccesses?: number
+      tamerDiceResults?: number[]
+      digimonDiceResults?: number[]
       timestamp?: string
     }
   ): Promise<Encounter | null> {

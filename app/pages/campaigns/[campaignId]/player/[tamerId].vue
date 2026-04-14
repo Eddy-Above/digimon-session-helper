@@ -36,6 +36,8 @@ const myRequests = ref<any[]>([])
 const initiativeRollResult = ref<{ rolls: number[]; total: number } | null>(null)
 const dodgeRollResult = ref<{ rolls: number[]; successes: number; dicePool: number } | null>(null)
 const healthRollResult = ref<{ rolls: number[]; successes: number; dicePool: number } | null>(null)
+const recoveryRollResult = ref<{ tamerDice: number[]; tamerSuccesses: number; digimonDice: number[]; digimonSuccesses: number } | null>(null)
+const hasRolledRecovery = ref(false)
 const clashCheckRollResult = ref<{ rolls: number[]; total: number } | null>(null)
 const clashInitiateRollResult = ref<{ rolls: number[]; total: number } | null>(null)
 const clashCheckResultData = ref<{ youControl: boolean; waiting: boolean; opponentName: string; playerRoll: number; playerRollDice: number[]; bodyBonus: number; opponentRollTotal?: number } | null>(null)
@@ -575,6 +577,27 @@ const currentInitiativeRequest = computed(() => myRequests.value.find((r) => r.t
 const currentDodgeRequest = computed(() => myRequests.value.find((r) => r.type === 'dodge-roll'))
 const currentHealthRequest = computed(() => myRequests.value.find((r) => r.type === 'health-roll'))
 const currentIntercedeRequest = computed(() => myRequests.value.find((r) => r.type === 'intercede-offer'))
+const hasRecoveryCheckRequest = computed(() => myRequests.value.some((r) => r.type === 'recovery-check'))
+const currentRecoveryCheckRequest = computed(() => myRequests.value.find((r) => r.type === 'recovery-check'))
+const recoveryRookieDigimon = computed(() => {
+  const id = currentRecoveryCheckRequest.value?.data?.rookieDigimonId
+  if (!id) return null
+  return allDigimon.value.find((d) => d.id === id) ?? null
+})
+const recoveryTamerDicePool = computed(() => {
+  if (!tamer.value) return 1
+  const { attributes, skills, xpBonuses } = tamer.value
+  const totalBody = (attributes.body ?? 0) + (xpBonuses?.attributes?.body ?? 0)
+  const totalEndurance = (skills.endurance ?? 0) + (xpBonuses?.skills?.endurance ?? 0)
+  return totalBody + totalEndurance
+})
+const recoveryDigimonDicePool = computed(() => {
+  const digi = recoveryRookieDigimon.value
+  if (!digi) return 0
+  const base = typeof digi.baseStats === 'string' ? JSON.parse(digi.baseStats) : digi.baseStats
+  const bonus = typeof digi.bonusStats === 'string' ? JSON.parse(digi.bonusStats) : (digi.bonusStats ?? {})
+  return (base?.health ?? 0) + (bonus?.health ?? 0)
+})
 const hasCounterattackRequest = computed(() => myRequests.value.some((r) => r.type === 'counterattack-prompt'))
 const currentCounterattackRequest = computed(() => myRequests.value.find((r) => r.type === 'counterattack-prompt'))
 
@@ -609,6 +632,11 @@ watch(() => clashCheckNeededParticipant.value?.id, (newId) => {
 watch(() => currentHealthRequest.value?.id, () => {
   hasRolledHealth.value = false
   healthRollResult.value = null
+})
+
+watch(() => currentRecoveryCheckRequest.value?.id, () => {
+  hasRolledRecovery.value = false
+  recoveryRollResult.value = null
 })
 
 watch(() => currentCounterattackRequest.value?.id, () => {
@@ -2342,6 +2370,30 @@ async function submitHealthRoll() {
     }
   } catch (error) {
     console.error('Error submitting health roll:', error)
+  }
+}
+
+async function submitRecoveryRoll() {
+  if (!activeEncounter.value || !currentRecoveryCheckRequest.value || !tamer.value || !recoveryRollResult.value) return
+  const capturedRequest = currentRecoveryCheckRequest.value
+  try {
+    await respondToRequest(
+      activeEncounter.value.id,
+      capturedRequest.id,
+      tamer.value.id,
+      {
+        type: 'recovery-rolled',
+        tamerSuccesses: recoveryRollResult.value.tamerSuccesses,
+        digimonSuccesses: recoveryRollResult.value.digimonSuccesses,
+        tamerDiceResults: recoveryRollResult.value.tamerDice,
+        digimonDiceResults: recoveryRollResult.value.digimonDice,
+      }
+    )
+    recoveryRollResult.value = null
+    hasRolledRecovery.value = false
+    await loadData()
+  } catch (error) {
+    console.error('Error submitting recovery roll:', error)
   }
 }
 
@@ -4676,6 +4728,96 @@ async function handleBreakClash(participantId: string, clashId: string) {
           class="w-full bg-teal-600 hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg font-semibold transition-colors"
         >
           Submit Health Roll
+        </button>
+      </div>
+    </div>
+  </Teleport>
+
+  <!-- Recovery Check Modal -->
+  <Teleport to="body">
+    <div
+      v-if="hasRecoveryCheckRequest"
+      class="fixed inset-0 bg-black/80 flex items-center justify-center z-50"
+      :class="{ 'animate-pulse': !hasRolledRecovery }"
+    >
+      <div
+        class="bg-digimon-dark-800 rounded-xl p-6 w-full max-w-md border-2 border-green-500"
+        :class="{ 'animate-none': hasRolledRecovery }"
+      >
+        <h2 class="font-display text-xl font-semibold text-green-400 mb-2">Recovery Check!</h2>
+        <p class="text-digimon-dark-300 text-sm mb-4">Roll recovery checks below. Heal 1 wound box per success (5 or 6).</p>
+
+        <!-- Tamer roll section -->
+        <div class="mb-4 bg-green-900/20 rounded-lg p-4">
+          <div class="text-green-300 font-semibold mb-2">{{ tamer?.name }} (Tamer) — {{ recoveryTamerDicePool }}d6</div>
+          <button
+            :disabled="hasRolledRecovery"
+            @click="(() => {
+              const tRolls: number[] = Array.from({ length: recoveryTamerDicePool }, () => Math.floor(Math.random() * 6) + 1)
+              const dRolls: number[] = recoveryRookieDigimon
+                ? Array.from({ length: recoveryDigimonDicePool }, () => Math.floor(Math.random() * 6) + 1)
+                : []
+              recoveryRollResult = {
+                tamerDice: tRolls,
+                tamerSuccesses: tRolls.filter(d => d >= 5).length,
+                digimonDice: dRolls,
+                digimonSuccesses: dRolls.filter(d => d >= 5).length,
+              }
+              hasRolledRecovery = true
+            })()"
+            :class="[
+              'w-full px-4 py-2 rounded-lg font-semibold text-white transition-colors',
+              hasRolledRecovery ? 'bg-digimon-dark-600 opacity-50 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'
+            ]"
+          >
+            {{ hasRolledRecovery ? 'Rolled' : 'Roll Recovery Check' }}
+          </button>
+          <div v-if="recoveryRollResult" class="mt-3 text-center">
+            <div class="flex flex-wrap justify-center gap-1 mb-1">
+              <span
+                v-for="(die, i) in recoveryRollResult.tamerDice"
+                :key="i"
+                :class="[
+                  'w-8 h-8 flex items-center justify-center rounded font-bold text-sm',
+                  die >= 5 ? 'bg-green-600 text-white' : 'bg-digimon-dark-600 text-digimon-dark-400'
+                ]"
+              >{{ die }}</span>
+            </div>
+            <div class="text-2xl font-bold text-green-400">
+              {{ recoveryRollResult.tamerSuccesses }}
+              <span class="text-sm text-digimon-dark-400">wound{{ recoveryRollResult.tamerSuccesses !== 1 ? 's' : '' }} recovered</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Digimon roll section -->
+        <div v-if="recoveryRookieDigimon" class="mb-4 bg-green-900/20 rounded-lg p-4">
+          <div class="text-green-300 font-semibold mb-2">{{ (recoveryRookieDigimon as any).nickname || recoveryRookieDigimon.name }} (Digimon, Rookie) — {{ recoveryDigimonDicePool }}d6</div>
+          <div v-if="recoveryRollResult" class="text-center">
+            <div class="flex flex-wrap justify-center gap-1 mb-1">
+              <span
+                v-for="(die, i) in recoveryRollResult.digimonDice"
+                :key="i"
+                :class="[
+                  'w-8 h-8 flex items-center justify-center rounded font-bold text-sm',
+                  die >= 5 ? 'bg-green-600 text-white' : 'bg-digimon-dark-600 text-digimon-dark-400'
+                ]"
+              >{{ die }}</span>
+            </div>
+            <div class="text-2xl font-bold text-green-400">
+              {{ recoveryRollResult.digimonSuccesses }}
+              <span class="text-sm text-digimon-dark-400">wound{{ recoveryRollResult.digimonSuccesses !== 1 ? 's' : '' }} recovered</span>
+            </div>
+          </div>
+          <div v-else class="text-digimon-dark-400 text-sm text-center">Roll above to see digimon result</div>
+        </div>
+
+        <button
+          :disabled="!recoveryRollResult"
+          @click="submitRecoveryRoll"
+          class="w-full bg-green-700 hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg font-semibold transition-colors"
+        >
+          Submit Recovery Roll
         </button>
       </div>
     </div>
