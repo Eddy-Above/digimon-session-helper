@@ -4159,6 +4159,7 @@ async function handleBreakClash(participantId: string, clashId: string) {
             <EffectManager
               :effects="selectedParticipant.activeEffects"
               :participant-name="getEntityDetails(selectedParticipant)?.name || 'Unknown'"
+              :stun-max-duration1="houseRules?.stunMaxDuration1 ?? false"
               @add="(effect) => addEffect(selectedParticipant!.id, effect)"
               @remove="(effectId) => removeEffect(selectedParticipant!.id, effectId)"
             />

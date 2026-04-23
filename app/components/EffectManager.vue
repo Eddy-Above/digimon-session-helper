@@ -15,6 +15,7 @@ interface Effect {
 interface Props {
   effects: Effect[]
   participantName: string
+  stunMaxDuration1?: boolean
 }
 
 const props = defineProps<Props>()
@@ -68,7 +69,7 @@ function addEffect() {
     id: `effect-${Date.now()}`,
     name: newEffect.name,
     type: newEffect.type,
-    duration: newEffect.duration,
+    duration: (props.stunMaxDuration1 && newEffect.name === 'Stun') ? 1 : newEffect.duration,
     source: 'Manual',
     description: newEffect.description,
   }
@@ -87,7 +88,8 @@ function applyQuickEffect(effect: typeof commonEffects[0]) {
 
 function confirmQuickEffect() {
   if (!pendingQuickEffect.value) return
-  const { effect, duration, potency } = pendingQuickEffect.value
+  const { effect, duration: rawDuration, potency } = pendingQuickEffect.value
+  const duration = (props.stunMaxDuration1 && effect.name === 'Stun') ? 1 : rawDuration
   const hasPotency = !!EFFECT_POTENCY_STAT[effect.name]
   emit('add', {
     id: `effect-${Date.now()}`,
@@ -179,14 +181,17 @@ function getEffectColor(type: string) {
       <div class="font-medium text-white mb-2">Configure: {{ pendingQuickEffect.effect.name }}</div>
       <div class="flex flex-wrap gap-2 items-center">
         <template v-if="!PERMANENT_EFFECTS.has(pendingQuickEffect.effect.name)">
-          <label class="text-digimon-dark-400">Duration</label>
-          <input
-            v-model.number="pendingQuickEffect.duration"
-            type="number"
-            min="1"
-            max="99"
-            class="w-16 bg-digimon-dark-600 border border-digimon-dark-500 rounded px-2 py-1 text-white text-center focus:border-digimon-orange-500 focus:outline-none"
-          />
+          <template v-if="!(stunMaxDuration1 && pendingQuickEffect.effect.name === 'Stun')">
+            <label class="text-digimon-dark-400">Duration</label>
+            <input
+              v-model.number="pendingQuickEffect.duration"
+              type="number"
+              min="1"
+              max="99"
+              class="w-16 bg-digimon-dark-600 border border-digimon-dark-500 rounded px-2 py-1 text-white text-center focus:border-digimon-orange-500 focus:outline-none"
+            />
+          </template>
+          <span v-else class="text-digimon-dark-400 text-xs">Duration: 1 round (house rule)</span>
         </template>
         <span v-else class="text-digimon-dark-400 text-xs">Permanent</span>
         <template v-if="EFFECT_POTENCY_STAT[pendingQuickEffect.effect.name]">
@@ -231,15 +236,18 @@ function getEffectColor(type: string) {
             <option value="debuff">Debuff</option>
             <option value="status">Status</option>
           </select>
-          <input
-            v-model.number="newEffect.duration"
-            type="number"
-            min="1"
-            max="99"
-            placeholder="Rounds"
-            class="w-20 bg-digimon-dark-700 border border-digimon-dark-600 rounded px-2 py-1
-                   text-white text-sm text-center focus:border-digimon-orange-500 focus:outline-none"
-          />
+          <template v-if="!(stunMaxDuration1 && newEffect.name === 'Stun')">
+            <input
+              v-model.number="newEffect.duration"
+              type="number"
+              min="1"
+              max="99"
+              placeholder="Rounds"
+              class="w-20 bg-digimon-dark-700 border border-digimon-dark-600 rounded px-2 py-1
+                     text-white text-sm text-center focus:border-digimon-orange-500 focus:outline-none"
+            />
+          </template>
+          <span v-else class="text-digimon-dark-400 text-xs self-center">1 round (house rule)</span>
         </div>
         <textarea
           v-model="newEffect.description"

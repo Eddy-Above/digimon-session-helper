@@ -1,9 +1,10 @@
 import { eq } from 'drizzle-orm'
-import { db, encounters, digimon, tamers, evolutionLines } from '../../../../db'
+import { db, encounters, digimon, tamers, evolutionLines, campaigns } from '../../../../db'
 import { EFFECT_ALIGNMENT } from '../../../../../data/attackConstants'
 import { STAGE_CONFIG } from '../../../../../types'
 import type { DigimonStage } from '../../../../../types'
 import { resolveParticipantName } from '../../../../utils/participantName'
+import { applyEffectToParticipant } from '../../../../utils/applyEffect'
 
 interface NpcAttackBody {
   participantId: string
@@ -45,6 +46,17 @@ export default defineEventHandler(async (event) => {
       statusCode: 404,
       message: `Encounter with ID ${encounterId} not found`,
     })
+  }
+
+  // Fetch house rules from campaign
+  let houseRules: { stunMaxDuration1?: boolean; maxTempWoundsRule?: boolean } | undefined
+  if (encounter.campaignId) {
+    const [campaign] = await db.select().from(campaigns).where(eq(campaigns.id, encounter.campaignId))
+    if (campaign) {
+      const rulesSettings = typeof campaign.rulesSettings === 'string'
+        ? JSON.parse(campaign.rulesSettings) : (campaign.rulesSettings || {})
+      houseRules = rulesSettings.houseRules
+    }
   }
 
   // Parse JSON fields
@@ -245,7 +257,7 @@ export default defineEventHandler(async (event) => {
         const stunDeferred = npcAttackDef.effect === 'Stun' && targetHasGone
         return {
           ...p,
-          activeEffects: [...(p.activeEffects || []), newEffect],
+          activeEffects: applyEffectToParticipant(p.activeEffects || [], newEffect, houseRules),
           ...(stunImmediate
             ? { actionsRemaining: { simple: Math.max(0, (p.actionsRemaining?.simple || 0) - 1) }, stunActionReducedThisRound: true }
             : stunDeferred
@@ -431,7 +443,7 @@ export default defineEventHandler(async (event) => {
             source: 'Attack',
             description: '',
           }
-          updated.activeEffects = [...(p.activeEffects || []), newEffect]
+          updated.activeEffects = applyEffectToParticipant(p.activeEffects || [], newEffect, houseRules)
           appliedEffectName = npcAttackDef.effect
           // Stun: immediately reduce actions if target hasn't taken their turn yet this round
           if (npcAttackDef.effect === 'Stun' && !p.hasActed) {
