@@ -20,6 +20,8 @@ export interface AreaAttackClaim {
   attackBaseDamage: number
   netSuccesses: number
   isSupportAttack: boolean
+  interceptorHasCombatMonster?: boolean
+  interceptorHealthStat?: number
 }
 
 /**
@@ -103,6 +105,12 @@ export async function resolveAreaIntercedeGroup({
       const updated: any = {
         ...p,
         currentWounds: Math.min(p.maxWounds, (p.currentWounds || 0) + claim.damageDealt),
+      }
+      if (claim.interceptorHasCombatMonster && claim.damageDealt > 0) {
+        updated.combatMonsterBonus = Math.min(
+          p.totalHealth ?? claim.interceptorHealthStat ?? p.maxWounds,
+          (p.combatMonsterBonus ?? 0) + claim.damageDealt
+        )
       }
       if (claim.effectData) {
         updated.activeEffects = applyEffectToParticipant(p.activeEffects || [], claim.effectData, houseRules)

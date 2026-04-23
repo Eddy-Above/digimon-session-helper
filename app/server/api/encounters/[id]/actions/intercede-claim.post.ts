@@ -355,6 +355,12 @@ export default defineEventHandler(async (event) => {
       // Wounds: only apply immediately for single-target intercede
       if (!isAreaAttack) {
         updated.currentWounds = Math.min(p.maxWounds, (p.currentWounds || 0) + damageDealt)
+        if (damageCalc.targetHasCombatMonster && damageDealt > 0) {
+          updated.combatMonsterBonus = Math.min(
+            p.totalHealth ?? damageCalc.targetHealthStat ?? p.maxWounds,
+            (p.combatMonsterBonus ?? 0) + damageDealt
+          )
+        }
       }
 
       // Stun extra action deduction: apply at claim time for all attacks
@@ -399,6 +405,8 @@ export default defineEventHandler(async (event) => {
       attackBaseDamage,
       netSuccesses,
       isSupportAttack: false,
+      interceptorHasCombatMonster: damageCalc.targetHasCombatMonster,
+      interceptorHealthStat: damageCalc.targetHealthStat,
     }
 
     // Strip claimed target from ALL group offers (this offer included); remove empty ones
