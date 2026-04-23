@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm'
-import { db, encounters, digimon, tamers, campaigns } from '../../../../db'
+import { db, encounters, digimon, tamers, campaigns, evolutionLines } from '../../../../db'
 import { applyEffectToParticipant } from '../../../../utils/applyEffect'
 import { type AreaAttackClaim, allAreaTargetsDecided, resolveAreaIntercedeGroup } from '~/server/utils/resolveAreaIntercedeGroup'
 import { computeAttackDamage } from '~/server/utils/computeAttackDamage'
@@ -450,6 +450,51 @@ export default defineEventHandler(async (event) => {
     // Remove all intercede-offer requests for this group
     pendingRequests = pendingRequests.filter((r: any) => r.data?.intercedeGroupId !== intercedeGroupId)
 
+    // Auto-devolve check: if interceptor is KO'd and has evolution history, devolve instead
+    let autoDevolveLog: any = null
+    const damagedInterceptor = participants.find((p: any) => p.id === body.interceptorParticipantId)
+    if (damagedInterceptor &&
+        damagedInterceptor.currentWounds >= damagedInterceptor.maxWounds &&
+        damagedInterceptor.evolutionLineId &&
+        damagedInterceptor.woundsHistory?.length > 0) {
+      const rawState = damagedInterceptor.woundsHistory.pop()
+      const previousState = typeof rawState === 'string' ? JSON.parse(rawState) : rawState
+      if (previousState) {
+        const oldEntityId = damagedInterceptor.entityId
+        damagedInterceptor.entityId = previousState.entityId
+        damagedInterceptor.maxWounds = previousState.maxWounds
+        damagedInterceptor.currentWounds = previousState.wounds !== undefined ? previousState.wounds : 0
+
+        await db.update(evolutionLines).set({
+          currentStageIndex: previousState.stageIndex,
+          updatedAt: new Date(),
+        }).where(eq(evolutionLines.id, damagedInterceptor.evolutionLineId))
+
+        const [oldDigimon] = await db.select().from(digimon).where(eq(digimon.id, oldEntityId))
+        const [newDigimon] = await db.select().from(digimon).where(eq(digimon.id, previousState.entityId))
+
+        const devolvedQualities = typeof newDigimon?.qualities === 'string'
+          ? JSON.parse(newDigimon.qualities) : (newDigimon?.qualities || [])
+        const devolvedHasCombatMonster = (devolvedQualities as any[]).some((q: any) => q.id === 'combat-monster')
+        damagedInterceptor.combatMonsterBonus = devolvedHasCombatMonster
+          ? Math.min(damagedInterceptor.combatMonsterBonus ?? 0, previousState.totalHealth ?? previousState.maxWounds)
+          : 0
+
+        autoDevolveLog = {
+          id: `log-${Date.now()}-autodevolve`,
+          timestamp: new Date().toISOString(),
+          round: encounter.round || 0,
+          actorId: damagedInterceptor.id,
+          actorName: oldDigimon?.name || 'Digimon',
+          action: `was knocked out and devolved to ${newDigimon?.name || 'previous form'}!`,
+          target: null,
+          result: `Wounds restored to ${previousState.wounds !== undefined ? previousState.wounds : 0}`,
+          damage: null,
+          effects: ['Auto-Devolve'],
+        }
+      }
+    }
+
     const intercedeLog = {
       id: `log-${Date.now()}-intercede`,
       timestamp: new Date().toISOString(),
@@ -473,7 +518,7 @@ export default defineEventHandler(async (event) => {
       dodgeDiceResults: [],
       dodgeSuccesses: 0,
     }
-    battleLog = [...battleLog, intercedeLog]
+    battleLog = [...battleLog, intercedeLog, ...(autoDevolveLog ? [autoDevolveLog] : [])]
   }
 
   await db.update(encounters).set({

@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm'
-import { db, encounters, type Encounter } from '../../db'
+import { db, encounters, digimon, evolutionLines, type Encounter } from '../../db'
 
 type UpdateEncounterBody = Partial<Omit<Encounter, 'id' | 'createdAt' | 'updatedAt'>>
 
@@ -32,7 +32,37 @@ export default defineEventHandler(async (event) => {
 
   // Drizzle's text mode:json isn't working properly, so manually serialize
   if (body.participants) {
-    updateData.participants = JSON.stringify(body.participants)
+    const participants = Array.isArray(body.participants)
+      ? body.participants
+      : JSON.parse(body.participants as any)
+
+    // Auto-devolve any partner digimon KO'd by direct wound edit
+    for (const p of participants) {
+      if (p.currentWounds >= p.maxWounds && p.evolutionLineId && p.woundsHistory?.length > 0) {
+        const rawState = p.woundsHistory.pop()
+        const previousState = typeof rawState === 'string' ? JSON.parse(rawState) : rawState
+        if (previousState) {
+          p.entityId = previousState.entityId
+          p.maxWounds = previousState.maxWounds
+          p.currentWounds = previousState.wounds !== undefined ? previousState.wounds : 0
+
+          await db.update(evolutionLines).set({
+            currentStageIndex: previousState.stageIndex,
+            updatedAt: new Date(),
+          }).where(eq(evolutionLines.id, p.evolutionLineId))
+
+          const [newDigimon] = await db.select().from(digimon).where(eq(digimon.id, previousState.entityId))
+          const devolvedQualities = typeof newDigimon?.qualities === 'string'
+            ? JSON.parse(newDigimon.qualities) : (newDigimon?.qualities || [])
+          const devolvedHasCombatMonster = (devolvedQualities as any[]).some((q: any) => q.id === 'combat-monster')
+          p.combatMonsterBonus = devolvedHasCombatMonster
+            ? Math.min(p.combatMonsterBonus ?? 0, previousState.totalHealth ?? previousState.maxWounds)
+            : 0
+        }
+      }
+    }
+
+    updateData.participants = JSON.stringify(participants)
   }
   if (body.turnOrder) {
     updateData.turnOrder = JSON.stringify(body.turnOrder)

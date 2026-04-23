@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm'
-import { db, digimon, tamers } from '../db'
+import { db, digimon, tamers, evolutionLines } from '../db'
 import { resolveNpcAttack } from './resolveNpcAttack'
 import { applyEffectToParticipant } from '~/server/utils/applyEffect'
 import { resolvePositiveAuto, resolvePositiveHealth, resolveNegativeSupportNpc } from '~/server/utils/resolveSupportAttack'
@@ -123,6 +123,53 @@ export async function resolveAreaIntercedeGroup({
     }
     return p
   })
+
+  // Auto-devolve check for each interceptor that was KO'd
+  for (const claim of claims) {
+    if (claim.isSupportAttack || claim.damageDealt <= 0) continue
+    const interceptor = updatedParticipants.find((p: any) => p.id === claim.interceptorParticipantId)
+    if (interceptor &&
+        interceptor.currentWounds >= interceptor.maxWounds &&
+        interceptor.evolutionLineId &&
+        interceptor.woundsHistory?.length > 0) {
+      const rawState = interceptor.woundsHistory.pop()
+      const previousState = typeof rawState === 'string' ? JSON.parse(rawState) : rawState
+      if (previousState) {
+        const oldEntityId = interceptor.entityId
+        interceptor.entityId = previousState.entityId
+        interceptor.maxWounds = previousState.maxWounds
+        interceptor.currentWounds = previousState.wounds !== undefined ? previousState.wounds : 0
+
+        await db.update(evolutionLines).set({
+          currentStageIndex: previousState.stageIndex,
+          updatedAt: new Date(),
+        }).where(eq(evolutionLines.id, interceptor.evolutionLineId))
+
+        const [oldDigimon] = await db.select().from(digimon).where(eq(digimon.id, oldEntityId))
+        const [newDigimon] = await db.select().from(digimon).where(eq(digimon.id, previousState.entityId))
+
+        const devolvedQualities = typeof newDigimon?.qualities === 'string'
+          ? JSON.parse(newDigimon.qualities) : (newDigimon?.qualities || [])
+        const devolvedHasCombatMonster = (devolvedQualities as any[]).some((q: any) => q.id === 'combat-monster')
+        interceptor.combatMonsterBonus = devolvedHasCombatMonster
+          ? Math.min(interceptor.combatMonsterBonus ?? 0, previousState.totalHealth ?? previousState.maxWounds)
+          : 0
+
+        updatedBattleLog.push({
+          id: `log-${Date.now()}-autodevolve-${claim.interceptorParticipantId}`,
+          timestamp: new Date().toISOString(),
+          round,
+          actorId: interceptor.id,
+          actorName: oldDigimon?.name || 'Digimon',
+          action: `was knocked out and devolved to ${newDigimon?.name || 'previous form'}!`,
+          target: null,
+          result: `Wounds restored to ${previousState.wounds !== undefined ? previousState.wounds : 0}`,
+          damage: null,
+          effects: ['Auto-Devolve'],
+        })
+      }
+    }
+  }
 
   // Add battle log entries for all claims in claim order
   for (let i = 0; i < claims.length; i++) {
