@@ -1391,6 +1391,7 @@ async function processResponse(response: any) {
         // Create BOTH participants with the same initiative
         // Persist wounds for partner digimon at rookie and below
         const digimonPersistWounds = digimon.stage === 'fresh' || digimon.stage === 'in-training' || digimon.stage === 'rookie'
+        const digimonTotalHealth = digimonDerived.woundBoxes - (STAGE_CONFIG[digimon.stage]?.woundBonus ?? 0)
         const digimonParticipant = createParticipant(
           'digimon',
           digimon.id,
@@ -1399,7 +1400,8 @@ async function processResponse(response: any) {
           digimonDerived.woundBoxes,
           matchingEvoLine?.id,
           undefined,
-          digimonPersistWounds ? (digimon.currentWounds ?? 0) : 0
+          digimonPersistWounds ? (digimon.currentWounds ?? 0) : 0,
+          digimonTotalHealth
         )
 
         const tamerParticipant = createParticipant(
@@ -4122,7 +4124,7 @@ async function handleBreakClash(participantId: string, clashId: string) {
                   @click="updateCombatMonsterBonus(selectedParticipant.id, (selectedParticipant.combatMonsterBonus ?? 0) - 1)"
                 >–</button>
                 <span class="text-white font-semibold text-lg">{{ selectedParticipant.combatMonsterBonus ?? 0 }}</span>
-                <span class="text-digimon-dark-400 text-xs">(cap: {{ selectedParticipant.maxWounds }})</span>
+                <span class="text-digimon-dark-400 text-xs">(cap: {{ selectedParticipant.totalHealth ?? selectedParticipant.maxWounds }})</span>
                 <button
                   class="bg-digimon-dark-600 hover:bg-digimon-dark-500 text-white w-8 h-8 rounded text-lg font-bold"
                   @click="updateCombatMonsterBonus(selectedParticipant.id, (selectedParticipant.combatMonsterBonus ?? 0) + 1)"
